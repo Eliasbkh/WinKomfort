@@ -21,6 +21,12 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>NSAppleEventsUsageDescription</key><string>WinKomfort bittet den Finder, Apps beim Aufräumen in den Papierkorb zu legen und wiederherzustellen.</string>
 </dict></plist>
 EOF
-codesign --force -s - "$APP"
+# Festes Zertifikat → macOS behält die Bedienungshilfen-Freigabe über Updates hinweg (sonst ad-hoc)
+if security find-certificate -c "WinKomfort Signing" >/dev/null 2>&1; then
+  codesign --force -s "WinKomfort Signing" "$APP"
+else
+  echo "⚠️  Kein Zertifikat „WinKomfort Signing“ – ad-hoc signiert, Freigaben gehen bei Updates verloren"
+  codesign --force -s - "$APP"
+fi
 ditto -c -k --keepParent "$APP" "build/WinKomfort-$V.zip"
 echo "✅ $APP (Version $V)"

@@ -118,11 +118,11 @@ let features: [Feature] = [
                     Pref(domain: "com.apple.WindowManager", key: "EnableTopTilingByEdgeDrag", on: yes),
                     Pref(domain: "com.apple.WindowManager", key: "EnableTilingOptionAccelerator", on: yes),
                     Pref(domain: "com.apple.WindowManager", key: "EnableTiledWindowMargins", on: no)],
-            restart: ["Dock"]),
+            restart: ["WindowManager"]),
     Feature(id: "desktop", group: groups[1], title: "Klick auf Schreibtisch versteckt keine Fenster",
             hint: "Fenster bleiben stehen, wenn du aus Versehen auf den Hintergrund klickst.",
             prefs: [Pref(domain: "com.apple.WindowManager", key: "EnableStandardClickToShowDesktop", on: no)],
-            restart: ["Dock"]),
+            restart: ["WindowManager"]), // eigener Prozess, liest die Einstellung nur beim Start
     Feature(id: "spaces", group: groups[1], title: "Schreibtische nicht umsortieren",
             hint: "Deine Spaces bleiben in fester Reihenfolge.",
             prefs: [Pref(domain: "com.apple.dock", key: "mru-spaces", on: no)],
@@ -198,6 +198,7 @@ func apply(_ f: Feature, _ on: Bool) {
 }
 
 @MainActor final class Store: ObservableObject {
+    static let shared = Store()
     @Published var on: [String: Bool] = [:]
     init() { for f in features { on[f.id] = isOn(f) } }
     func binding(_ f: Feature) -> Binding<Bool> {
@@ -657,7 +658,9 @@ struct TaskRow: Identifiable {
         let shown = apps.filter { a in
             if !background { return a.activationPolicy == .regular }
             let id = a.bundleIdentifier ?? ""
-            return a.activationPolicy != .regular && !id.hasPrefix("com.apple.") && id != Bundle.main.bundleIdentifier
+            let path = (a.bundleURL ?? a.executableURL)?.path ?? "/System"
+            let system = ["/System/", "/usr/", "/Library/Apple/", "/sbin/", "/bin/"].contains { path.hasPrefix($0) }
+            return a.activationPolicy != .regular && !system && !id.hasPrefix("com.apple.") && id != Bundle.main.bundleIdentifier
                 && !belongsToApp(a.processIdentifier)
         }
         rows = shown.map { a in
@@ -676,7 +679,7 @@ struct TaskRow: Identifiable {
             return
         }
         guard alert("\(hogs.count) Stromfresser beenden?",
-                    hogs.map { "• \($0.name) – \(String(format: "%.0f", $0.cpu)) % CPU" }.joined(separator: "\n")
+                    hogs.map { "• \($0.name) – \($0.cpu.formatted(.number.precision(.fractionLength(0)))) % CPU" }.joined(separator: "\n")
                     + "\n\nSie werden normal beendet und starten beim nächsten Mal wieder, falls sie Autostart haben.",
                     ["Beenden", "Abbrechen"]) else { return }
         end(Set(hogs.map(\.id)), force: false)
@@ -707,7 +710,7 @@ struct TaskView: View {
                         Text(r.name)
                     }
                 }
-                TableColumn("CPU", value: \.cpu) { r in Text(String(format: "%.1f %%", r.cpu)).monospacedDigit() }
+                TableColumn("CPU", value: \.cpu) { r in Text(r.cpu.formatted(.number.precision(.fractionLength(1))) + " %").monospacedDigit() }
                     .width(70)
                 TableColumn("Arbeitsspeicher", value: \.mem) { r in
                     Text(ByteCountFormatter.string(fromByteCount: Int64(r.mem), countStyle: .memory)).monospacedDigit()
@@ -827,6 +830,7 @@ struct AutostartView: View {
                         Text(item.label)
                         Text("\(item.program.isEmpty ? "–" : item.program)\(item.daemon ? " · systemweit, fragt nach Passwort" : "")")
                     }
+                    .accessibilityLabel(item.label)
                 }
             } header: {
                 Text("Hintergrund-Starter von Apps")
@@ -968,6 +972,7 @@ struct CleanupView: View {
                         Text("\(item.name) · \(c.sizes[item.id] ?? "…")")
                         Text(item.path)
                     }
+                    .accessibilityLabel(item.name)
                 }
                 Button("Ausgewählte in den Papierkorb …") { c.removeChosen() }
                     .disabled(c.chosen.isEmpty)
@@ -1100,6 +1105,12 @@ struct Release: Decodable {
 // MARK: - App
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    // App erneut öffnen (Finder, Spotlight, Startmenü) → Einstellungen zeigen, auch wenn das Menüleisten-Symbol versteckt ist
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        MainActor.assumeIsolated { openSettingsWindow() }
+        return true
+    }
+
     func applicationDidFinishLaunching(_ n: Notification) {
         let d = UserDefaults.standard
         d.register(defaults: ["autoUpdate": true, "startMenu": true])
@@ -1128,25 +1139,37 @@ struct MenuContent: View {
         Button("Autostarts …") { openAutostarts() }
         Button("Mac aufräumen …") { openCleanup() }
         Divider()
-        SettingsLink { Text("Einstellungen …") }.keyboardShortcut(",")
+        Button("Einstellungen …") { openSettingsWindow() }.keyboardShortcut(",")
         Button("Nach Updates suchen …") { Task { await Updater.shared.check(manual: true) } }
         Divider()
         Button("WinKomfort beenden") { NSApp.terminate(nil) }.keyboardShortcut("q")
     }
 }
 
-struct SettingsView: View {
-    @ObservedObject var store: Store
-    var body: some View {
-        TabView {
-            GeneralTab(store: store).tabItem { Label("Allgemein", systemImage: "gearshape") }
-            ForEach(groups.indices, id: \.self) { i in
-                FeatureTab(store: store, group: groups[i]).tabItem { Label(groups[i], systemImage: groupIcons[i]) }
-            }
+// Einstellungsfenster wie bei Systemapps: AppKit-Tabs im Toolbar-Stil, Inhalt in SwiftUI
+@MainActor func openSettingsWindow() {
+    if windows["settings"] == nil {
+        let tabs = NSTabViewController()
+        tabs.tabStyle = .toolbar
+        func add<V: View>(_ title: String, _ icon: String, _ view: V) {
+            let vc = NSHostingController(rootView: view.frame(width: 560, height: 440))
+            vc.title = title // wird zum Fenstertitel, wie bei Systemapps
+            let item = NSTabViewItem(viewController: vc)
+            item.label = title
+            item.image = NSImage(systemSymbolName: icon, accessibilityDescription: title)
+            tabs.addTabViewItem(item)
         }
-        .frame(width: 560, height: 470)
-        .onAppear { NSApp.activate(ignoringOtherApps: true) }
+        add("Allgemein", "gearshape", GeneralTab(store: Store.shared))
+        for i in groups.indices { add(groups[i], groupIcons[i], FeatureTab(store: Store.shared, group: groups[i])) }
+        let w = NSWindow(contentViewController: tabs)
+        w.styleMask = [.titled, .closable]
+        w.title = "Allgemein"
+        w.isReleasedWhenClosed = false
+        w.center()
+        windows["settings"] = w
     }
+    NSApp.activate(ignoringOtherApps: true)
+    windows["settings"]?.makeKeyAndOrderFront(nil)
 }
 
 struct FeatureTab: View {
@@ -1160,12 +1183,15 @@ struct FeatureTab: View {
                         Text("Control antippen öffnet das Startmenü")
                         Text("Wie die Windows-Taste: Control kurz allein drücken – Apps suchen, Ein/Aus.")
                     }
+                    .accessibilityLabel("Control antippen öffnet das Startmenü")
                 }
                 if group == groups[1] {
                     Toggle(isOn: store.closeQuits) { Text("Schließen beendet die App"); Text(closeHint) }
+                        .accessibilityLabel("Schließen beendet die App")
                 }
                 ForEach(features.filter { $0.group == group }) { f in
                     Toggle(isOn: store.binding(f)) { Text(f.title); Text(f.hint) }
+                        .accessibilityLabel(f.title)
                 }
             }
         }
@@ -1208,9 +1234,8 @@ struct GeneralTab: View {
 
 @main struct WinKomfortApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
-    @StateObject var store = Store()
+    @StateObject var store = Store.shared
     var body: some Scene {
         MenuBarExtra("WinKomfort", systemImage: "macwindow.on.rectangle") { MenuContent() }
-        Settings { SettingsView(store: store) }
     }
 }
