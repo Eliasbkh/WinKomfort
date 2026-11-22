@@ -207,6 +207,13 @@ func apply(_ f: Feature, _ on: Bool) {
             if f.id == "drag" { if v { TapDragFix.start() } else { TapDragFix.stop() } }
         })
     }
+    var startMenu: Binding<Bool> {
+        Binding(get: { UserDefaults.standard.bool(forKey: "startMenu") }, set: { v in
+            UserDefaults.standard.set(v, forKey: "startMenu")
+            if v { StartKey.start() } else { StartKey.stop() }
+            self.objectWillChange.send()
+        })
+    }
     var closeQuits: Binding<Bool> {
         Binding(get: { UserDefaults.standard.bool(forKey: "closeQuits") }, set: { v in
             UserDefaults.standard.set(v, forKey: "closeQuits")
@@ -359,6 +366,219 @@ enum TapDragFix {
               let stopDev = fn("MTDeviceStop", (@convention(c) (UnsafeMutableRawPointer) -> Void).self) else { return }
         for dev in devices { unregister(dev, callback); stopDev(dev) }
         devices = []
+    }
+}
+
+// MARK: - Startmenü (Control kurz allein antippen = Windows-Taste)
+
+enum StartKey {
+    private static var downAt: Date?
+    private static var monitors: [Any] = []
+
+    static func start() {
+        afterTrust {
+            guard monitors.isEmpty else { return }
+            let cancel: NSEvent.EventTypeMask = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+            if let m = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged, handler: handle) { monitors.append(m) }
+            if let m = NSEvent.addGlobalMonitorForEvents(matching: cancel, handler: { _ in downAt = nil }) { monitors.append(m) }
+            if let m = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged, handler: { handle($0); return $0 }) { monitors.append(m) }
+            if let m = NSEvent.addLocalMonitorForEvents(matching: cancel, handler: { downAt = nil; return $0 }) { monitors.append(m) }
+        }
+    }
+
+    static func stop() {
+        monitors.forEach(NSEvent.removeMonitor)
+        monitors = []
+    }
+
+    // Nur Control gedrückt und innerhalb 0,4 s wieder losgelassen – ohne andere Taste oder Klick dazwischen
+    private static func handle(_ e: NSEvent) {
+        let f = e.modifierFlags.intersection([.shift, .control, .option, .command, .function])
+        if f == .control { downAt = Date() }
+        else if f.isEmpty, let d = downAt, Date().timeIntervalSince(d) < 0.4 {
+            downAt = nil
+            DispatchQueue.main.async { MainActor.assumeIsolated { StartMenu.toggle() } }
+        } else { downAt = nil }
+    }
+}
+
+struct AppEntry: Identifiable {
+    let name: String
+    let path: String
+    var id: String { path }
+}
+
+@MainActor final class StartModel: ObservableObject {
+    static let shared = StartModel()
+    @Published var query = ""
+    @Published var all: [AppEntry] = []
+    @Published var pinned: [AppEntry] = []
+    @Published var opened = 0
+    private var icons: [String: NSImage] = [:]
+
+    func icon(_ path: String) -> NSImage {
+        if let i = icons[path] { return i }
+        let i = NSWorkspace.shared.icon(forFile: path)
+        icons[path] = i
+        return i
+    }
+
+    func entry(_ path: String) -> AppEntry {
+        AppEntry(name: FileManager.default.displayName(atPath: path).replacingOccurrences(of: ".app", with: ""), path: path)
+    }
+
+    func reload() {
+        query = ""
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let dirs = ["/Applications", "/Applications/Utilities", "/System/Applications", "/System/Applications/Utilities", "\(home)/Applications"]
+        all = dirs.flatMap { dir in
+            ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []).filter { $0.hasSuffix(".app") }.map { entry("\(dir)/\($0)") }
+        }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        // Angeheftet = die Apps aus deinem Dock
+        let dock = UserDefaults(suiteName: "com.apple.dock")?.array(forKey: "persistent-apps") as? [[String: Any]] ?? []
+        pinned = dock.compactMap { tile in
+            guard let data = tile["tile-data"] as? [String: Any], let file = data["file-data"] as? [String: Any],
+                  let s = file["_CFURLString"] as? String, let url = URL(string: s), url.isFileURL else { return nil }
+            return entry(url.path)
+        }
+        opened += 1
+    }
+
+    var results: [AppEntry] {
+        guard !query.isEmpty else { return pinned }
+        let q = query.lowercased()
+        let hits = all.filter { $0.name.lowercased().contains(q) }
+        return Array((hits.filter { $0.name.lowercased().hasPrefix(q) } + hits.filter { !$0.name.lowercased().hasPrefix(q) }).prefix(24))
+    }
+
+    func open(_ e: AppEntry) {
+        NSWorkspace.shared.open(URL(fileURLWithPath: e.path))
+        StartMenu.hide()
+    }
+}
+
+final class KeyPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
+@MainActor enum StartMenu {
+    private static var panel: KeyPanel?
+
+    static func toggle() { if panel?.isVisible == true { hide() } else { show() } }
+    static func hide() { panel?.orderOut(nil) }
+
+    static func show() {
+        StartModel.shared.reload()
+        let p = panel ?? make()
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main!
+        let v = screen.visibleFrame, size = p.frame.size
+        p.setFrameOrigin(NSPoint(x: v.midX - size.width / 2, y: v.minY + 16))
+        NSApp.activate(ignoringOtherApps: true)
+        p.makeKeyAndOrderFront(nil)
+    }
+
+    private static func make() -> KeyPanel {
+        let p = KeyPanel(contentRect: NSRect(x: 0, y: 0, width: 600, height: 520), styleMask: [.borderless],
+                         backing: .buffered, defer: false)
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = true
+        p.level = .popUpMenu
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        let host = NSHostingView(rootView: StartView())
+        host.wantsLayer = true
+        p.contentView = host
+        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: p, queue: .main) { _ in
+            MainActor.assumeIsolated { hide() }
+        }
+        panel = p
+        return p
+    }
+}
+
+final class HoverBox: ObservableObject { @Published var on = false }
+
+struct AppCell: View {
+    let app: AppEntry
+    @ObservedObject var m = StartModel.shared
+    @StateObject var hover = HoverBox()
+    var body: some View {
+        Button { m.open(app) } label: {
+            VStack(spacing: 6) {
+                Image(nsImage: m.icon(app.path)).resizable().frame(width: 44, height: 44)
+                Text(app.name).font(.caption).lineLimit(1).truncationMode(.tail)
+            }
+            .frame(width: 84, height: 80)
+            .background(RoundedRectangle(cornerRadius: 8).fill(.primary.opacity(hover.on ? 0.08 : 0)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover.on = $0 }
+        .help(app.name)
+    }
+}
+
+struct StartView: View {
+    @ObservedObject var m = StartModel.shared
+    @FocusState var searching: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Apps durchsuchen", text: $m.query)
+                    .textFieldStyle(.plain).font(.title3)
+                    .focused($searching)
+                    .onSubmit { if let first = m.results.first { m.open(first) } }
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 8).fill(.primary.opacity(0.06)))
+
+            Text(m.query.isEmpty ? "Angeheftet" : "Ergebnisse").font(.headline)
+            ScrollView {
+                if m.results.isEmpty {
+                    Text("Keine App gefunden.").foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.top, 40)
+                }
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(88), spacing: 4), count: 6), spacing: 8) {
+                    ForEach(m.results) { AppCell(app: $0) }
+                }
+            }
+            Divider()
+            HStack {
+                Image(systemName: "person.crop.circle.fill").font(.title2).foregroundStyle(.secondary)
+                Text(NSFullUserName())
+                Spacer()
+                Button { m.open(m.entry("/System/Applications/System Settings.app")) } label: {
+                    Image(systemName: "gearshape")
+                }
+                .help("Systemeinstellungen")
+                Menu {
+                    Button("Ruhezustand") { StartMenu.hide(); sh(["/usr/bin/pmset", "sleepnow"]) }
+                    Button("Neustart …") { power("aevtrrst") }
+                    Button("Ausschalten …") { power("aevtrsdn") }
+                    Divider()
+                    Button("Abmelden …") { power("aevtlogo") }
+                } label: { Image(systemName: "power") }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .help("Ein/Aus")
+            }
+            .buttonStyle(.borderless).font(.title3)
+        }
+        .padding(18)
+        .frame(width: 600, height: 520)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.primary.opacity(0.1)))
+        .onExitCommand { StartMenu.hide() }
+        .onChange(of: m.opened) { _, _ in searching = true }
+        .onAppear { searching = true }
+    }
+
+    // Zeigt den normalen macOS-Dialog zum Bestätigen
+    private func power(_ code: String) {
+        StartMenu.hide()
+        var err: NSDictionary?
+        NSAppleScript(source: "tell application \"loginwindow\" to «event \(code)»")?.executeAndReturnError(&err)
     }
 }
 
@@ -882,7 +1102,7 @@ struct Release: Decodable {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         let d = UserDefaults.standard
-        d.register(defaults: ["autoUpdate": true])
+        d.register(defaults: ["autoUpdate": true, "startMenu": true])
         if !d.bool(forKey: "didSetup") {
             try? SMAppService.mainApp.register() // beim ersten Start: automatisch bei Anmeldung starten
             d.set(true, forKey: "didSetup")
@@ -895,6 +1115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         d.set(appVersion, forKey: "lastVersion")
         if d.bool(forKey: "closeQuits") { CloseWatcher.shared.setEnabled(true) }
         if let drag = features.first(where: { $0.id == "drag" }), isOn(drag) { TapDragFix.start() }
+        if d.bool(forKey: "startMenu") { StartKey.start() }
         HotKey.register()
         Task { await Updater.shared.loop() }
     }
@@ -934,6 +1155,12 @@ struct FeatureTab: View {
     var body: some View {
         Form {
             Section {
+                if group == groups[0] {
+                    Toggle(isOn: store.startMenu) {
+                        Text("Control antippen öffnet das Startmenü")
+                        Text("Wie die Windows-Taste: Control kurz allein drücken – Apps suchen, Ein/Aus.")
+                    }
+                }
                 if group == groups[1] {
                     Toggle(isOn: store.closeQuits) { Text("Schließen beendet die App"); Text(closeHint) }
                 }
