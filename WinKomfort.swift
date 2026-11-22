@@ -4,6 +4,7 @@ import SwiftUI
 import AppKit
 import ServiceManagement
 import CryptoKit
+import Carbon.HIToolbox
 
 let repo = "Eliasbkh/WinKomfort" // GitHub-Repo, aus dessen Releases Updates kommen
 // Öffentlicher Ed25519-Schlüssel: nur Zips, die mit dem passenden geheimen Schlüssel (sign.swift) signiert sind, werden installiert
@@ -285,6 +286,285 @@ final class CloseWatcher {
     }
 }
 
+// MARK: - Fenster-Helfer
+
+@MainActor var windows: [String: NSWindow] = [:]
+
+@MainActor func showWindow<V: View>(_ id: String, _ title: String, onClose: (() -> Void)? = nil, _ view: () -> V) {
+    let w: NSWindow
+    if let existing = windows[id] { w = existing } else {
+        w = NSWindow(contentViewController: NSHostingController(rootView: view()))
+        w.title = title
+        w.isReleasedWhenClosed = false
+        w.center()
+        if let onClose {
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in onClose() }
+        }
+        windows[id] = w
+    }
+    NSApp.activate(ignoringOtherApps: true)
+    w.makeKeyAndOrderFront(nil)
+}
+
+// MARK: - Task-Manager (⌃⇧⎋ wie bei Windows)
+
+struct TaskRow: Identifiable {
+    let id: pid_t
+    let name: String
+    let icon: NSImage?
+    let cpu: Double
+    let mem: Double
+}
+
+@MainActor final class TaskModel: ObservableObject {
+    static let shared = TaskModel()
+    @Published var rows: [TaskRow] = []
+    @Published var selection: Set<pid_t> = []
+    @Published var sortOrder = [KeyPathComparator(\TaskRow.cpu, order: .reverse)]
+    private var timer: Timer?
+
+    var sorted: [TaskRow] { rows.sorted(using: sortOrder) }
+
+    // Läuft nur, solange das Fenster offen ist
+    func start() {
+        refresh()
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
+            MainActor.assumeIsolated { TaskModel.shared.refresh() }
+        }
+    }
+    func stop() { timer?.invalidate(); timer = nil }
+
+    func refresh() {
+        var kids: [pid_t: [pid_t]] = [:], cpu: [pid_t: Double] = [:], rss: [pid_t: Double] = [:]
+        for line in sh(["/bin/ps", "-axo", "pid=,ppid=,%cpu=,rss="]).split(separator: "\n") {
+            let f = line.split(separator: " ")
+            guard f.count == 4, let pid = pid_t(f[0]), let ppid = pid_t(f[1]) else { continue }
+            kids[ppid, default: []].append(pid)
+            cpu[pid] = Double(f[2]) ?? 0
+            rss[pid] = Double(f[3]) ?? 0
+        }
+        // shortcut: zählt Kindprozesse mit (z. B. Browser-Tabs), aber keine XPC-Dienste – ganz genau ist die Aktivitätsanzeige
+        func total(_ p: pid_t, _ m: [pid_t: Double]) -> Double {
+            (m[p] ?? 0) + (kids[p] ?? []).reduce(0) { $0 + total($1, m) }
+        }
+        rows = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.map { a in
+            TaskRow(id: a.processIdentifier, name: a.localizedName ?? "?", icon: a.icon,
+                    cpu: total(a.processIdentifier, cpu), mem: total(a.processIdentifier, rss) * 1024)
+        }
+        let alive = Set(rows.map(\.id))
+        selection = selection.filter { alive.contains($0) }
+    }
+
+    func end(_ ids: Set<pid_t>, force: Bool) {
+        for id in ids {
+            guard let a = NSRunningApplication(processIdentifier: id) else { continue }
+            if force { a.forceTerminate() } else { a.terminate() }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { TaskModel.shared.refresh() } }
+    }
+}
+
+struct TaskView: View {
+    @ObservedObject var m = TaskModel.shared
+    var body: some View {
+        VStack(spacing: 0) {
+            Table(m.sorted, selection: $m.selection, sortOrder: $m.sortOrder) {
+                TableColumn("Name", value: \.name) { r in
+                    HStack {
+                        if let i = r.icon { Image(nsImage: i).resizable().frame(width: 16, height: 16) }
+                        Text(r.name)
+                    }
+                }
+                TableColumn("CPU", value: \.cpu) { r in Text(String(format: "%.1f %%", r.cpu)).monospacedDigit() }
+                    .width(70)
+                TableColumn("Arbeitsspeicher", value: \.mem) { r in
+                    Text(ByteCountFormatter.string(fromByteCount: Int64(r.mem), countStyle: .memory)).monospacedDigit()
+                }
+                .width(120)
+            }
+            .contextMenu(forSelectionType: pid_t.self) { ids in
+                Button("Task beenden") { m.end(ids, force: false) }
+                Button("Sofort beenden (erzwingen)") { m.end(ids, force: true) }
+            }
+            HStack {
+                Text("\(m.rows.count) Apps · aktualisiert alle 2 s").foregroundStyle(.secondary)
+                Spacer()
+                Button("Aktivitätsanzeige") {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
+                }
+                Button("Sofort beenden") { m.end(m.selection, force: true) }.disabled(m.selection.isEmpty)
+                Button("Task beenden") { m.end(m.selection, force: false) }
+                    .keyboardShortcut(.defaultAction).disabled(m.selection.isEmpty)
+            }
+            .padding(12)
+        }
+        .frame(minWidth: 540, minHeight: 420)
+    }
+}
+
+@MainActor func openTaskManager() {
+    showWindow("tasks", "Task-Manager", onClose: { MainActor.assumeIsolated { TaskModel.shared.stop() } }) { TaskView() }
+    TaskModel.shared.start()
+}
+
+enum HotKey {
+    static func register() {
+        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
+            DispatchQueue.main.async { MainActor.assumeIsolated { openTaskManager() } }
+            return noErr
+        }, 1, &spec, nil, nil)
+        var ref: EventHotKeyRef?
+        RegisterEventHotKey(UInt32(kVK_Escape), UInt32(controlKey | shiftKey),
+                            EventHotKeyID(signature: OSType(0x574B4654), id: 1), GetApplicationEventTarget(), 0, &ref)
+    }
+}
+
+// MARK: - Mac aufräumen (mit Protokoll zum Rückgängigmachen)
+
+struct Candidate: Identifiable {
+    let name: String
+    let path: String
+    let store: String? // App-Store-ID zum Neuladen
+    var id: String { path }
+}
+
+struct Removed: Codable, Identifiable {
+    let name: String
+    let original: String
+    let trash: String
+    let date: Date
+    let store: String?
+    var id: String { original + "\(date.timeIntervalSince1970)" }
+}
+
+// Nur Apple-Apps, die macOS löschen lässt. System-Apps in /System/Applications sind versiegelt (SIP) und bleiben.
+let cleanupCandidates = [
+    Candidate(name: "GarageBand", path: "/Applications/GarageBand.app", store: "682658836"),
+    Candidate(name: "GarageBand-Soundbibliothek", path: "/Library/Application Support/GarageBand", store: nil),
+    Candidate(name: "Apple Loops (GarageBand-Sounds)", path: "/Library/Audio/Apple Loops/Apple", store: nil),
+    Candidate(name: "iMovie", path: "/Applications/iMovie.app", store: "408981434"),
+    Candidate(name: "Keynote", path: "/Applications/Keynote.app", store: "409183694"),
+    Candidate(name: "Pages", path: "/Applications/Pages.app", store: "409201541"),
+    Candidate(name: "Numbers", path: "/Applications/Numbers.app", store: "409203825"),
+]
+
+@MainActor final class Cleaner: ObservableObject {
+    static let shared = Cleaner()
+    @Published var found: [Candidate] = []
+    @Published var sizes: [String: String] = [:]
+    @Published var chosen: Set<String> = []
+    @Published var log: [Removed] = []
+    @Published var message = ""
+
+    private let logURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/WinKomfort/entfernt.json")
+
+    func scan() {
+        if let d = try? Data(contentsOf: logURL), let l = try? JSONDecoder().decode([Removed].self, from: d) { log = l }
+        found = cleanupCandidates.filter { FileManager.default.fileExists(atPath: $0.path) }
+        chosen = Set(found.map(\.id))
+        for c in found where sizes[c.id] == nil {
+            DispatchQueue.global(qos: .utility).async {
+                let kb = Int64(sh(["/usr/bin/du", "-sk", c.path]).split(separator: "\t").first ?? "") ?? 0
+                let s = ByteCountFormatter.string(fromByteCount: kb * 1024, countStyle: .file)
+                DispatchQueue.main.async { MainActor.assumeIsolated { Cleaner.shared.sizes[c.id] = s } }
+            }
+        }
+    }
+
+    private func save() {
+        try? FileManager.default.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONEncoder().encode(log).write(to: logURL)
+    }
+
+    // Finder legt in den Papierkorb und fragt selbst nach dem Admin-Passwort, wo nötig
+    private func finder(_ script: String) -> String? {
+        var err: NSDictionary?
+        let r = NSAppleScript(source: "tell application \"Finder\"\n\(script)\nend tell")?.executeAndReturnError(&err)
+        return err == nil ? (r?.stringValue ?? "") : nil
+    }
+
+    func removeChosen() {
+        let items = found.filter { chosen.contains($0.id) }
+        guard !items.isEmpty, alert("\(items.count) Objekt(e) in den Papierkorb legen?",
+            items.map { "• \($0.name)" }.joined(separator: "\n")
+            + "\n\nAlles wird protokolliert. Wiederherstellen geht, solange der Papierkorb nicht geleert ist – Apple-Apps gibt es außerdem kostenlos im App Store.",
+            ["In den Papierkorb", "Abbrechen"]) else { return }
+        message = ""
+        for c in items {
+            if let trash = finder("POSIX path of ((delete (POSIX file \"\(c.path)\" as alias)) as alias)") {
+                log.append(Removed(name: c.name, original: c.path, trash: trash, date: Date(), store: c.store))
+                save()
+            } else {
+                message = "\(c.name) konnte nicht entfernt werden."
+            }
+        }
+        scan()
+    }
+
+    func restore(_ r: Removed) {
+        let parent = (r.original as NSString).deletingLastPathComponent
+        let name = (r.original as NSString).lastPathComponent
+        if FileManager.default.fileExists(atPath: r.trash),
+           finder("set f to move (POSIX file \"\(r.trash)\" as alias) to (POSIX file \"\(parent)\" as alias)\nset name of f to \"\(name)\"") != nil {
+            log.removeAll { $0.id == r.id }
+            save()
+            message = "\(r.name) ist wieder da."
+        } else if let s = r.store {
+            NSWorkspace.shared.open(URL(string: "macappstore://apps.apple.com/app/id\(s)")!)
+            message = "\(r.name) ist nicht mehr im Papierkorb – im App Store kostenlos neu laden."
+        } else {
+            message = "\(r.name) ist nicht mehr im Papierkorb. GarageBand lädt die Sounds beim nächsten Start selbst nach."
+        }
+        scan()
+    }
+}
+
+struct CleanupView: View {
+    @ObservedObject var c = Cleaner.shared
+    var body: some View {
+        Form {
+            Section("Entfernbare Standard-Apps") {
+                if c.found.isEmpty { Text("Nichts mehr zum Aufräumen gefunden.").foregroundStyle(.secondary) }
+                ForEach(c.found) { item in
+                    Toggle(isOn: Binding(get: { c.chosen.contains(item.id) },
+                                         set: { v in if v { c.chosen.insert(item.id) } else { c.chosen.remove(item.id) } })) {
+                        Text("\(item.name) · \(c.sizes[item.id] ?? "…")")
+                        Text(item.path)
+                    }
+                }
+                Button("Ausgewählte in den Papierkorb …") { c.removeChosen() }
+                    .disabled(c.chosen.isEmpty)
+            }
+            Section("Entfernt – rückgängig machen") {
+                if c.log.isEmpty { Text("Noch nichts entfernt.").foregroundStyle(.secondary) }
+                ForEach(c.log) { r in
+                    LabeledContent {
+                        Button("Wiederherstellen") { c.restore(r) }
+                    } label: {
+                        Text(r.name)
+                        Text("\(r.date.formatted(date: .abbreviated, time: .shortened)) · war in \(r.original)")
+                    }
+                }
+            }
+            if !c.message.isEmpty { Section { Text(c.message) } }
+            Section {
+                Text("System-Apps wie Schach, Aktien oder News liegen auf dem versiegelten Systemvolume. macOS lässt sie nur löschen, wenn man den Systemschutz (SIP) abschaltet – das macht WinKomfort bewusst nicht.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 500, height: 560)
+    }
+}
+
+@MainActor func openCleanup() {
+    Cleaner.shared.scan()
+    showWindow("cleanup", "Mac aufräumen") { CleanupView() }
+}
+
 // MARK: - Popup
 
 @MainActor @discardableResult
@@ -400,6 +680,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         d.set(appVersion, forKey: "lastVersion")
         if d.bool(forKey: "closeQuits") { CloseWatcher.shared.setEnabled(true) }
+        HotKey.register()
         Task { await Updater.shared.loop() }
     }
 }
@@ -413,6 +694,9 @@ struct MenuContent: View {
                 ForEach(features.filter { $0.group == g }) { f in Toggle(f.title, isOn: store.binding(f)) }
             }
         }
+        Divider()
+        Button("Task-Manager …   ⌃⇧⎋") { openTaskManager() }
+        Button("Mac aufräumen …") { openCleanup() }
         Divider()
         SettingsLink { Text("Einstellungen …") }.keyboardShortcut(",")
         Button("Nach Updates suchen") { Task { await Updater.shared.check(manual: true) } }

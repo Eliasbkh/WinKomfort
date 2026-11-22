@@ -6,6 +6,8 @@ Windows-Komfort für macOS als Menüleisten-App – jede Funktion einzeln schalt
 - **Fenster & Bildschirm:** Schließen beendet die App · Minimieren ins App-Symbol · Menüleiste ausblenden · Dock ohne Verzögerung · Snapping mit Vorschau · Klick auf Schreibtisch versteckt keine Fenster · Spaces nicht umsortieren
 - **Finder & Dateien:** Explorer-Ansicht (Endungen, Pfad, Statusleiste, Ordner zuerst) · Suche im aktuellen Ordner + Listenansicht · versteckte Dateien · kein .DS_Store auf USB/Netzwerk · große Speichern-Dialoge
 - **Screenshots:** direkt in die Zwischenablage · ohne Fensterschatten
+- **Task-Manager** mit ⌃⇧⎋: Apps mit CPU und Arbeitsspeicher, Task beenden / Sofort beenden
+- **Mac aufräumen:** entfernbare Standard-Apps (GarageBand, iMovie, Keynote, Pages, Numbers + Sounds) in den Papierkorb – mit Protokoll und Wiederherstellen
 
 Startet automatisch bei der Anmeldung und aktualisiert sich selbst über GitHub Releases.
 

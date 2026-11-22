@@ -18,6 +18,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleVersion</key><string>$V</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
+  <key>NSAppleEventsUsageDescription</key><string>WinKomfort bittet den Finder, Apps beim Aufräumen in den Papierkorb zu legen und wiederherzustellen.</string>
 </dict></plist>
 EOF
 codesign --force -s - "$APP"
