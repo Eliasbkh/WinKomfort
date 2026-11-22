@@ -166,7 +166,7 @@ struct Release: Decodable {
         status = "Suche nach Updates …"
         do {
             let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!
-            let (data, resp) = try await URLSession.shared.data(from: url)
+            let (data, resp) = try await URLSession.shared.data(for: URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData))
             guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
             let rel = try JSONDecoder().decode(Release.self, from: data)
             let latest = rel.tag_name.trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
