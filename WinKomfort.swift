@@ -3,8 +3,16 @@
 import SwiftUI
 import AppKit
 import ServiceManagement
+import CryptoKit
 
 let repo = "Eliasbkh/WinKomfort" // GitHub-Repo, aus dessen Releases Updates kommen
+// Öffentlicher Ed25519-Schlüssel: nur Zips, die mit dem passenden geheimen Schlüssel (sign.swift) signiert sind, werden installiert
+let updateKey = "U89i1hQZcm9gVR/pFcZDUc5fBi57hUyiM0laYznx0d0="
+
+struct UpdateError: LocalizedError {
+    let errorDescription: String?
+    init(_ s: String) { errorDescription = s }
+}
 let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
 
 // MARK: - Shell & defaults
@@ -167,8 +175,9 @@ struct Release: Decodable {
                 if manual { alert("Kein Update nötig", "Version \(appVersion) ist aktuell.") }
                 return
             }
-            guard let zip = rel.assets.first(where: { $0.name.hasSuffix(".zip") }) else {
-                status = "Version \(latest) hat keine Download-Datei."
+            guard let zip = rel.assets.first(where: { $0.name.hasSuffix(".zip") }),
+                  let sig = rel.assets.first(where: { $0.name == zip.name + ".sig" }) else {
+                status = "Version \(latest) hat keine signierte Download-Datei."
                 return
             }
             if !UserDefaults.standard.bool(forKey: "autoUpdate") {
@@ -178,22 +187,30 @@ struct Release: Decodable {
                 }
             }
             status = "Installiere Version \(latest) …"
-            try await install(zip.browser_download_url, notes: rel.body ?? "")
+            try await install(zip.browser_download_url, sig: sig.browser_download_url, notes: rel.body ?? "")
         } catch {
             status = "Update-Prüfung fehlgeschlagen"
             if manual { alert("Update fehlgeschlagen", error.localizedDescription) }
         }
     }
 
-    func install(_ url: URL, notes: String) async throws {
-        let (file, _) = try await URLSession.shared.download(from: url)
+    func install(_ url: URL, sig sigURL: URL, notes: String) async throws {
+        let (zipData, _) = try await URLSession.shared.data(from: url)
+        let (sigData, _) = try await URLSession.shared.data(from: sigURL)
+        let sigText = String(decoding: sigData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let sig = Data(base64Encoded: sigText),
+              let key = try? Curve25519.Signing.PublicKey(rawRepresentation: Data(base64Encoded: updateKey)!),
+              key.isValidSignature(sig, for: zipData) else {
+            throw UpdateError("Die Signatur des Updates stimmt nicht – es wurde nicht installiert.")
+        }
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("update.zip")
+        try zipData.write(to: file)
         sh(["/usr/bin/ditto", "-x", "-k", file.path, dir.path])
         let new = dir.appendingPathComponent("WinKomfort.app")
-        // shortcut: prüft nur die Bundle-ID, keine Entwickler-Signatur – mit Apple-Developer-ID später `codesign --verify` ergänzen
         guard Bundle(url: new)?.bundleIdentifier == Bundle.main.bundleIdentifier else {
-            throw URLError(.cannotDecodeContentData)
+            throw UpdateError("Das Update enthält keine gültige WinKomfort-App.")
         }
         _ = try FileManager.default.replaceItemAt(Bundle.main.bundleURL, withItemAt: new)
         UserDefaults.standard.set(notes, forKey: "notes")

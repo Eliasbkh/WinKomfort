@@ -20,3 +20,7 @@ Startet automatisch bei der Anmeldung und aktualisiert sich selbst über GitHub 
 ./build.sh 1.0.0
 ./release.sh 1.0.1 "Was ist neu"
 ```
+
+## Update-Sicherheit
+
+Jedes Release-Zip wird mit Ed25519 signiert (`sign.swift`). Die App installiert ein Update nur, wenn die `.sig`-Datei zum eingebauten öffentlichen Schlüssel passt. Der geheime Schlüssel liegt nur lokal in `~/.winkomfort/signing-key` – nie ins Repo legen, aber sicher sichern.
