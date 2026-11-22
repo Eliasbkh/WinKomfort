@@ -406,6 +406,7 @@ enum StartKey {
 struct AppEntry: Identifiable {
     let name: String
     let path: String
+    var file: String { ((path as NSString).lastPathComponent as NSString).deletingPathExtension }
     var id: String { path }
 }
 
@@ -448,7 +449,7 @@ struct AppEntry: Identifiable {
     var results: [AppEntry] {
         guard !query.isEmpty else { return pinned }
         let q = query.lowercased()
-        let hits = all.filter { $0.name.lowercased().contains(q) }
+        let hits = all.filter { $0.name.lowercased().contains(q) || $0.file.lowercased().contains(q) }
         return Array((hits.filter { $0.name.lowercased().hasPrefix(q) } + hits.filter { !$0.name.lowercased().hasPrefix(q) }).prefix(24))
     }
 
@@ -492,6 +493,12 @@ final class KeyPanel: NSPanel {
         p.contentView = host
         NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: p, queue: .main) { _ in
             MainActor.assumeIsolated { hide() }
+        }
+        // Esc schließt – das Suchfeld würde die Taste sonst selbst verschlucken
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            guard e.keyCode == 53, panel?.isKeyWindow == true else { return e }
+            MainActor.assumeIsolated { hide() }
+            return nil
         }
         panel = p
         return p
@@ -554,6 +561,7 @@ struct StartView: View {
                     Image(systemName: "gearshape")
                 }
                 .help("Systemeinstellungen")
+                .accessibilityLabel("Systemeinstellungen")
                 Menu {
                     Button("Ruhezustand") { StartMenu.hide(); sh(["/usr/bin/pmset", "sleepnow"]) }
                     Button("Neustart …") { power("aevtrrst") }
@@ -563,6 +571,7 @@ struct StartView: View {
                 } label: { Image(systemName: "power") }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                 .help("Ein/Aus")
+                .accessibilityLabel("Ein/Aus")
             }
             .buttonStyle(.borderless).font(.title3)
         }
@@ -1213,7 +1222,9 @@ struct GeneralTab: View {
                     }
                 } label: {
                     Text("Bedienungshilfen")
-                    Text(AXIsProcessTrusted() ? "Freigegeben" : "Nicht freigegeben – nötig für Ziehen und „Schließen beendet die App“")
+                    TimelineView(.periodic(from: .now, by: 2)) { _ in
+                        Text(AXIsProcessTrusted() ? "Freigegeben ✓" : "Nicht freigegeben – nötig für Startmenü, Ziehen und „Schließen beendet die App“")
+                    }
                 }
             }
             Section("Updates") {

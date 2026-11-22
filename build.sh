@@ -17,6 +17,8 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleShortVersionString</key><string>$V</string>
   <key>CFBundleVersion</key><string>$V</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>CFBundleDevelopmentRegion</key><string>de</string>
+  <key>CFBundleLocalizations</key><array><string>de</string></array>
   <key>LSUIElement</key><true/>
   <key>NSAppleEventsUsageDescription</key><string>WinKomfort bittet den Finder, Apps beim Aufräumen in den Papierkorb zu legen und wiederherzustellen.</string>
 </dict></plist>
