@@ -102,7 +102,7 @@ let features: [Feature] = [
             prefs: [Pref(domain: "com.apple.dock", key: "minimize-to-application", on: yes)],
             restart: ["Dock"]),
     Feature(id: "menubar", group: groups[1], title: "Menüleiste ausblenden",
-            hint: "Erscheint nur, wenn die Maus nach oben geht – Fenster bekommen die volle Höhe.",
+            hint: "Erscheint nur, wenn die Maus nach oben geht. Den Streifen neben der Notch gibt macOS für Fenster nicht frei.",
             prefs: [Pref(domain: "NSGlobalDomain", key: "_HIHideMenuBar", on: yes),
                     Pref(domain: "NSGlobalDomain", key: "AppleMenuBarVisibleInFullscreen", on: no)],
             notify: "AppleInterfaceMenuBarHidingChangedNotification"),
