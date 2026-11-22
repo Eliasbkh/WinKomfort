@@ -49,19 +49,23 @@ func defaults(_ verb: String, _ p: Pref, _ value: [String] = []) -> String {
 
 struct Feature: Identifiable {
     let id: String
+    let group: String
     let title: String
     let hint: String
-    let prefs: [Pref]
+    let prefs: [Pref]          // prefs[0] entscheidet, ob der Schalter als "an" gilt
     var restart: [String] = []
     var notify: String? = nil
+    var activate = false       // Eingabe-Einstellungen sofort übernehmen, ohne Neuanmeldung
 }
 
 let trackpads = ["com.apple.AppleMultitouchTrackpad", "com.apple.driver.AppleBluetoothMultitouch.trackpad"]
 let yes = ["-bool", "true"], no = ["-bool", "false"]
+let groups = ["Trackpad & Tastatur", "Fenster & Bildschirm", "Finder & Dateien", "Screenshots"]
 
 let features: [Feature] = [
-    Feature(id: "drag", title: "2× tippen und halten zum Ziehen",
-            hint: "Ohne Drücken verschieben. Wirkt nach Ab- und Anmelden.",
+    // Trackpad & Tastatur
+    Feature(id: "drag", group: groups[0], title: "2× tippen und halten zum Ziehen",
+            hint: "Fenster und Dateien verschieben, ohne zu drücken.",
             prefs: trackpads.flatMap { [
                 Pref(domain: $0, key: "Dragging", on: yes),
                 Pref(domain: $0, key: "DragLock", on: no),
@@ -69,31 +73,97 @@ let features: [Feature] = [
             ] } + [
                 Pref(domain: "NSGlobalDomain", key: "com.apple.mouse.tapBehavior", on: ["-int", "1"], keep: true),
                 Pref(domain: "host:NSGlobalDomain", key: "com.apple.mouse.tapBehavior", on: ["-int", "1"], keep: true),
-            ]),
-    Feature(id: "menubar", title: "Menüleiste ausblenden",
+            ],
+            activate: true),
+    Feature(id: "scroll", group: groups[0], title: "Scrollrichtung wie bei Windows",
+            hint: "Finger nach unten = Seite nach unten.",
+            prefs: [Pref(domain: "NSGlobalDomain", key: "com.apple.swipescrolldirection", on: no)],
+            activate: true),
+    Feature(id: "keys", group: groups[0], title: "Tasten wiederholen beim Halten",
+            hint: "Schnelle Wiederholung statt Akzent-Menü. Offene Apps nach ihrem Neustart.",
+            prefs: [Pref(domain: "NSGlobalDomain", key: "ApplePressAndHoldEnabled", on: no),
+                    Pref(domain: "NSGlobalDomain", key: "KeyRepeat", on: ["-int", "2"]),
+                    Pref(domain: "NSGlobalDomain", key: "InitialKeyRepeat", on: ["-int", "15"])],
+            activate: true),
+    Feature(id: "fnkeys", group: groups[0], title: "F1–F12 als echte F-Tasten",
+            hint: "F5, F2 & Co. wie bei Windows. Helligkeit/Lautstärke dann mit fn.",
+            prefs: [Pref(domain: "NSGlobalDomain", key: "com.apple.keyboard.fnState", on: yes)],
+            activate: true),
+    Feature(id: "tabkeys", group: groups[0], title: "Tab springt durch alle Bedienelemente",
+            hint: "Auch Knöpfe in Dialogen per Tab und Leertaste bedienen.",
+            prefs: [Pref(domain: "NSGlobalDomain", key: "AppleKeyboardUIMode", on: ["-int", "2"])],
+            activate: true),
+
+    // Fenster & Bildschirm
+    Feature(id: "minimize", group: groups[1], title: "Minimieren ins App-Symbol",
+            hint: "Wie die Taskleiste: Fenster verschwinden im Dock-Symbol der App statt rechts im Dock.",
+            prefs: [Pref(domain: "com.apple.dock", key: "minimize-to-application", on: yes)],
+            restart: ["Dock"]),
+    Feature(id: "menubar", group: groups[1], title: "Menüleiste ausblenden",
             hint: "Erscheint nur, wenn die Maus nach oben geht – Fenster bekommen die volle Höhe.",
             prefs: [Pref(domain: "NSGlobalDomain", key: "_HIHideMenuBar", on: yes),
                     Pref(domain: "NSGlobalDomain", key: "AppleMenuBarVisibleInFullscreen", on: no)],
             notify: "AppleInterfaceMenuBarHidingChangedNotification"),
-    Feature(id: "snap", title: "Fenster-Snapping mit Vorschau",
-            hint: "Fenster an Rand oder nach oben ziehen → Vorschau → einrasten, ohne Lücken.",
+    Feature(id: "dock", group: groups[1], title: "Dock ausblenden – ohne Verzögerung",
+            hint: "Mehr Platz; das Dock kommt sofort, wenn die Maus nach unten geht.",
+            prefs: [Pref(domain: "com.apple.dock", key: "autohide", on: yes),
+                    Pref(domain: "com.apple.dock", key: "autohide-delay", on: ["-float", "0"]),
+                    Pref(domain: "com.apple.dock", key: "autohide-time-modifier", on: ["-float", "0.25"])],
+            restart: ["Dock"]),
+    Feature(id: "snap", group: groups[1], title: "Fenster-Snapping mit Vorschau",
+            hint: "An Rand oder nach oben ziehen → Vorschau → einrasten. Per Tastatur: fn ⌃ + Pfeiltasten.",
             prefs: [Pref(domain: "com.apple.WindowManager", key: "EnableTilingByEdgeDrag", on: yes),
                     Pref(domain: "com.apple.WindowManager", key: "EnableTopTilingByEdgeDrag", on: yes),
                     Pref(domain: "com.apple.WindowManager", key: "EnableTilingOptionAccelerator", on: yes),
                     Pref(domain: "com.apple.WindowManager", key: "EnableTiledWindowMargins", on: no)],
             restart: ["Dock"]),
-    Feature(id: "shot", title: "Screenshots in die Zwischenablage",
-            hint: "⇧⌘4 / ⇧⌘5 kopiert direkt – einfach mit ⌘V einfügen.",
-            prefs: [Pref(domain: "com.apple.screencapture", key: "target", on: ["-string", "clipboard"])],
-            restart: ["SystemUIServer"]),
-    Feature(id: "finder", title: "Finder wie Explorer",
-            hint: "Dateiendungen, Pfadleiste, Statusleiste, Ordner zuerst.",
+    Feature(id: "desktop", group: groups[1], title: "Klick auf Schreibtisch versteckt keine Fenster",
+            hint: "Fenster bleiben stehen, wenn du aus Versehen auf den Hintergrund klickst.",
+            prefs: [Pref(domain: "com.apple.WindowManager", key: "EnableStandardClickToShowDesktop", on: no)],
+            restart: ["Dock"]),
+    Feature(id: "spaces", group: groups[1], title: "Schreibtische nicht umsortieren",
+            hint: "Deine Spaces bleiben in fester Reihenfolge.",
+            prefs: [Pref(domain: "com.apple.dock", key: "mru-spaces", on: no)],
+            restart: ["Dock"]),
+
+    // Finder & Dateien
+    Feature(id: "finder", group: groups[2], title: "Finder wie Explorer",
+            hint: "Dateiendungen, Pfadleiste, Statusleiste, Ordner zuerst, Pfad im Titel.",
             prefs: [Pref(domain: "NSGlobalDomain", key: "AppleShowAllExtensions", on: yes),
                     Pref(domain: "com.apple.finder", key: "ShowPathbar", on: yes),
                     Pref(domain: "com.apple.finder", key: "ShowStatusBar", on: yes),
                     Pref(domain: "com.apple.finder", key: "_FXSortFoldersFirst", on: yes),
                     Pref(domain: "com.apple.finder", key: "_FXShowPosixPathInTitle", on: yes)],
             restart: ["Finder"]),
+    Feature(id: "search", group: groups[2], title: "Suche im aktuellen Ordner + Listenansicht",
+            hint: "Wie im Explorer: Suche startet im offenen Ordner, Dateien als Liste.",
+            prefs: [Pref(domain: "com.apple.finder", key: "FXDefaultSearchScope", on: ["-string", "SCcf"]),
+                    Pref(domain: "com.apple.finder", key: "FXPreferredViewStyle", on: ["-string", "Nlsv"])],
+            restart: ["Finder"]),
+    Feature(id: "hidden", group: groups[2], title: "Versteckte Dateien anzeigen",
+            hint: "Schnell umschalten geht auch mit ⇧⌘. im Finder.",
+            prefs: [Pref(domain: "com.apple.finder", key: "AppleShowAllFiles", on: yes)],
+            restart: ["Finder"]),
+    Feature(id: "dsstore", group: groups[2], title: "Kein .DS_Store-Müll auf USB & Netzwerk",
+            hint: "Keine versteckten Mac-Dateien auf USB-Sticks für Windows-PCs.",
+            prefs: [Pref(domain: "com.apple.desktopservices", key: "DSDontWriteUSBStores", on: yes),
+                    Pref(domain: "com.apple.desktopservices", key: "DSDontWriteNetworkStores", on: yes)]),
+    Feature(id: "save", group: groups[2], title: "Speichern- und Drucken-Dialog immer groß",
+            hint: "Gleich mit Ordnerauswahl statt Mini-Dialog.",
+            prefs: [Pref(domain: "NSGlobalDomain", key: "NSNavPanelExpandedStateForSaveMode", on: yes),
+                    Pref(domain: "NSGlobalDomain", key: "NSNavPanelExpandedStateForSaveMode2", on: yes),
+                    Pref(domain: "NSGlobalDomain", key: "PMPrintingExpandedStateForPrint", on: yes),
+                    Pref(domain: "NSGlobalDomain", key: "PMPrintingExpandedStateForPrint2", on: yes)]),
+
+    // Screenshots
+    Feature(id: "shot", group: groups[3], title: "Screenshots in die Zwischenablage",
+            hint: "⇧⌘4 / ⇧⌘5 kopiert direkt – einfach mit ⌘V einfügen.",
+            prefs: [Pref(domain: "com.apple.screencapture", key: "target", on: ["-string", "clipboard"])],
+            restart: ["SystemUIServer"]),
+    Feature(id: "shadow", group: groups[3], title: "Fenster-Screenshots ohne Schatten",
+            hint: "⇧⌘4, dann Leertaste: nur das Fenster, ohne breiten Rand.",
+            prefs: [Pref(domain: "com.apple.screencapture", key: "disable-shadow", on: yes)],
+            restart: ["SystemUIServer"]),
 ]
 
 func isOn(_ f: Feature) -> Bool {
@@ -109,6 +179,7 @@ func apply(_ f: Feature, _ on: Bool) {
         else if let off = p.off { defaults("write", p, off) }
         else { defaults("delete", p) }
     }
+    if f.activate { sh(["/System/Library/PrivateFrameworks/SystemAdministration.framework/Resources/activateSettings", "-u"]) }
     for app in f.restart { sh(["/usr/bin/killall", app]) }
     if let n = f.notify {
         DistributedNotificationCenter.default().postNotificationName(.init(n), object: nil, deliverImmediately: true)
@@ -121,11 +192,96 @@ func apply(_ f: Feature, _ on: Bool) {
     func binding(_ f: Feature) -> Binding<Bool> {
         Binding(get: { self.on[f.id] ?? false }, set: { v in apply(f, v); self.on[f.id] = v })
     }
+    var closeQuits: Binding<Bool> {
+        Binding(get: { UserDefaults.standard.bool(forKey: "closeQuits") }, set: { v in
+            UserDefaults.standard.set(v, forKey: "closeQuits")
+            CloseWatcher.shared.setEnabled(v)
+            self.objectWillChange.send()
+        })
+    }
     var login: Binding<Bool> {
         Binding(get: { SMAppService.mainApp.status == .enabled }, set: { v in
             if v { try? SMAppService.mainApp.register() } else { try? SMAppService.mainApp.unregister() }
             self.objectWillChange.send()
         })
+    }
+}
+
+// MARK: - Schließen beendet die App (wie Windows)
+// Ereignisgesteuert über die Bedienungshilfen-API: kein Polling, nur Reaktion, wenn in einer App etwas geschlossen wird.
+
+let closeHint = "Letztes Fenster zu = App beendet (außer Finder). Braucht Zugriff unter Bedienungshilfen."
+
+final class CloseWatcher {
+    static let shared = CloseWatcher()
+    private var observers: [pid_t: AXObserver] = [:]
+    private var tokens: [NSObjectProtocol] = []
+    private var pending: Set<pid_t> = []
+    private var waitTimer: Timer?
+    private let skip: Set<String> = ["com.apple.finder", "de.winkomfort.app"]
+
+    func setEnabled(_ on: Bool) {
+        stop()
+        guard on else { return }
+        let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        guard AXIsProcessTrustedWithOptions(opts) else {
+            // Nur solange die Freigabe fehlt: alle 2 s nachsehen, dann sofort starten
+            waitTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] t in
+                guard AXIsProcessTrusted() else { return }
+                t.invalidate()
+                self?.setEnabled(true)
+            }
+            return
+        }
+        let nc = NSWorkspace.shared.notificationCenter
+        tokens.append(nc.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] n in
+            if let app = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication { self?.watch(app) }
+        })
+        tokens.append(nc.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] n in
+            if let app = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication { self?.unwatch(app.processIdentifier) }
+        })
+        NSWorkspace.shared.runningApplications.forEach(watch)
+    }
+
+    private func stop() {
+        waitTimer?.invalidate()
+        tokens.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        tokens = []
+        observers.keys.forEach(unwatch)
+    }
+
+    private func watch(_ app: NSRunningApplication) {
+        let pid = app.processIdentifier
+        guard app.activationPolicy == .regular, let id = app.bundleIdentifier, !skip.contains(id),
+              observers[pid] == nil else { return }
+        var obs: AXObserver?
+        let callback: AXObserverCallback = { _, _, _, ctx in
+            CloseWatcher.shared.schedule(pid_t(Int(bitPattern: ctx)))
+        }
+        guard AXObserverCreate(pid, callback, &obs) == .success, let obs else { return }
+        AXObserverAddNotification(obs, AXUIElementCreateApplication(pid), kAXUIElementDestroyedNotification as CFString,
+                                  UnsafeMutableRawPointer(bitPattern: Int(pid)))
+        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(obs), .defaultMode)
+        observers[pid] = obs
+    }
+
+    private func unwatch(_ pid: pid_t) {
+        guard let obs = observers.removeValue(forKey: pid) else { return }
+        CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(obs), .defaultMode)
+    }
+
+    // Viele Elemente werden zerstört (Knöpfe, Tabs …) – pro App nur einmal nach 0,5 s nachsehen.
+    // shortcut: eine App, die ihr einziges Fenster schließt und >0,5 s später ein neues öffnet, wird beendet – dann App zu `skip` hinzufügen
+    private func schedule(_ pid: pid_t) {
+        guard pending.insert(pid).inserted else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.pending.remove(pid)
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXWindowsAttribute as CFString, &value) == .success,
+                  let windows = value as? [AXUIElement], windows.isEmpty,
+                  let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else { return }
+            app.terminate()
+        }
     }
 }
 
@@ -243,6 +399,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         d.set(appVersion, forKey: "lastVersion")
+        if d.bool(forKey: "closeQuits") { CloseWatcher.shared.setEnabled(true) }
         Task { await Updater.shared.loop() }
     }
 }
@@ -250,7 +407,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct MenuContent: View {
     @ObservedObject var store: Store
     var body: some View {
-        ForEach(features) { f in Toggle(f.title, isOn: store.binding(f)) }
+        ForEach(groups, id: \.self) { g in
+            Section(g) {
+                if g == groups[1] { Toggle("Schließen beendet die App", isOn: store.closeQuits) }
+                ForEach(features.filter { $0.group == g }) { f in Toggle(f.title, isOn: store.binding(f)) }
+            }
+        }
         Divider()
         SettingsLink { Text("Einstellungen …") }.keyboardShortcut(",")
         Button("Nach Updates suchen") { Task { await Updater.shared.check(manual: true) } }
@@ -267,9 +429,14 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Funktionen") {
-                ForEach(features) { f in
-                    Toggle(isOn: store.binding(f)) { Text(f.title); Text(f.hint) }
+            ForEach(groups, id: \.self) { g in
+                Section(g) {
+                    if g == groups[1] {
+                        Toggle(isOn: store.closeQuits) { Text("Schließen beendet die App"); Text(closeHint) }
+                    }
+                    ForEach(features.filter { $0.group == g }) { f in
+                        Toggle(isOn: store.binding(f)) { Text(f.title); Text(f.hint) }
+                    }
                 }
             }
             Section("Allgemein") {
@@ -283,7 +450,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 480)
+        .frame(width: 520, height: 680)
         .onAppear { NSApp.activate(ignoringOtherApps: true) }
     }
 }

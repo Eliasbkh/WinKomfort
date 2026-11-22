@@ -1,12 +1,11 @@
 # WinKomfort
 
-Windows-Komfort für macOS als Menüleisten-App:
+Windows-Komfort für macOS als Menüleisten-App – jede Funktion einzeln schaltbar:
 
-- 2× tippen und halten zum Ziehen (ohne Drücken)
-- Menüleiste ausblenden – volle Fensterhöhe
-- Fenster-Snapping mit Vorschau, ohne Lücken
-- Screenshots direkt in die Zwischenablage
-- Finder wie Explorer (Dateiendungen, Pfadleiste, Statusleiste, Ordner zuerst)
+- **Trackpad & Tastatur:** 2× tippen und halten zum Ziehen · Scrollrichtung wie Windows · Tasten wiederholen beim Halten · F1–F12 als echte F-Tasten · Tab durch alle Bedienelemente
+- **Fenster & Bildschirm:** Schließen beendet die App · Minimieren ins App-Symbol · Menüleiste ausblenden · Dock ohne Verzögerung · Snapping mit Vorschau · Klick auf Schreibtisch versteckt keine Fenster · Spaces nicht umsortieren
+- **Finder & Dateien:** Explorer-Ansicht (Endungen, Pfad, Statusleiste, Ordner zuerst) · Suche im aktuellen Ordner + Listenansicht · versteckte Dateien · kein .DS_Store auf USB/Netzwerk · große Speichern-Dialoge
+- **Screenshots:** direkt in die Zwischenablage · ohne Fensterschatten
 
 Startet automatisch bei der Anmeldung und aktualisiert sich selbst über GitHub Releases.
 
