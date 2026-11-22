@@ -157,6 +157,14 @@ let features: [Feature] = [
                     Pref(domain: "NSGlobalDomain", key: "PMPrintingExpandedStateForPrint", on: yes),
                     Pref(domain: "NSGlobalDomain", key: "PMPrintingExpandedStateForPrint2", on: yes)]),
 
+    Feature(id: "fast", group: groups[1], title: "Schnellere Animationen",
+            hint: "Fenster öffnen sofort, Dock und Mission Control reagieren flotter.",
+            prefs: [Pref(domain: "NSGlobalDomain", key: "NSAutomaticWindowAnimationsEnabled", on: no),
+                    Pref(domain: "NSGlobalDomain", key: "NSWindowResizeTime", on: ["-float", "0.001"]),
+                    Pref(domain: "com.apple.dock", key: "launchanim", on: no),
+                    Pref(domain: "com.apple.dock", key: "expose-animation-duration", on: ["-float", "0.12"])],
+            restart: ["Dock"]),
+
     // Screenshots
     Feature(id: "shot", group: groups[3], title: "Screenshots in die Zwischenablage",
             hint: "⇧⌘3, ⇧⌘4 und ⇧⌘5 kopieren direkt – einfach mit ⌘V einfügen.",
@@ -389,6 +397,7 @@ struct TaskRow: Identifiable {
     @Published var rows: [TaskRow] = []
     @Published var selection: Set<pid_t> = []
     @Published var sortOrder = [KeyPathComparator(\TaskRow.cpu, order: .reverse)]
+    @Published var background = false { didSet { selection = []; refresh() } }
     private var timer: Timer?
 
     var sorted: [TaskRow] { rows.sorted(using: sortOrder) }
@@ -404,11 +413,12 @@ struct TaskRow: Identifiable {
     func stop() { timer?.invalidate(); timer = nil }
 
     func refresh() {
-        var kids: [pid_t: [pid_t]] = [:], cpu: [pid_t: Double] = [:], rss: [pid_t: Double] = [:]
+        var kids: [pid_t: [pid_t]] = [:], parent: [pid_t: pid_t] = [:], cpu: [pid_t: Double] = [:], rss: [pid_t: Double] = [:]
         for line in sh(["/bin/ps", "-axo", "pid=,ppid=,%cpu=,rss="]).split(separator: "\n") {
             let f = line.split(separator: " ")
             guard f.count == 4, let pid = pid_t(f[0]), let ppid = pid_t(f[1]) else { continue }
             kids[ppid, default: []].append(pid)
+            parent[pid] = ppid
             cpu[pid] = Double(f[2]) ?? 0
             rss[pid] = Double(f[3]) ?? 0
         }
@@ -416,12 +426,40 @@ struct TaskRow: Identifiable {
         func total(_ p: pid_t, _ m: [pid_t: Double]) -> Double {
             (m[p] ?? 0) + (kids[p] ?? []).reduce(0) { $0 + total($1, m) }
         }
-        rows = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.map { a in
+        let apps = NSWorkspace.shared.runningApplications
+        let regular = Set(apps.filter { $0.activationPolicy == .regular }.map(\.processIdentifier))
+        // Helfer offener Apps (Browser-Tabs …) zählen zu ihrer App – beenden würde sie abstürzen lassen
+        func belongsToApp(_ p: pid_t) -> Bool {
+            var cur = parent[p]
+            while let c = cur, c > 1 { if regular.contains(c) { return true }; cur = parent[c] }
+            return false
+        }
+        let shown = apps.filter { a in
+            if !background { return a.activationPolicy == .regular }
+            let id = a.bundleIdentifier ?? ""
+            return a.activationPolicy != .regular && !id.hasPrefix("com.apple.") && id != Bundle.main.bundleIdentifier
+                && !belongsToApp(a.processIdentifier)
+        }
+        rows = shown.map { a in
             TaskRow(id: a.processIdentifier, name: a.localizedName ?? "?", icon: a.icon,
                     cpu: total(a.processIdentifier, cpu), mem: total(a.processIdentifier, rss) * 1024)
         }
         let alive = Set(rows.map(\.id))
         selection = selection.filter { alive.contains($0) }
+    }
+
+    // Fremde Hintergrund-Apps, die gerade spürbar Strom ziehen
+    func endHogs() {
+        let hogs = rows.filter { $0.cpu >= 3 }
+        guard !hogs.isEmpty else {
+            alert("Keine Stromfresser gefunden", "Gerade braucht keine Hintergrund-App mehr als 3 % CPU.")
+            return
+        }
+        guard alert("\(hogs.count) Stromfresser beenden?",
+                    hogs.map { "• \($0.name) – \(String(format: "%.0f", $0.cpu)) % CPU" }.joined(separator: "\n")
+                    + "\n\nSie werden normal beendet und starten beim nächsten Mal wieder, falls sie Autostart haben.",
+                    ["Beenden", "Abbrechen"]) else { return }
+        end(Set(hogs.map(\.id)), force: false)
     }
 
     func end(_ ids: Set<pid_t>, force: Bool) {
@@ -437,6 +475,11 @@ struct TaskView: View {
     @ObservedObject var m = TaskModel.shared
     var body: some View {
         VStack(spacing: 0) {
+            Picker("Anzeige", selection: $m.background) {
+                Text("Apps").tag(false)
+                Text("Hintergrund").tag(true)
+            }
+            .pickerStyle(.segmented).labelsHidden().fixedSize().padding(10)
             Table(m.sorted, selection: $m.selection, sortOrder: $m.sortOrder) {
                 TableColumn("Name", value: \.name) { r in
                     HStack {
@@ -456,8 +499,11 @@ struct TaskView: View {
                 Button("Sofort beenden (erzwingen)") { m.end(ids, force: true) }
             }
             HStack {
-                Text("\(m.rows.count) Apps · aktualisiert alle 2 s").foregroundStyle(.secondary)
+                Text(m.rows.isEmpty && m.background ? "Keine fremden Hintergrund-Apps aktiv"
+                     : "\(m.rows.count) \(m.background ? "Hintergrund-Apps" : "Apps") · alle 2 s aktualisiert")
+                    .foregroundStyle(.secondary)
                 Spacer()
+                if m.background { Button("Stromfresser beenden …") { m.endHogs() } }
                 Button("Aktivitätsanzeige") {
                     NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
                 }
@@ -487,6 +533,106 @@ enum HotKey {
         RegisterEventHotKey(UInt32(kVK_Escape), UInt32(controlKey | shiftKey),
                             EventHotKeyID(signature: OSType(0x574B4654), id: 1), GetApplicationEventTarget(), 0, &ref)
     }
+}
+
+// MARK: - Autostarts (LaunchAgents/-Daemons fremder Apps, umkehrbar über launchctl enable/disable)
+
+struct LaunchItem: Identifiable {
+    let label: String
+    let path: String
+    let program: String
+    let daemon: Bool   // systemweit, braucht Admin-Passwort
+    var enabled: Bool
+    var id: String { path }
+}
+
+@MainActor final class Autostarts: ObservableObject {
+    static let shared = Autostarts()
+    @Published var items: [LaunchItem] = []
+    @Published var message = ""
+    private let uid = getuid()
+
+    private func disabledLabels(_ domain: String) -> Set<String> {
+        Set(sh(["/bin/launchctl", "print-disabled", domain]).split(separator: "\n").compactMap { line in
+            let parts = line.split(separator: "\"")
+            return parts.count >= 3 && (line.hasSuffix("disabled") || line.hasSuffix("true")) ? String(parts[1]) : nil
+        })
+    }
+
+    func scan() {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let off = disabledLabels("gui/\(uid)"), offSys = disabledLabels("system")
+        var found: [LaunchItem] = []
+        for (dir, daemon) in [("\(home)/Library/LaunchAgents", false), ("/Library/LaunchAgents", false), ("/Library/LaunchDaemons", true)] {
+            for file in (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? [] where file.hasSuffix(".plist") {
+                let path = "\(dir)/\(file)"
+                guard let d = NSDictionary(contentsOfFile: path), let label = d["Label"] as? String,
+                      !label.hasPrefix("com.apple.") else { continue }
+                let args = d["ProgramArguments"] as? [String] ?? []
+                var prog = (d["Program"] as? String) ?? (args.first ?? "")
+                if (prog as NSString).lastPathComponent == "open", let target = args.last { prog = target } // „open X.app“ → X.app zeigen
+                found.append(LaunchItem(label: label, path: path, program: (prog as NSString).lastPathComponent,
+                                        daemon: daemon, enabled: !(daemon ? offSys : off).contains(label)))
+            }
+        }
+        items = found.sorted { $0.label.lowercased() < $1.label.lowercased() }
+    }
+
+    func set(_ item: LaunchItem, _ on: Bool) {
+        let domain = item.daemon ? "system" : "gui/\(uid)"
+        let cmds = on ? ["/bin/launchctl enable \(domain)/\(item.label)", "/bin/launchctl bootstrap \(domain) '\(item.path)'"]
+                      : ["/bin/launchctl disable \(domain)/\(item.label)", "/bin/launchctl bootout \(domain)/\(item.label)"]
+        if item.daemon {
+            // macOS fragt selbst nach dem Admin-Passwort
+            let script = "do shell script \"\(cmds.joined(separator: "; ")) 2>/dev/null; true\" with administrator privileges"
+            var err: NSDictionary?
+            NSAppleScript(source: script)?.executeAndReturnError(&err)
+            if err != nil { message = "Abgebrochen – \(item.label) wurde nicht geändert."; scan(); return }
+        } else {
+            cmds.forEach { sh(["/bin/sh", "-c", $0 + " 2>/dev/null"]) }
+        }
+        message = on ? "\(item.label) startet wieder automatisch." : "\(item.label) startet nicht mehr automatisch."
+        scan()
+    }
+}
+
+struct AutostartView: View {
+    @ObservedObject var a = Autostarts.shared
+    var body: some View {
+        Form {
+            Section {
+                if a.items.isEmpty { Text("Keine fremden Autostarts gefunden.").foregroundStyle(.secondary) }
+                ForEach(a.items) { item in
+                    Toggle(isOn: Binding(get: { item.enabled }, set: { a.set(item, $0) })) {
+                        Text(item.label)
+                        Text("\(item.program.isEmpty ? "–" : item.program)\(item.daemon ? " · systemweit, fragt nach Passwort" : "")")
+                    }
+                }
+            } header: {
+                Text("Hintergrund-Starter von Apps")
+            } footer: {
+                Text("Ausschalten verhindert den automatischen Start – nichts wird gelöscht, Einschalten macht es rückgängig. Apple-Dienste werden nicht angezeigt.")
+            }
+            Section {
+                LabeledContent {
+                    Button("Öffnen …") {
+                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension")!)
+                    }
+                } label: {
+                    Text("Apps beim Anmelden")
+                    Text("Apps wie Spotify oder Steam stellst du in den Systemeinstellungen ein.")
+                }
+            }
+            if !a.message.isEmpty { Section { Text(a.message) } }
+        }
+        .formStyle(.grouped)
+        .frame(width: 520, height: 480)
+    }
+}
+
+@MainActor func openAutostarts() {
+    Autostarts.shared.scan()
+    showWindow("autostarts", "Autostarts") { AutostartView() }
 }
 
 // MARK: - Mac aufräumen (mit Protokoll zum Rückgängigmachen)
@@ -758,6 +904,7 @@ struct MenuContent: View {
     var body: some View {
         Button("Task-Manager …") { openTaskManager() }
             .keyboardShortcut(.escape, modifiers: [.control, .shift])
+        Button("Autostarts …") { openAutostarts() }
         Button("Mac aufräumen …") { openCleanup() }
         Divider()
         SettingsLink { Text("Einstellungen …") }.keyboardShortcut(",")
@@ -824,6 +971,7 @@ struct GeneralTab: View {
             }
             Section {
                 LabeledContent("Task-Manager", value: "⌃⇧⎋")
+                Button("Autostarts …") { openAutostarts() }
                 Button("Mac aufräumen …") { openCleanup() }
             }
         }
