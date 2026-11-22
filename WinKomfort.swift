@@ -187,14 +187,14 @@ struct Release: Decodable {
                 }
             }
             status = "Installiere Version \(latest) …"
-            try await install(zip.browser_download_url, sig: sig.browser_download_url, notes: rel.body ?? "")
+            try await install(zip.browser_download_url, sig: sig.browser_download_url, expected: latest, notes: rel.body ?? "")
         } catch {
             status = "Update-Prüfung fehlgeschlagen"
             if manual { alert("Update fehlgeschlagen", error.localizedDescription) }
         }
     }
 
-    func install(_ url: URL, sig sigURL: URL, notes: String) async throws {
+    func install(_ url: URL, sig sigURL: URL, expected: String, notes: String) async throws {
         let (zipData, _) = try await URLSession.shared.data(from: url)
         let (sigData, _) = try await URLSession.shared.data(from: sigURL)
         let sigText = String(decoding: sigData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -209,8 +209,13 @@ struct Release: Decodable {
         try zipData.write(to: file)
         sh(["/usr/bin/ditto", "-x", "-k", file.path, dir.path])
         let new = dir.appendingPathComponent("WinKomfort.app")
-        guard Bundle(url: new)?.bundleIdentifier == Bundle.main.bundleIdentifier else {
+        guard let b = Bundle(url: new), b.bundleIdentifier == Bundle.main.bundleIdentifier else {
             throw UpdateError("Das Update enthält keine gültige WinKomfort-App.")
+        }
+        // Version steckt im signierten Zip → schützt davor, dass ein altes signiertes Zip als "neu" untergeschoben wird
+        let newVersion = b.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        guard newVersion == expected, newVersion.compare(appVersion, options: .numeric) == .orderedDescending else {
+            throw UpdateError("Das Update hat die falsche Version (\(newVersion)) – es wurde nicht installiert.")
         }
         _ = try FileManager.default.replaceItemAt(Bundle.main.bundleURL, withItemAt: new)
         UserDefaults.standard.set(notes, forKey: "notes")
