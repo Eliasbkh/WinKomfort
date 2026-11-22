@@ -159,8 +159,9 @@ let features: [Feature] = [
 
     // Screenshots
     Feature(id: "shot", group: groups[3], title: "Screenshots in die Zwischenablage",
-            hint: "⇧⌘4 / ⇧⌘5 kopiert direkt – einfach mit ⌘V einfügen.",
-            prefs: [Pref(domain: "com.apple.screencapture", key: "target", on: ["-string", "clipboard"])],
+            hint: "⇧⌘3, ⇧⌘4 und ⇧⌘5 kopieren direkt – einfach mit ⌘V einfügen.",
+            prefs: [Pref(domain: "com.apple.screencapture", key: "target", on: ["-string", "clipboard"]),
+                    Pref(domain: "com.apple.screencapture", key: "target-screenshot", on: ["-string", "clipboard"])], // eigener Eintrag der ⇧⌘5-Leiste
             restart: ["SystemUIServer"]),
     Feature(id: "shadow", group: groups[3], title: "Fenster-Screenshots ohne Schatten",
             hint: "⇧⌘4, dann Leertaste: nur das Fenster, ohne breiten Rand.",
