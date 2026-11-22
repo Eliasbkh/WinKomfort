@@ -61,12 +61,13 @@ struct Feature: Identifiable {
 
 let trackpads = ["com.apple.AppleMultitouchTrackpad", "com.apple.driver.AppleBluetoothMultitouch.trackpad"]
 let yes = ["-bool", "true"], no = ["-bool", "false"]
-let groups = ["Trackpad & Tastatur", "Fenster & Bildschirm", "Finder & Dateien", "Screenshots"]
+let groups = ["Eingabe", "Fenster", "Finder", "Screenshots"]
+let groupIcons = ["hand.tap", "macwindow", "folder", "camera.viewfinder"]
 
 let features: [Feature] = [
     // Trackpad & Tastatur
     Feature(id: "drag", group: groups[0], title: "2× tippen und halten zum Ziehen",
-            hint: "Fenster und Dateien verschieben, ohne zu drücken.",
+            hint: "Wie bei Windows: Loslassen lässt sofort los.",
             prefs: trackpads.flatMap { [
                 Pref(domain: $0, key: "Dragging", on: yes),
                 Pref(domain: $0, key: "DragLock", on: no),
@@ -191,7 +192,11 @@ func apply(_ f: Feature, _ on: Bool) {
     @Published var on: [String: Bool] = [:]
     init() { for f in features { on[f.id] = isOn(f) } }
     func binding(_ f: Feature) -> Binding<Bool> {
-        Binding(get: { self.on[f.id] ?? false }, set: { v in apply(f, v); self.on[f.id] = v })
+        Binding(get: { self.on[f.id] ?? false }, set: { v in
+            apply(f, v)
+            self.on[f.id] = v
+            if f.id == "drag" { if v { TapDragFix.start() } else { TapDragFix.stop() } }
+        })
     }
     var closeQuits: Binding<Bool> {
         Binding(get: { UserDefaults.standard.bool(forKey: "closeQuits") }, set: { v in
@@ -211,7 +216,7 @@ func apply(_ f: Feature, _ on: Bool) {
 // MARK: - Schließen beendet die App (wie Windows)
 // Ereignisgesteuert über die Bedienungshilfen-API: kein Polling, nur Reaktion, wenn in einer App etwas geschlossen wird.
 
-let closeHint = "Letztes Fenster zu = App beendet (außer Finder). Braucht Zugriff unter Bedienungshilfen."
+let closeHint = "Wie bei Windows: Letztes Fenster zu = App beendet (außer Finder)."
 
 final class CloseWatcher {
     static let shared = CloseWatcher()
@@ -283,6 +288,68 @@ final class CloseWatcher {
                   let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else { return }
             app.terminate()
         }
+    }
+}
+
+// MARK: - Ziehen endet sofort beim Loslassen (wie Windows)
+// macOS hält ein Tipp-Ziehen nach dem Loslassen noch ~1 s fest. Wir lesen nur die Fingeranzahl vom Trackpad
+// (privates MultitouchSupport – liefert nur bei Berührung Daten) und lassen los, sobald kein Finger mehr liegt.
+
+// Bedienungshilfen-Freigabe anfragen; fehlt sie, alle 2 s nachsehen und danach `then` ausführen
+func afterTrust(_ then: @escaping () -> Void) {
+    let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+    if AXIsProcessTrustedWithOptions(opts) { then(); return }
+    Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { t in
+        guard AXIsProcessTrusted() else { return }
+        t.invalidate()
+        then()
+    }
+}
+
+enum TapDragFix {
+    typealias Callback = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, Int32, Double, Int32) -> Int32
+    typealias DevFn = @convention(c) (UnsafeMutableRawPointer, Callback) -> Void
+    private static let lib = dlopen("/System/Library/PrivateFrameworks/MultitouchSupport.framework/MultitouchSupport", RTLD_NOW)
+    private static func fn<T>(_ name: String, _: T.Type) -> T? {
+        guard let lib, let f = dlsym(lib, name) else { return nil }
+        return unsafeBitCast(f, to: T.self)
+    }
+    private static var devices: [UnsafeMutableRawPointer] = []
+    private static var lastCount: Int32 = 0
+
+    private static let callback: Callback = { _, _, touches, _, _ in
+        // shortcut: hält jemand gleichzeitig die Taste einer externen Maus, lässt das Abheben vom Trackpad auch sie los
+        if touches == 0, TapDragFix.lastCount > 0, CGEventSource.buttonState(.combinedSessionState, button: .left) {
+            let pos = CGEvent(source: nil)?.location ?? .zero
+            CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: pos, mouseButton: .left)?
+                .post(tap: .cghidEventTap)
+        }
+        TapDragFix.lastCount = touches
+        return 0
+    }
+
+    static func start() {
+        afterTrust {
+            guard devices.isEmpty,
+                  let list = fn("MTDeviceCreateList", (@convention(c) () -> Unmanaged<CFArray>?).self)?()?.takeUnretainedValue(),
+                  let register = fn("MTRegisterContactFrameCallback", DevFn.self),
+                  let startDev = fn("MTDeviceStart", (@convention(c) (UnsafeMutableRawPointer, Int32) -> Void).self)
+            else { return }
+            for i in 0..<CFArrayGetCount(list) {
+                guard let raw = CFArrayGetValueAtIndex(list, i) else { continue }
+                let dev = UnsafeMutableRawPointer(mutating: raw)
+                register(dev, callback)
+                startDev(dev, 0)
+                devices.append(dev)
+            }
+        }
+    }
+
+    static func stop() {
+        guard let unregister = fn("MTUnregisterContactFrameCallback", DevFn.self),
+              let stopDev = fn("MTDeviceStop", (@convention(c) (UnsafeMutableRawPointer) -> Void).self) else { return }
+        for dev in devices { unregister(dev, callback); stopDev(dev) }
+        devices = []
     }
 }
 
@@ -680,62 +747,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         d.set(appVersion, forKey: "lastVersion")
         if d.bool(forKey: "closeQuits") { CloseWatcher.shared.setEnabled(true) }
+        if let drag = features.first(where: { $0.id == "drag" }), isOn(drag) { TapDragFix.start() }
         HotKey.register()
         Task { await Updater.shared.loop() }
     }
 }
 
 struct MenuContent: View {
-    @ObservedObject var store: Store
     var body: some View {
-        ForEach(groups, id: \.self) { g in
-            Section(g) {
-                if g == groups[1] { Toggle("Schließen beendet die App", isOn: store.closeQuits) }
-                ForEach(features.filter { $0.group == g }) { f in Toggle(f.title, isOn: store.binding(f)) }
-            }
-        }
-        Divider()
-        Button("Task-Manager …   ⌃⇧⎋") { openTaskManager() }
+        Button("Task-Manager …") { openTaskManager() }
+            .keyboardShortcut(.escape, modifiers: [.control, .shift])
         Button("Mac aufräumen …") { openCleanup() }
         Divider()
         SettingsLink { Text("Einstellungen …") }.keyboardShortcut(",")
-        Button("Nach Updates suchen") { Task { await Updater.shared.check(manual: true) } }
+        Button("Nach Updates suchen …") { Task { await Updater.shared.check(manual: true) } }
         Divider()
-        Text("Version \(appVersion)")
         Button("WinKomfort beenden") { NSApp.terminate(nil) }.keyboardShortcut("q")
     }
 }
 
 struct SettingsView: View {
     @ObservedObject var store: Store
-    @ObservedObject var updater = Updater.shared
-    @AppStorage("autoUpdate") var autoUpdate = true
+    var body: some View {
+        TabView {
+            GeneralTab(store: store).tabItem { Label("Allgemein", systemImage: "gearshape") }
+            ForEach(groups.indices, id: \.self) { i in
+                FeatureTab(store: store, group: groups[i]).tabItem { Label(groups[i], systemImage: groupIcons[i]) }
+            }
+        }
+        .frame(width: 560, height: 470)
+        .onAppear { NSApp.activate(ignoringOtherApps: true) }
+    }
+}
 
+struct FeatureTab: View {
+    @ObservedObject var store: Store
+    let group: String
     var body: some View {
         Form {
-            ForEach(groups, id: \.self) { g in
-                Section(g) {
-                    if g == groups[1] {
-                        Toggle(isOn: store.closeQuits) { Text("Schließen beendet die App"); Text(closeHint) }
-                    }
-                    ForEach(features.filter { $0.group == g }) { f in
-                        Toggle(isOn: store.binding(f)) { Text(f.title); Text(f.hint) }
-                    }
+            Section {
+                if group == groups[1] {
+                    Toggle(isOn: store.closeQuits) { Text("Schließen beendet die App"); Text(closeHint) }
                 }
-            }
-            Section("Allgemein") {
-                Toggle("Beim Anmelden automatisch starten", isOn: store.login)
-                Toggle("Updates automatisch installieren", isOn: $autoUpdate)
-            }
-            Section("Info") {
-                LabeledContent("Version", value: appVersion)
-                LabeledContent("Updates", value: updater.status)
-                Button("Jetzt nach Updates suchen") { Task { await updater.check(manual: true) } }
+                ForEach(features.filter { $0.group == group }) { f in
+                    Toggle(isOn: store.binding(f)) { Text(f.title); Text(f.hint) }
+                }
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 680)
-        .onAppear { NSApp.activate(ignoringOtherApps: true) }
+    }
+}
+
+struct GeneralTab: View {
+    @ObservedObject var store: Store
+    @ObservedObject var updater = Updater.shared
+    @AppStorage("autoUpdate") var autoUpdate = true
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Beim Anmelden automatisch starten", isOn: store.login)
+                LabeledContent {
+                    Button("Öffnen …") {
+                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+                    }
+                } label: {
+                    Text("Bedienungshilfen")
+                    Text(AXIsProcessTrusted() ? "Freigegeben" : "Nicht freigegeben – nötig für Ziehen und „Schließen beendet die App“")
+                }
+            }
+            Section("Updates") {
+                Toggle("Updates automatisch installieren", isOn: $autoUpdate)
+                LabeledContent("Version", value: appVersion)
+                LabeledContent("Status", value: updater.status)
+                Button("Jetzt nach Updates suchen") { Task { await updater.check(manual: true) } }
+            }
+            Section {
+                LabeledContent("Task-Manager", value: "⌃⇧⎋")
+                Button("Mac aufräumen …") { openCleanup() }
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 
@@ -743,7 +834,7 @@ struct SettingsView: View {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject var store = Store()
     var body: some Scene {
-        MenuBarExtra("WinKomfort", systemImage: "macwindow.on.rectangle") { MenuContent(store: store) }
+        MenuBarExtra("WinKomfort", systemImage: "macwindow.on.rectangle") { MenuContent() }
         Settings { SettingsView(store: store) }
     }
 }
