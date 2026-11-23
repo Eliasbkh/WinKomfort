@@ -110,7 +110,7 @@ let features: [Feature] = [
                     Pref(domain: "NSGlobalDomain", key: "AppleMenuBarVisibleInFullscreen", on: no)],
             notify: "AppleInterfaceMenuBarHidingChangedNotification"),
     Feature(id: "dock", group: groups[1], title: "Dock ausblenden – ohne Verzögerung",
-            hint: "Wie die Windows-Taskleiste: kommt sofort, sobald die Maus irgendwo den unteren Rand berührt.",
+            hint: "Mehr Platz; das Dock kommt sofort, auch über Vollbild-Apps, sobald die Maus unten ankommt.",
             prefs: [Pref(domain: "com.apple.dock", key: "autohide", on: yes),
                     Pref(domain: "com.apple.dock", key: "autohide-delay", on: ["-float", "0"]),
                     Pref(domain: "com.apple.dock", key: "autohide-time-modifier", on: ["-float", "0.12"])],
@@ -210,7 +210,6 @@ func apply(_ f: Feature, _ on: Bool) {
             apply(f, v)
             self.on[f.id] = v
             if f.id == "drag" { if v { TapDragFix.start(prompt: true) } else { TapDragFix.stop() } }
-            if f.id == "dock" { if v { DockReveal.start() } else { DockReveal.stop() } }
         })
     }
     var startMenu: Binding<Bool> {
@@ -1531,37 +1530,25 @@ final class ClickView: NSView {
     }
 }
 
-// MARK: - Dock wie die Windows-Taskleiste: kommt, sobald die Maus IRGENDWO den unteren Rand berührt
-// macOS blendet das Dock nur ein, wenn man genau darunter (Mitte) unten anstößt. WinKomfort beobachtet nur die
-// Mausposition (reiner Zuhörer) und schaltet bei Bedarf den offiziellen Dock-Schalter „automatisch ausblenden“ kurz aus.
+// MARK: - Dock zuverlässig einblenden – auch über Vollbild-Apps
+// macOS zeigt das Dock erst, wenn man mit der Maus gegen den unteren Rand „drückt“. Bleibt der Zeiger einfach am Rand
+// stehen (typisch auf dem Trackpad, vor allem im Vollbild), passiert oft nichts. WinKomfort erkennt das und drückt kurz
+// selbst nach – macOS zeigt und versteckt das Dock dann ganz normal. Keine Einstellung wird verändert.
 
 enum DockReveal {
     private static var tap: CFMachPort?
-    private static var shown = false
-    private static var switching = false
-    // Einmal vorbereitet → schneller als jedes Mal ein Hilfsprogramm zu starten
-    private static let showScript = NSAppleScript(source: "tell application \"System Events\" to set autohide of dock preferences to false")
-    private static let hideScript = NSAppleScript(source: "tell application \"System Events\" to set autohide of dock preferences to true")
-
-    static var enabled: Bool {
-        features.first(where: { $0.id == "dock" }).map(isOn) == true
-            && (UserDefaults(suiteName: "com.apple.dock")?.string(forKey: "orientation") ?? "bottom") == "bottom"
-    }
+    private static var pushed = false          // schon nachgedrückt, bis die Maus den Rand wieder verlässt
+    private static let marker: Int64 = 0x574B  // kennzeichnet eigene Ereignisse, damit sie nicht erneut auslösen
 
     static func start() {
         afterTrust {
-            guard tap == nil, enabled else { return }
-            // Einmal vorab ausführen: das erste AppleScript lädt sonst ~1 s lang und das Dock käme beim ersten Mal zu spät
-            var err: NSDictionary?
-            NSAppleScript(source: "tell application \"System Events\" to get autohide of dock preferences")?.executeAndReturnError(&err)
-            showScript?.compileAndReturnError(&err)
-            hideScript?.compileAndReturnError(&err)
+            guard tap == nil, (UserDefaults(suiteName: "com.apple.dock")?.string(forKey: "orientation") ?? "bottom") == "bottom" else { return }
             let mask = CGEventMask(1 << CGEventType.mouseMoved.rawValue) | CGEventMask(1 << CGEventType.leftMouseDragged.rawValue)
             tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .tailAppendEventTap, options: .listenOnly,
                                     eventsOfInterest: mask, callback: { _, type, event, _ in
                 if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                     if let t = DockReveal.tap { CGEvent.tapEnable(tap: t, enable: true) }
-                } else {
+                } else if event.getIntegerValueField(.eventSourceUserData) != DockReveal.marker {
                     DockReveal.check(event.location)
                 }
                 return Unmanaged.passUnretained(event)
@@ -1574,47 +1561,35 @@ enum DockReveal {
 
     static func stop() {
         if let t = tap { CGEvent.tapEnable(tap: t, enable: false); CFMachPortInvalidate(t); tap = nil }
-        if shown { set(hidden: true) }
     }
 
     // p in Bildschirmkoordinaten mit Ursprung oben links (wie Mausereignisse)
     private static func check(_ p: CGPoint) {
-        guard !switching, let primary = NSScreen.screens.first else { return }
-        // Bildschirm unter der Maus → dessen Unterkante in denselben Koordinaten
-        guard let screen = NSScreen.screens.first(where: {
-            let top = primary.frame.maxY - $0.frame.maxY
-            return p.x >= $0.frame.minX && p.x < $0.frame.maxX && p.y >= top && p.y <= top + $0.frame.height
-        }) else { return }
+        guard let primary = NSScreen.screens.first,
+              let screen = NSScreen.screens.first(where: {
+                  let top = primary.frame.maxY - $0.frame.maxY
+                  return p.x >= $0.frame.minX && p.x < $0.frame.maxX && p.y >= top && p.y <= top + $0.frame.height
+              }) else { return }
         let bottom = primary.frame.maxY - screen.frame.minY
-        let tile = Double(UserDefaults(suiteName: "com.apple.dock")?.integer(forKey: "tilesize") ?? 48)
-        if !shown, p.y >= bottom - 1, !frontIsFullScreen() {
-            set(hidden: false)
-        } else if shown, p.y < bottom - (max(tile, 32) + 45) { // über dem Dock → wieder ausblenden
-            set(hidden: true)
+        if p.y < bottom - 30 { pushed = false; return }       // Rand verlassen → nächstes Mal wieder helfen
+        guard !pushed, p.y >= bottom - 1, !dockVisible() else { return }
+        pushed = true
+        let x = p.x
+        DispatchQueue.global(qos: .userInteractive).async {
+            for _ in 0..<15 { // ~¼ s sanft weiterdrücken, Zeiger bleibt am Rand
+                guard let e = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: CGPoint(x: x, y: bottom - 1), mouseButton: .left) else { return }
+                e.setIntegerValueField(.mouseEventDeltaY, value: 6)
+                e.setIntegerValueField(.eventSourceUserData, value: marker)
+                e.post(tap: .cghidEventTap)
+                usleep(16_000)
+            }
         }
     }
 
-    // Vollbild-App vorne? Dort hat macOS sein eigenes Dock-Verhalten – WinKomfort hält sich raus. (1 s gemerkt, damit
-    // nicht bei jeder Mausbewegung am Rand nachgefragt wird)
-    private static var fullScreenCache: (pid: pid_t, value: Bool, at: Date)?
-    private static func frontIsFullScreen() -> Bool {
-        guard let app = NSWorkspace.shared.frontmostApplication else { return false }
-        if let c = fullScreenCache, c.pid == app.processIdentifier, Date().timeIntervalSince(c.at) < 1 { return c.value }
-        let ax = AXUIElementCreateApplication(app.processIdentifier)
-        AXUIElementSetMessagingTimeout(ax, 0.2)
-        let full = UIAuto.attr(ax, kAXFocusedWindowAttribute).map { (UIAuto.attr($0 as! AXUIElement, "AXFullScreen") as? Bool) == true } ?? false
-        fullScreenCache = (app.processIdentifier, full, Date())
-        return full
-    }
-
-    private static func set(hidden: Bool) {
-        switching = true
-        shown = !hidden
-        DispatchQueue.main.async {
-            var err: NSDictionary?
-            (hidden ? hideScript : showScript)?.executeAndReturnError(&err)
-            switching = false
-        }
+    // Sichtbares Dock = Dock-Fenster auf Ebene 20 (nur am Rand abgefragt, nicht bei jeder Bewegung)
+    private static func dockVisible() -> Bool {
+        let l = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+        return l.contains { ($0["kCGWindowOwnerName"] as? String) == "Dock" && ($0["kCGWindowLayer"] as? Int) == 20 }
     }
 }
 
@@ -2397,8 +2372,6 @@ struct Release: Decodable {
 // MARK: - App
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    // Beim Beenden das Dock wieder automatisch ausblenden, falls WinKomfort es gerade hervorgeholt hat
-    func applicationWillTerminate(_ n: Notification) { MainActor.assumeIsolated { DockReveal.stop() } }
 
     // App erneut öffnen (Finder, Spotlight, Startmenü) → Einstellungen zeigen, auch wenn das Menüleisten-Symbol versteckt ist
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
