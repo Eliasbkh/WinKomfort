@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 V="${1:-1.0.0}"
 APP=build/WinKomfort.app
 rm -rf build && mkdir -p "$APP/Contents/MacOS"
-swiftc -O -swift-version 5 -parse-as-library WinKomfort.swift TapDragLogic.swift -o "$APP/Contents/MacOS/WinKomfort"
+swiftc -O -swift-version 5 -parse-as-library WinKomfort.swift TapDragLogic.swift Calc.swift -o "$APP/Contents/MacOS/WinKomfort"
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

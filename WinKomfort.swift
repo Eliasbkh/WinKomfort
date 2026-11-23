@@ -353,9 +353,20 @@ enum TapDragFix {
         CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: pos, mouseButton: .left)?.post(tap: .cghidEventTap)
     }
 
-    // Jeder Trackpad-Frame: Fingeranzahl + Zeit → drücken / loslassen
-    private static let callback: Callback = { _, _, touches, time, _ in
-        switch TapDragFix.logic.frame(fingers: Int(touches), time: time) {
+    // Jeder Trackpad-Frame: Positionen der aufliegenden Finger + Zeit → drücken / loslassen.
+    // Rohdaten-Layout (MTTouch, 96 Byte): Zustand bei Byte 20, Position x/y (0…1) bei Byte 32/36 – auf macOS 27 geprüft.
+    // Nur Zustand 3/4 (setzt auf / liegt auf) zählt; 5–7 heißt „hebt gerade ab“ – sonst käme das Loslassen zu spät.
+    private static let callback: Callback = { _, data, count, time, _ in
+        var touching: [TapDragLogic.Point] = []
+        if let data {
+            for i in 0..<Int(count) {
+                let t = data + i * 96
+                let state = t.load(fromByteOffset: 20, as: Int32.self)
+                guard state == 3 || state == 4 else { continue }
+                touching.append(.init(x: Double(t.load(fromByteOffset: 32, as: Float.self)), y: Double(t.load(fromByteOffset: 36, as: Float.self))))
+            }
+        }
+        switch TapDragFix.logic.frame(touching: touching, time: time) {
         case .press: TapDragFix.dragging = true; TapDragFix.click(.leftMouseDown)
         case .release: TapDragFix.dragging = false; TapDragFix.click(.leftMouseUp)
         case .none: break
@@ -495,8 +506,10 @@ struct AppEntry: Identifiable {
         opened += 1
     }
 
-    var results: [AppEntry] {
-        guard !query.isEmpty else { return pinned }
+    var results: [AppEntry] { query.isEmpty ? pinned : match(query) }
+
+    // Treffer, die mit dem Suchbegriff anfangen, zuerst
+    func match(_ query: String) -> [AppEntry] {
         let q = query.lowercased()
         let hits = all.filter { $0.name.lowercased().contains(q) || $0.file.lowercased().contains(q) }
         return Array((hits.filter { $0.name.lowercased().hasPrefix(q) } + hits.filter { !$0.name.lowercased().hasPrefix(q) }).prefix(24))
@@ -787,23 +800,47 @@ struct NotifApp: Identifiable {
         }
     }
 
+    // Eine App umschalten, während die Mitteilungs-Seite offen ist. nil = App/Seite nicht gefunden
+    private nonisolated static func switchOne(_ name: String, _ on: Bool) -> Bool? {
+        guard let row = overview()?.first(where: { $0.1.name == name }) else { return nil }
+        UIAuto.press(row.0)
+        guard let d = UIAuto.wait(settings, isDetail),
+              let sw = d.first(where: { UIAuto.id($0) == "allow-notifications" }) else { return nil }
+        if UIAuto.value(sw) != on {
+            UIAuto.press(sw)
+            for _ in 0..<20 where UIAuto.value(sw) != on { usleep(100_000) }
+        }
+        let now = UIAuto.value(sw)
+        if let back = d.first(where: { UIAuto.id($0) == "chevron.backward" }) { UIAuto.press(back) }
+        return now
+    }
+
     func set(_ name: String, _ on: Bool) {
         run {
             let was = !NSRunningApplication.runningApplications(withBundleIdentifier: Self.settings).isEmpty
             defer { Self.closeSettings(was) }
-            guard let row = Self.overview()?.first(where: { $0.1.name == name }) else {
-                return (nil, nil, "„\(name)“ wurde nicht gefunden.")
+            let now = Self.switchOne(name, on)
+            return (Self.overview()?.map(\.1), nil, now == on ? "" : "„\(name)“ ließ sich nicht umschalten.")
+        }
+    }
+
+    // Hauptschalter. Aus: merkt sich, welche Apps an waren. An: stellt genau diese wieder her (ohne Merkliste: alle)
+    func setAll(_ on: Bool) {
+        let key = "notifsOnBeforeAllOff"
+        let remembered = UserDefaults.standard.stringArray(forKey: key) ?? []
+        let targets = on ? apps.filter { !$0.on && (remembered.isEmpty || remembered.contains($0.name)) }.map(\.name)
+                         : apps.filter(\.on).map(\.name)
+        if !on { UserDefaults.standard.set(targets, forKey: key) }
+        run {
+            let was = !NSRunningApplication.runningApplications(withBundleIdentifier: Self.settings).isEmpty
+            defer { Self.closeSettings(was) }
+            var failed: [String] = []
+            for (i, name) in targets.enumerated() {
+                DispatchQueue.main.async { MainActor.assumeIsolated { Notifs.shared.message = "Schalte \(i + 1)/\(targets.count): \(name) …" } }
+                if Self.switchOne(name, on) != on { failed.append(name) }
             }
-            UIAuto.press(row.0)
-            guard let d = UIAuto.wait(Self.settings, Self.isDetail),
-                  let sw = d.first(where: { UIAuto.id($0) == "allow-notifications" }) else {
-                return (nil, nil, "Die Seite von „\(name)“ hat sich nicht geöffnet.")
-            }
-            if ((UIAuto.attr(sw, kAXValueAttribute) as? Int) == 1) != on { UIAuto.press(sw); usleep(400_000) }
-            let now = (UIAuto.attr(sw, kAXValueAttribute) as? Int) == 1
-            if let back = d.first(where: { UIAuto.id($0) == "chevron.backward" }) { UIAuto.press(back) }
-            let apps = Self.overview()?.map(\.1)
-            return (apps, nil, now == on ? "" : "„\(name)“ ließ sich nicht umschalten.")
+            if on && failed.isEmpty { DispatchQueue.main.async { UserDefaults.standard.removeObject(forKey: key) } }
+            return (Self.overview()?.map(\.1), nil, failed.isEmpty ? "" : "Nicht umgeschaltet: \(failed.joined(separator: ", "))")
         }
     }
 
@@ -859,6 +896,14 @@ struct NotificationsTab: View {
                 .disabled(n.busy || n.dnd == nil)
             }
             Section {
+                Toggle(isOn: Binding(get: { n.apps.contains(where: \.on) }, set: { n.setAll($0) })) {
+                    Text("Alle Mitteilungen")
+                    Text("Aus schaltet alle Apps stumm und merkt sich, welche an waren – An stellt genau diese wieder her.")
+                }
+                .accessibilityLabel("Alle Mitteilungen")
+                .disabled(n.busy || n.apps.isEmpty)
+            }
+            Section {
                 if n.apps.isEmpty {
                     Text(n.busy ? "Lese Mitteilungs-Einstellungen …" : "Keine Apps gefunden.").foregroundStyle(.secondary)
                 }
@@ -875,11 +920,221 @@ struct NotificationsTab: View {
                 }
             } footer: {
                 Text(n.message.isEmpty ? "WinKomfort stellt das im Hintergrund in den Systemeinstellungen um – Apple bietet dafür keinen direkten Weg. Ein Schalter dauert 2–3 Sekunden." : n.message)
-                    .foregroundStyle(n.message.isEmpty ? Color.secondary : Color.red)
+                    .foregroundStyle(n.message.isEmpty || n.busy ? Color.secondary : Color.red)
             }
         }
         .formStyle(.grouped)
         .onAppear { if n.apps.isEmpty && !n.busy { n.load() } }
+    }
+}
+
+// MARK: - Suche (wie Spotlight): Apps sofort, Dateien über den macOS-Suchindex, Rechner, Web
+// Sparsam: kein eigenes Indizieren; die Dateisuche läuft nur, während das Fenster offen ist, und stoppt nach dem ersten Ergebnis-Schwung.
+
+struct SearchHit: Identifiable {
+    enum Kind { case calc, app, file, web }
+    let kind: Kind
+    let title: String
+    let subtitle: String
+    let path: String?
+    var id: String { "\(kind)|\(path ?? title)" }
+}
+
+@MainActor final class SearchModel: ObservableObject {
+    static let shared = SearchModel()
+    @Published var query = "" { didSet { if query != oldValue { selected = 0; update() } } }
+    @Published private(set) var hits: [SearchHit] = []
+    @Published var selected = 0
+    @Published var opened = 0
+    private var files: [SearchHit] = []
+    private let mdq = NSMetadataQuery()
+
+    init() {
+        mdq.searchScopes = [NSMetadataQueryUserHomeScope]
+        mdq.sortDescriptors = [NSSortDescriptor(key: NSMetadataItemFSContentChangeDateKey, ascending: false)]
+        NotificationCenter.default.addObserver(forName: .NSMetadataQueryDidFinishGathering, object: mdq, queue: .main) { _ in
+            MainActor.assumeIsolated { SearchModel.shared.collectFiles() }
+        }
+    }
+
+    private func collectFiles() {
+        mdq.disableUpdates()
+        files = (0..<min(mdq.resultCount, 60)).compactMap { i -> SearchHit? in
+            guard let item = mdq.result(at: i) as? NSMetadataItem,
+                  let path = item.value(forAttribute: NSMetadataItemPathKey) as? String,
+                  !path.hasSuffix(".app"), !path.contains("/Library/"), !path.contains("/.") else { return nil }
+            let dir = (path as NSString).deletingLastPathComponent.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+            return SearchHit(kind: .file, title: (path as NSString).lastPathComponent, subtitle: dir, path: path)
+        }.prefix(8).map { $0 }
+        mdq.stop() // fertig gesammelt – nichts läuft weiter im Hintergrund
+        rebuild()
+    }
+
+    private func update() {
+        mdq.stop()
+        files = []
+        rebuild()
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard q.count >= 3 else { return }
+        mdq.predicate = NSPredicate(format: "%K CONTAINS[cd] %@", NSMetadataItemFSNameKey, q)
+        mdq.start()
+    }
+
+    private func rebuild() {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        var h: [SearchHit] = []
+        if let v = Calc.evaluate(q) {
+            h.append(SearchHit(kind: .calc, title: "= " + Calc.format(v), subtitle: "Enter kopiert das Ergebnis", path: nil))
+        }
+        if !q.isEmpty {
+            h += StartModel.shared.match(q).prefix(6).map { SearchHit(kind: .app, title: $0.name, subtitle: "App", path: $0.path) }
+            h += files
+            h.append(SearchHit(kind: .web, title: "Im Web suchen: „\(q)“", subtitle: "Öffnet deinen Browser", path: nil))
+        }
+        hits = h
+        selected = min(selected, max(h.count - 1, 0))
+    }
+
+    func move(_ d: Int) { if !hits.isEmpty { selected = (selected + d + hits.count) % hits.count } }
+
+    func openSelected() {
+        guard hits.indices.contains(selected) else { return }
+        let hit = hits[selected]
+        switch hit.kind {
+        case .app, .file: NSWorkspace.shared.open(URL(fileURLWithPath: hit.path!))
+        case .calc:
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(String(hit.title.dropFirst(2)), forType: .string)
+        case .web:
+            var c = URLComponents(string: "https://www.google.com/search")!
+            c.queryItems = [URLQueryItem(name: "q", value: query)]
+            NSWorkspace.shared.open(c.url!)
+        }
+        SearchPanel.hide()
+    }
+
+    func reset() {
+        mdq.stop()
+        query = ""
+        files = []
+        hits = []
+        opened += 1
+    }
+
+    func icon(_ hit: SearchHit) -> NSImage {
+        switch hit.kind {
+        case .app, .file: return StartModel.shared.icon(hit.path!)
+        case .calc: return NSImage(systemSymbolName: "equal.circle.fill", accessibilityDescription: "Rechner")!
+        case .web: return NSImage(systemSymbolName: "globe", accessibilityDescription: "Web")!
+        }
+    }
+}
+
+@MainActor enum SearchPanel {
+    private static var panel: KeyPanel?
+    private static let width: CGFloat = 640
+
+    static func toggle() { if panel?.isVisible == true { hide() } else { show() } }
+    static func hide() { panel?.orderOut(nil); SearchModel.shared.reset() }
+
+    static func show() {
+        StartModel.shared.reload() // App-Liste frisch (dauert nur Millisekunden)
+        SearchModel.shared.reset()
+        let p = panel ?? make()
+        resize()
+        p.orderFrontRegardless()
+        p.makeKey()
+    }
+
+    // Fensterhöhe folgt der Trefferzahl, die Oberkante bleibt stehen
+    static func resize() {
+        guard let p = panel else { return }
+        let rows = min(SearchModel.shared.hits.count, 9)
+        let h: CGFloat = 60 + (rows > 0 ? CGFloat(rows) * 46 + 17 : 0)
+        let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main!
+        let top = screen.visibleFrame.maxY - screen.visibleFrame.height * 0.22
+        p.setFrame(NSRect(x: screen.visibleFrame.midX - width / 2, y: top - h, width: width, height: h), display: true)
+    }
+
+    private static func make() -> KeyPanel {
+        let p = KeyPanel(contentRect: NSRect(x: 0, y: 0, width: width, height: 60), styleMask: [.borderless, .nonactivatingPanel],
+                         backing: .buffered, defer: false)
+        p.becomesKeyOnlyIfNeeded = false
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = true
+        p.level = .popUpMenu
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.contentView = NSHostingView(rootView: SearchView())
+        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: p, queue: .main) { _ in
+            MainActor.assumeIsolated { hide() }
+        }
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            guard panel?.isKeyWindow == true else { return e }
+            switch e.keyCode {
+            case 53: MainActor.assumeIsolated { hide() }; return nil                       // Esc
+            case 125: MainActor.assumeIsolated { SearchModel.shared.move(1) }; return nil  // ↓
+            case 126: MainActor.assumeIsolated { SearchModel.shared.move(-1) }; return nil // ↑
+            default: return e
+            }
+        }
+        panel = p
+        return p
+    }
+}
+
+struct SearchView: View {
+    @ObservedObject var m = SearchModel.shared
+    @FocusState var focused: Bool
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: "magnifyingglass").font(.title2).foregroundStyle(.secondary)
+                TextField("Suchen – Apps, Dateien, Rechnen …", text: $m.query)
+                    .textFieldStyle(.plain).font(.system(size: 22))
+                    .focused($focused)
+                    .onSubmit { m.openSelected() }
+                    .accessibilityLabel("Suche")
+            }
+            .padding(.horizontal, 18).frame(height: 60)
+            if !m.hits.isEmpty {
+                Divider()
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 2) {
+                            ForEach(Array(m.hits.enumerated()), id: \.element.id) { i, hit in
+                                HStack(spacing: 10) {
+                                    Image(nsImage: m.icon(hit)).resizable().scaledToFit().frame(width: 28, height: 28)
+                                        .foregroundStyle(i == m.selected ? .white : .accentColor)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(hit.title).lineLimit(1)
+                                        Text(hit.subtitle).font(.caption).lineLimit(1).truncationMode(.middle)
+                                            .foregroundStyle(i == m.selected ? AnyShapeStyle(.white.opacity(0.8)) : AnyShapeStyle(.secondary))
+                                    }
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 10).frame(height: 44)
+                                .foregroundStyle(i == m.selected ? .white : .primary)
+                                .background(RoundedRectangle(cornerRadius: 8).fill(i == m.selected ? Color.accentColor : .clear))
+                                .contentShape(Rectangle())
+                                .onTapGesture { m.selected = i; m.openSelected() }
+                                .id(i)
+                                .accessibilityElement(children: .combine)
+                                .accessibilityAddTraits(i == m.selected ? .isSelected : [])
+                            }
+                        }
+                        .padding(8)
+                    }
+                    .onChange(of: m.selected) { _, i in proxy.scrollTo(i) }
+                }
+            }
+        }
+        .frame(width: 640)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.primary.opacity(0.1)))
+        .onChange(of: m.hits.count) { _, _ in SearchPanel.resize() }
+        .onChange(of: m.opened) { _, _ in focused = true }
+        .onAppear { focused = true }
     }
 }
 
@@ -1046,15 +1301,33 @@ struct TaskView: View {
 }
 
 enum HotKey {
+    private static var searchRef: EventHotKeyRef?
+    static let searchKeys: [(id: String, title: String, mods: Int)] =
+        [("opt", "⌥ Leertaste", optionKey), ("cmd", "⌘ Leertaste", cmdKey), ("ctrl", "⌃ Leertaste", controlKey), ("off", "Aus", 0)]
+
     static func register() {
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
-            DispatchQueue.main.async { MainActor.assumeIsolated { openTaskManager() } }
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
+            var hk = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
+                              MemoryLayout<EventHotKeyID>.size, nil, &hk)
+            let id = hk.id
+            DispatchQueue.main.async { MainActor.assumeIsolated { if id == 2 { SearchPanel.toggle() } else { openTaskManager() } } }
             return noErr
         }, 1, &spec, nil, nil)
+        registerSearch()
         var ref: EventHotKeyRef?
         RegisterEventHotKey(UInt32(kVK_Escape), UInt32(controlKey | shiftKey),
                             EventHotKeyID(signature: OSType(0x574B4654), id: 1), GetApplicationEventTarget(), 0, &ref)
+    }
+
+    // Suche: Kürzel aus den Einstellungen (Standard ⌥ Leertaste)
+    static func registerSearch() {
+        if let r = searchRef { UnregisterEventHotKey(r); searchRef = nil }
+        let key = UserDefaults.standard.string(forKey: "searchHotkey") ?? "opt"
+        guard let k = searchKeys.first(where: { $0.id == key }), k.mods != 0 else { return }
+        RegisterEventHotKey(UInt32(kVK_Space), UInt32(k.mods), EventHotKeyID(signature: OSType(0x574B4654), id: 2),
+                            GetApplicationEventTarget(), 0, &searchRef)
     }
 }
 
@@ -1724,6 +1997,7 @@ struct MenuContent: View {
             if awake.mode != nil { Button("Wach bleiben beenden") { awake.stop() } }
         }
         Divider()
+        Button("Suche …") { SearchPanel.show() }
         Button("Task-Manager …") { openTaskManager() }
             .keyboardShortcut(.escape, modifiers: [.control, .shift])
         Button("Autostarts …") { openAutostarts() }
@@ -1772,6 +2046,14 @@ struct FeatureTab: View {
         Form {
             Section {
                 if group == groups[0] {
+                    Picker(selection: Binding(get: { UserDefaults.standard.string(forKey: "searchHotkey") ?? "opt" },
+                                              set: { UserDefaults.standard.set($0, forKey: "searchHotkey"); HotKey.registerSearch(); store.objectWillChange.send() })) {
+                        ForEach(HotKey.searchKeys, id: \.id) { Text($0.title).tag($0.id) }
+                    } label: {
+                        Text("Suche öffnen mit")
+                        Text("Apps, Dateien, Rechnen und Web – wie Spotlight, nur schneller.")
+                    }
+                    .accessibilityLabel("Suche öffnen mit")
                     Toggle(isOn: store.startMenu) {
                         Text("Control antippen öffnet das Startmenü")
                         Text("Wie die Windows-Taste: Control kurz allein drücken – Apps suchen, Ein/Aus.")
