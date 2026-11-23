@@ -7,6 +7,7 @@ import CryptoKit
 import Carbon.HIToolbox
 import IOKit.pwr_mgt
 import ScreenCaptureKit
+import PDFKit
 
 let repo = "Eliasbkh/WinKomfort" // GitHub-Repo, aus dessen Releases Updates kommen
 // Öffentlicher Ed25519-Schlüssel: nur Zips, die mit dem passenden geheimen Schlüssel (sign.swift) signiert sind, werden installiert
@@ -2022,11 +2023,11 @@ struct TaskView: View {
 
 // Globale Tastenkürzel – selbst festlegbar unter Einstellungen → Tastenkürzel
 enum HotAction: String, CaseIterable, Identifiable {
-    case search, switcher, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, newFile, tasks
+    case search, switcher, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, newFile, tasks, onenote
     var id: UInt32 {
         switch self {
         case .tasks: 1; case .search: 2; case .note: 3; case .pin: 4; case .clipboard: 5
-        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9; case .switcher: 10; case .newFile: 12
+        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9; case .switcher: 10; case .newFile: 12; case .onenote: 13
         }
     }
     var title: String {
@@ -2038,6 +2039,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .clipboard: "Zwischenablage-Verlauf"
         case .switcher: "Fenster wechseln (⇧ dazu: rückwärts)"
         case .newFile: "Neue Textdatei im Finder"
+        case .onenote: "OneNote: Seite, Abschnitt oder Notizbuch als PDF"
         case .snapLeft: "Fenster: linke Hälfte"
         case .snapRight: "Fenster: rechte Hälfte"
         case .snapMax: "Fenster: maximieren"
@@ -2053,6 +2055,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .switcher: Shortcut(code: kVK_Tab, mods: optionKey)
         case .newFile: Shortcut(code: kVK_ANSI_N, mods: controlKey | optionKey | cmdKey, key: "N")
         case .clipboard: Shortcut(code: kVK_ANSI_V, mods: controlKey | optionKey, key: "V")
+        case .onenote: Shortcut(code: kVK_ANSI_P, mods: controlKey | optionKey, key: "P")
         case .snapLeft: Shortcut(code: kVK_LeftArrow, mods: controlKey | optionKey)
         case .snapRight: Shortcut(code: kVK_RightArrow, mods: controlKey | optionKey)
         case .snapMax: Shortcut(code: kVK_UpArrow, mods: controlKey | optionKey)
@@ -2078,6 +2081,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .clipboard: ClipPanel.toggle()
         case .switcher: WindowSwitcher.shared.step(1)
         case .newFile: newTextFile()
+        case .onenote: OneNotePDF.showMenu()
         case .snapLeft: Snap.run(.left)
         case .snapRight: Snap.run(.right)
         case .snapMax: Snap.run(.max)
@@ -2299,6 +2303,170 @@ enum FinderCut {
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
         guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder" else { return }
         for down in [true, false] { CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: down)?.post(tap: .cghidEventTap) }
+    }
+}
+
+// MARK: - OneNote: Seite, Abschnitt oder Notizbuch als eine PDF
+// OneNote für Mac kann nur die aktuelle Seite als PDF sichern. WinKomfort klickt deshalb jede Seite an, nutzt
+// „Save As PDF“, tippt einen eindeutigen Dateinamen ein und fügt am Ende alles zu einer PDF in „Downloads“ zusammen.
+// shortcut: hängt an OneNotes Bedienstruktur („List of Pages“, Menü „Save As PDF“) – nach OneNote-Updates nachtesten
+
+enum OneNotePDF {
+    enum Scope { case page, section, notebook }
+    static let bundle = "com.microsoft.onenote.mac"
+    private static var running = false
+    private static let saveTitles: Set<String> = ["Save As PDF", "Als PDF speichern"]
+    private static let saveButtons: Set<String> = ["Save", "Sichern", "Speichern"]
+
+    @MainActor static func showMenu() {
+        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundle else {
+            Toast.show("In OneNote benutzen", symbol: "doc.richtext"); return
+        }
+        guard !running else { Toast.show("PDF wird schon erstellt …", symbol: "hourglass"); return }
+        guard AXIsProcessTrusted() else { afterTrust(prompt: true) {}; return }
+        let menu = NSMenu()
+        for (title, scope) in [("Diese Seite als PDF", Scope.page), ("Ganzen Abschnitt als PDF", .section), ("Ganzes Notizbuch als PDF", .notebook)] {
+            let item = NSMenuItem(title: title, action: #selector(MenuTarget.run(_:)), keyEquivalent: "")
+            item.target = MenuTarget.shared
+            item.representedObject = scope
+            menu.addItem(item)
+        }
+        let onenote = NSWorkspace.shared.frontmostApplication
+        NSApp.activate() // sonst zeigt macOS das Menü einer Hintergrund-App nicht
+        if !menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil) { onenote?.activate() } // abgebrochen: zurück zu OneNote
+    }
+
+    private final class MenuTarget: NSObject {
+        static let shared = MenuTarget()
+        @MainActor @objc func run(_ sender: NSMenuItem) {
+            guard let scope = sender.representedObject as? Scope else { return }
+            OneNotePDF.running = true
+            Toast.show("PDF wird erstellt – bitte OneNote nicht bedienen", symbol: "doc.richtext")
+            DispatchQueue.global(qos: .userInitiated).async {
+                let result = OneNotePDF.export(scope)
+                DispatchQueue.main.async {
+                    OneNotePDF.running = false
+                    switch result {
+                    case .success(let url):
+                        Toast.show("PDF gespeichert: \(url.lastPathComponent)", symbol: "checkmark.circle")
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    case .failure(let e): Toast.show(e.text, symbol: "exclamationmark.triangle")
+                    }
+                }
+            }
+        }
+    }
+
+    struct Failure: Error { let text: String }
+
+    private static func outline(_ win: AXUIElement, _ name: String) -> AXUIElement? {
+        UIAuto.elements(win, windowsOnly: false).first { UIAuto.role($0) == "AXOutline" && UIAuto.label($0) == name }
+    }
+    private static func rows(_ o: AXUIElement) -> [AXUIElement] { UIAuto.attr(o, kAXRowsAttribute) as? [AXUIElement] ?? [] }
+    private static func selected(_ o: AXUIElement) -> AXUIElement? { rows(o).first { UIAuto.attr($0, kAXSelectedAttribute) as? Bool == true } }
+    private static func select(_ o: AXUIElement, _ row: AXUIElement) {
+        AXUIElementSetAttributeValue(o, kAXSelectedRowsAttribute as CFString, [row] as CFArray)
+    }
+    private static func isFront(_ pid: pid_t) -> Bool { NSWorkspace.shared.frontmostApplication?.processIdentifier == pid }
+
+    static func export(_ scope: Scope) -> Result<URL, Failure> {
+        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first,
+              let ax = UIAuto.app(bundle),
+              let win = UIAuto.attr(ax, kAXFocusedWindowAttribute).map({ $0 as! AXUIElement }),
+              let pages = outline(win, "List of Pages"), let sections = outline(win, "List of Sections") else {
+            return .failure(Failure(text: "OneNote-Seitenliste nicht gefunden – Seitenliste einblenden"))
+        }
+        let pid = app.processIdentifier
+        app.activate() // das Menü von WinKomfort kann den Fokus kurz genommen haben
+        usleep(300_000)
+        let origSection = selected(sections), origPage = selected(pages)
+        defer { // Auswahl wiederherstellen
+            if let origSection, scope == .notebook { select(sections, origSection); usleep(800_000) }
+            if let origPage { select(pages, origPage) }
+        }
+        // Welche Abschnitte: beim Notizbuch erst alle Abschnittsgruppen aufklappen; Gruppen-Zeilen selbst haben keine Seiten
+        if scope == .notebook {
+            for r in rows(sections) where UIAuto.attr(r, kAXDisclosingAttribute) as? Bool == false {
+                AXUIElementSetAttributeValue(r, kAXDisclosingAttribute as CFString, kCFBooleanTrue)
+            }
+            usleep(500_000)
+        }
+        let sectionRows: [AXUIElement?] = scope == .notebook
+            ? rows(sections).filter { ((UIAuto.attr($0, kAXDisclosedRowsAttribute) as? [AXUIElement]) ?? []).isEmpty }
+            : [nil]
+        let token = UUID().uuidString.prefix(8)
+        var parts: [URL] = []
+        defer { parts.forEach { try? FileManager.default.removeItem(at: $0) } }
+        for sec in sectionRows {
+            if let sec { select(sections, sec); usleep(1_200_000) }
+            let list = scope == .page ? [origPage].compactMap { $0 } : rows(pages)
+            for row in list {
+                if scope != .page { select(pages, row); usleep(900_000) }
+                switch savePage(ax: ax, pid: pid, name: "WinKomfort-\(token)-\(String(format: "%04d", parts.count))") {
+                case .success(let url): parts.append(url)
+                case .failure(let e): return .failure(e)
+                }
+            }
+        }
+        guard !parts.isEmpty else { return .failure(Failure(text: "Keine Seiten gefunden")) }
+        // Zusammenfügen
+        let out = PDFDocument()
+        for p in parts { if let d = PDFDocument(url: p) { for i in 0..<d.pageCount { if let pg = d.page(at: i) { out.insert(pg, at: out.pageCount) } } } }
+        let title = (UIAuto.attr(win, kAXTitleAttribute) as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "OneNote"
+        let base = scope == .notebook ? title : (UIAuto.label(selected(sections).flatMap { UIAuto.elements($0, windowsOnly: false).first { !UIAuto.label($0).isEmpty } } ?? win))
+        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+        let clean = base.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        var url = downloads.appendingPathComponent("\(clean).pdf"), n = 2
+        while FileManager.default.fileExists(atPath: url.path) { url = downloads.appendingPathComponent("\(clean) \(n).pdf"); n += 1 }
+        guard out.write(to: url) else { return .failure(Failure(text: "PDF konnte nicht gespeichert werden")) }
+        return .success(url)
+    }
+
+    // Eine Seite über „Save As PDF“ sichern; gibt die erzeugte Datei zurück
+    private static func savePage(ax: AXUIElement, pid: pid_t, name: String) -> Result<URL, Failure> {
+        let abort = Failure(text: "Abgebrochen – OneNote war nicht mehr vorne")
+        guard isFront(pid) else { return .failure(abort) }
+        guard let bar = UIAuto.attr(ax, kAXMenuBarAttribute).map({ $0 as! AXUIElement }),
+              let item = UIAuto.elements(bar, windowsOnly: false).first(where: { saveTitles.contains(UIAuto.attr($0, kAXTitleAttribute) as? String ?? "") }) else {
+            return .failure(Failure(text: "OneNote-Menü „Save As PDF“ nicht gefunden"))
+        }
+        UIAuto.press(item)
+        // Auf den Speichern-Dialog warten (Fenster mit „Save“-Knopf)
+        var save: AXUIElement?
+        for _ in 0..<50 where save == nil {
+            usleep(100_000)
+            for w in UIAuto.attr(ax, kAXWindowsAttribute) as? [AXUIElement] ?? [] {
+                save = UIAuto.elements(w, windowsOnly: false).first { UIAuto.role($0) == "AXButton" && saveButtons.contains(UIAuto.attr($0, kAXTitleAttribute) as? String ?? "") }
+                if save != nil { break }
+            }
+        }
+        guard let save else { return .failure(Failure(text: "Speichern-Dialog von OneNote kam nicht")) }
+        usleep(400_000)
+        // Der Name lässt sich nur per Tastatur setzen (Dialog läuft in einem eigenen Prozess); er ist beim Öffnen markiert
+        guard isFront(pid) else { return .failure(abort) }
+        let chars = Array(name.utf16)
+        for down in [true, false] {
+            let e = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down)
+            if down { e?.keyboardSetUnicodeString(stringLength: chars.count, unicodeString: chars) }
+            e?.post(tap: .cghidEventTap)
+        }
+        usleep(300_000)
+        guard isFront(pid) else { return .failure(abort) }
+        UIAuto.press(save)
+        // Datei im gewählten Ordner suchen (Dialog merkt sich den letzten Ordner)
+        let fm = FileManager.default
+        let dirs: [FileManager.SearchPathDirectory] = [.documentDirectory, .desktopDirectory, .downloadsDirectory]
+        for _ in 0..<150 {
+            usleep(200_000)
+            for d in dirs {
+                let url = fm.urls(for: d, in: .userDomainMask)[0].appendingPathComponent("\(name).pdf")
+                if let size = (try? fm.attributesOfItem(atPath: url.path))?[.size] as? Int, size > 0 {
+                    usleep(500_000) // fertig schreiben lassen
+                    return .success(url)
+                }
+            }
+        }
+        return .failure(Failure(text: "PDF nicht gefunden – im Speichern-Dialog einmal „Dokumente“ wählen"))
     }
 }
 
