@@ -6,6 +6,7 @@ import ServiceManagement
 import CryptoKit
 import Carbon.HIToolbox
 import IOKit.pwr_mgt
+import ScreenCaptureKit
 
 let repo = "Eliasbkh/WinKomfort" // GitHub-Repo, aus dessen Releases Updates kommen
 // Öffentlicher Ed25519-Schlüssel: nur Zips, die mit dem passenden geheimen Schlüssel (sign.swift) signiert sind, werden installiert
@@ -453,9 +454,16 @@ enum StartKey {
     }
 
     // Nur Control gedrückt und innerhalb 0,4 s wieder losgelassen – ohne andere Taste oder Klick dazwischen
+    private static var lastFlags = CGEventFlags()
+    private static var lastFlagsAt = Date.distantPast
     private static func handle(_ flags: CGEventFlags) {
         let f = flags.intersection([.maskShift, .maskControl, .maskAlternate, .maskCommand, .maskSecondaryFn])
-        if f == .maskControl { downAt = Date() }
+        // Nur „Control aus dem Nichts“ zählt – nicht das übrig gebliebene Control beim Loslassen von ⌃⌘P & Co.
+        // Ein älterer Zustand (> 1 s) gilt als veraltet, falls ein Loslassen-Ereignis verloren ging.
+        let fresh = lastFlags.isEmpty || Date().timeIntervalSince(lastFlagsAt) > 1
+        lastFlags = f
+        lastFlagsAt = Date()
+        if f == .maskControl && fresh { downAt = Date() }
         else if f.isEmpty, let d = downAt, Date().timeIntervalSince(d) < 0.4 {
             downAt = nil
             DispatchQueue.main.async { MainActor.assumeIsolated { StartMenu.toggle() } }
@@ -552,7 +560,7 @@ final class KeyPanel: NSPanel {
         p.hasShadow = true
         p.level = .popUpMenu
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        let host = NSHostingView(rootView: StartView())
+        let host = fixedHost(StartView())
         host.wantsLayer = true
         p.contentView = host
         NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: p, queue: .main) { _ in
@@ -621,6 +629,8 @@ struct StartView: View {
                 Image(systemName: "person.crop.circle.fill").font(.title2).foregroundStyle(.secondary)
                 Text(NSFullUserName())
                 Spacer()
+                Button { StartMenu.hide(); QuickNote.shared.show() } label: { Image(systemName: "note.text") }
+                    .help("Schnellnotiz (⌃⌥N)").accessibilityLabel("Schnellnotiz")
                 Button { StartMenu.hide(); openTaskManager() } label: { Image(systemName: "list.bullet.rectangle") }
                     .help("Task-Manager").accessibilityLabel("Task-Manager")
                 Button { StartMenu.hide(); openSettingsWindow() } label: { Image(systemName: "macwindow.on.rectangle") }
@@ -1075,7 +1085,7 @@ struct SearchHit: Identifiable {
         p.hasShadow = true
         p.level = .popUpMenu
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        p.contentView = NSHostingView(rootView: SearchView())
+        p.contentView = fixedHost(SearchView())
         NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: p, queue: .main) { _ in
             MainActor.assumeIsolated { hide() }
         }
@@ -1145,6 +1155,321 @@ struct SearchView: View {
         .onChange(of: m.hits.count) { _, _ in SearchPanel.resize() }
         .onChange(of: m.opened) { _, _ in focused = true }
         .onAppear { focused = true }
+    }
+}
+
+// SwiftUI-Inhalt für Fenster, deren Größe der Code selbst setzt. Ohne `sizingOptions = []` zwingt die Ansicht dem
+// Fenster eigene Größen-Regeln auf – zusammen mit setFrame endet das in einer Layout-Endlosschleife (Absturz).
+func fixedHost<V: View>(_ view: V) -> NSHostingView<V> {
+    let h = NSHostingView(rootView: view)
+    h.sizingOptions = []
+    return h
+}
+
+// MARK: - Kurze Hinweise (Toast) in der Bildschirmmitte
+
+@MainActor enum Toast {
+    private static var panel: NSPanel?
+    private static var hideTask: DispatchWorkItem?
+    static func show(_ text: String, symbol: String) {
+        let p = panel ?? {
+            let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            p.isOpaque = false; p.backgroundColor = .clear; p.level = .statusBar; p.ignoresMouseEvents = true
+            p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            panel = p
+            return p
+        }()
+        let view = fixedHost(Label(text, systemImage: symbol).font(.headline).padding(.horizontal, 18).padding(.vertical, 12)
+            .background(.regularMaterial, in: Capsule()))
+        let size = view.fittingSize
+        p.contentView = view
+        let screen = NSScreen.main!.visibleFrame
+        p.setFrame(NSRect(x: screen.midX - size.width / 2, y: screen.minY + screen.height * 0.18, width: size.width, height: size.height), display: true)
+        p.orderFrontRegardless()
+        hideTask?.cancel()
+        let t = DispatchWorkItem { panel?.orderOut(nil) }
+        hideTask = t
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4, execute: t)
+        NSAccessibility.post(element: p, notification: .announcementRequested, userInfo: [.announcement: text])
+    }
+}
+
+// MARK: - Schnellnotiz (oben links, immer im Vordergrund, speichert automatisch)
+
+@MainActor final class QuickNote: ObservableObject {
+    static let shared = QuickNote()
+    @Published var text = UserDefaults.standard.string(forKey: "quickNote") ?? "" {
+        didSet { UserDefaults.standard.set(text, forKey: "quickNote") }
+    }
+    private var panel: KeyPanel?
+
+    func toggle() { if panel?.isVisible == true { hide() } else { show() } }
+    func hide() { panel?.orderOut(nil) }
+
+    func show() {
+        let p = panel ?? make()
+        if !p.isVisible {
+            let v = (NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main!).visibleFrame
+            p.setFrameTopLeftPoint(NSPoint(x: v.minX + 12, y: v.maxY - 12))
+        }
+        p.orderFrontRegardless()
+        p.makeKey()
+        if !p.isKeyWindow { // manche Panels nehmen den Fokus nur, wenn WinKomfort kurz vorne ist – du hast sie ja selbst aufgerufen
+            NSApp.activate(ignoringOtherApps: true)
+            p.makeKeyAndOrderFront(nil)
+        }
+        // Fokus sofort ins Textfeld, damit man direkt lostippen kann
+        p.contentView?.layoutSubtreeIfNeeded()
+        func editor(_ v: NSView) -> NSTextView? {
+            if let t = v as? NSTextView, t.isEditable { return t }
+            for s in v.subviews { if let e = editor(s) { return e } }
+            return nil
+        }
+        if let content = p.contentView, let e = editor(content) { p.makeFirstResponder(e) }
+    }
+
+    private func make() -> KeyPanel {
+        let p = KeyPanel(contentRect: NSRect(x: 0, y: 0, width: 300, height: 240),
+                         styleMask: [.borderless, .nonactivatingPanel, .resizable], backing: .buffered, defer: false)
+        p.becomesKeyOnlyIfNeeded = false
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = true
+        p.level = .floating // immer über normalen Fenstern
+        p.hidesOnDeactivate = false // bleibt sichtbar, wenn du in eine andere App klickst
+        p.isMovableByWindowBackground = true
+        p.minSize = NSSize(width: 200, height: 120)
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.contentView = fixedHost(QuickNoteView())
+        panel = p
+        return p
+    }
+}
+
+struct QuickNoteView: View {
+    @ObservedObject var n = QuickNote.shared
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Label("Notiz", systemImage: "note.text").font(.headline)
+                Spacer()
+                Button { n.text = "" } label: { Image(systemName: "trash") }
+                    .help("Notiz leeren").accessibilityLabel("Notiz leeren").disabled(n.text.isEmpty)
+                Button { n.hide() } label: { Image(systemName: "xmark") }
+                    .help("Ausblenden (⌃⌥N)").accessibilityLabel("Notiz ausblenden")
+            }
+            .buttonStyle(.borderless)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            Divider()
+            TextEditor(text: $n.text)
+                .font(.body)
+                .scrollContentBackground(.hidden)
+                .padding(8)
+                .accessibilityLabel("Notiztext")
+        }
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.primary.opacity(0.1)))
+    }
+}
+
+// MARK: - Fenster anheften (immer im Vordergrund)
+// macOS lässt keine App die Ebene fremder Fenster ändern. WinKomfort legt deshalb eine Live-Kopie des Fensters
+// (ScreenCaptureKit, nur dieses eine Fenster, höchstens 15 Bilder/s und nur bei Änderungen) in ein eigenes, schwebendes Fenster an dieselbe Stelle.
+// Klick darauf → das echte Fenster kommt nach vorne. Wechselst du weg, liegt die Kopie wieder obenauf.
+
+@_silgen_name("_AXUIElementGetWindow")
+func _AXUIElementGetWindow(_ element: AXUIElement, _ id: UnsafeMutablePointer<CGWindowID>) -> AXError
+
+final class PinnedWindow: NSObject, SCStreamOutput, SCStreamDelegate {
+    let windowID: CGWindowID
+    let pid: pid_t
+    let ax: AXUIElement
+    let name: String
+    let overlay: NSPanel
+    private let surface = CALayer()
+    private var stream: SCStream?
+    private var size = CGSize.zero
+    private var closeObserver: AXObserver?
+
+    init(windowID: CGWindowID, pid: pid_t, ax: AXUIElement, name: String) {
+        self.windowID = windowID; self.pid = pid; self.ax = ax; self.name = name
+        overlay = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        super.init()
+        overlay.isOpaque = false
+        overlay.backgroundColor = .clear
+        overlay.hasShadow = true
+        overlay.level = .floating
+        overlay.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        let view = ClickView()
+        view.wantsLayer = true
+        view.layer?.addSublayer(surface)
+        surface.contentsGravity = .resize
+        view.onClick = { [weak self] in self?.focusReal() }
+        overlay.contentView = view
+    }
+
+    // Rahmen des echten Fensters in Bildschirmkoordinaten (AppKit: Ursprung unten links)
+    func frame() -> NSRect? {
+        var p = CGPoint.zero, s = CGSize.zero
+        guard let pv = UIAuto.attr(ax, kAXPositionAttribute), let sv = UIAuto.attr(ax, kAXSizeAttribute) else { return nil }
+        AXValueGetValue(pv as! AXValue, .cgPoint, &p)
+        AXValueGetValue(sv as! AXValue, .cgSize, &s)
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        return NSRect(x: p.x, y: primaryHeight - p.y - s.height, width: s.width, height: s.height)
+    }
+
+    // Sobald das echte Fenster zugeht: Kopie und Aufnahme sofort beenden
+    private func watchClose() {
+        var obs: AXObserver?
+        guard AXObserverCreate(pid, { _, _, _, ctx in
+            guard let ctx else { return }
+            let pin = Unmanaged<PinnedWindow>.fromOpaque(ctx).takeUnretainedValue()
+            DispatchQueue.main.async { MainActor.assumeIsolated { Pins.shared.remove(pin) } }
+        }, &obs) == .success, let obs else { return }
+        AXObserverAddNotification(obs, ax, kAXUIElementDestroyedNotification as CFString, Unmanaged.passUnretained(self).toOpaque())
+        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(obs), .defaultMode)
+        closeObserver = obs
+    }
+
+    func start() async throws {
+        watchClose()
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        guard let w = content.windows.first(where: { $0.windowID == windowID }) else { throw CocoaError(.featureUnsupported) }
+        let stream = SCStream(filter: SCContentFilter(desktopIndependentWindow: w), configuration: config(for: w.frame.size), delegate: self)
+        try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: .main)
+        try await stream.startCapture()
+        self.stream = stream
+        size = w.frame.size
+    }
+
+    private func config(for s: CGSize) -> SCStreamConfiguration {
+        let c = SCStreamConfiguration()
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        c.width = Int(s.width * scale)
+        c.height = Int(s.height * scale)
+        c.minimumFrameInterval = CMTime(value: 1, timescale: 15) // 15 Bilder/s reichen und sparen Strom
+        c.showsCursor = false
+        c.queueDepth = 3
+        return c
+    }
+
+    func stream(_ stream: SCStream, didOutputSampleBuffer buffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        // Nur echte neue Bilder zeichnen – „nichts hat sich geändert“-Frames überspringen (spart Strom)
+        guard type == .screen,
+              let info = (CMSampleBufferGetSampleAttachmentsArray(buffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]])?.first,
+              let raw = info[.status] as? Int, SCFrameStatus(rawValue: raw) == .complete,
+              let px = buffer.imageBuffer, let io = CVPixelBufferGetIOSurface(px)?.takeUnretainedValue() else { return }
+        surface.contents = io
+    }
+
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        DispatchQueue.main.async { MainActor.assumeIsolated { Pins.shared.remove(self) } } // Fenster geschlossen o. ä.
+    }
+
+    // Kopie an die Stelle des echten Fensters legen und zeigen (wenn dessen App nicht vorne ist)
+    func update() {
+        guard let f = frame() else { // Fenster gibt es nicht mehr
+            DispatchQueue.main.async { MainActor.assumeIsolated { Pins.shared.remove(self) } }
+            return
+        }
+        overlay.setFrame(f, display: true)
+        surface.frame = CGRect(origin: .zero, size: f.size)
+        if f.size != size, let stream {
+            size = f.size
+            stream.updateConfiguration(config(for: f.size)) { _ in }
+        }
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == pid { overlay.orderOut(nil) } else { overlay.orderFrontRegardless() }
+    }
+
+    func focusReal() {
+        // Über die Bedienungshilfen nach vorne holen – macOS lehnt normales Aktivieren aus dem Hintergrund oft ab
+        AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        AXUIElementSetAttributeValue(ax, kAXMainAttribute as CFString, kCFBooleanTrue)
+        AXUIElementPerformAction(ax, kAXRaiseAction as CFString)
+        overlay.orderOut(nil)
+    }
+
+    func stop() {
+        stream?.stopCapture { _ in }
+        stream = nil
+        if let o = closeObserver {
+            AXObserverRemoveNotification(o, ax, kAXUIElementDestroyedNotification as CFString)
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(o), .defaultMode)
+            closeObserver = nil
+        }
+        overlay.orderOut(nil)
+    }
+}
+
+final class ClickView: NSView {
+    var onClick: (() -> Void)?
+    override func mouseDown(with event: NSEvent) { onClick?() }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+@MainActor final class Pins: ObservableObject {
+    static let shared = Pins()
+    @Published private(set) var pinned: [PinnedWindow] = []
+    private var token: NSObjectProtocol?
+    private var quitToken: NSObjectProtocol?
+
+    // ⌃⌘P: vorderstes Fenster anheften bzw. wieder lösen
+    func toggleFrontmost() {
+        guard let app = NSWorkspace.shared.frontmostApplication, app.bundleIdentifier != Bundle.main.bundleIdentifier,
+              let axApp = UIAuto.app(app.bundleIdentifier ?? ""),
+              let win = UIAuto.attr(axApp, kAXFocusedWindowAttribute) else {
+            Toast.show("Kein Fenster zum Anheften", symbol: "pin.slash"); return
+        }
+        let ax = win as! AXUIElement
+        var id: CGWindowID = 0
+        guard _AXUIElementGetWindow(ax, &id) == .success, id != 0 else { Toast.show("Fenster nicht erkannt", symbol: "pin.slash"); return }
+        if let p = pinned.first(where: { $0.windowID == id }) {
+            remove(p)
+            Toast.show("\(p.name) gelöst", symbol: "pin.slash")
+            return
+        }
+        guard CGPreflightScreenCaptureAccess() else {
+            CGRequestScreenCaptureAccess() // fragt einmal nach „Bildschirmaufnahme“
+            Toast.show("Bitte „Bildschirmaufnahme“ für WinKomfort erlauben", symbol: "lock")
+            return
+        }
+        let title = (UIAuto.attr(ax, kAXTitleAttribute) as? String).flatMap { $0.isEmpty ? nil : $0 } ?? app.localizedName ?? "Fenster"
+        let p = PinnedWindow(windowID: id, pid: app.processIdentifier, ax: ax, name: title)
+        Task { @MainActor in
+            do {
+                try await p.start()
+                pinned.append(p)
+                observe()
+                Toast.show("\(title) angeheftet", symbol: "pin.fill")
+            } catch {
+                Toast.show("Anheften nicht möglich", symbol: "pin.slash")
+            }
+        }
+    }
+
+    func remove(_ p: PinnedWindow) {
+        guard pinned.contains(where: { $0 === p }) else { return }
+        p.stop()
+        pinned.removeAll { $0 === p }
+        if pinned.isEmpty {
+            for t in [token, quitToken].compactMap({ $0 }) { NSWorkspace.shared.notificationCenter.removeObserver(t) }
+            token = nil
+            quitToken = nil
+        }
+    }
+
+    func unpinAll() { pinned.forEach(remove) }
+
+    // Nur bei App-Wechsel reagieren – kein Dauer-Abfragen
+    private func observe() {
+        guard token == nil else { return }
+        token = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { Pins.shared.pinned.forEach { $0.update() } }
+        }
+        quitToken = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { n in
+            let pid = (n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
+            MainActor.assumeIsolated { Pins.shared.pinned.filter { $0.pid == pid }.forEach { Pins.shared.remove($0) } }
+        }
     }
 }
 
@@ -1322,10 +1647,24 @@ enum HotKey {
             GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
                               MemoryLayout<EventHotKeyID>.size, nil, &hk)
             let id = hk.id
-            DispatchQueue.main.async { MainActor.assumeIsolated { if id == 2 { SearchPanel.toggle() } else { openTaskManager() } } }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    switch id {
+                    case 2: SearchPanel.toggle()
+                    case 3: QuickNote.shared.toggle()
+                    case 4: Pins.shared.toggleFrontmost()
+                    default: openTaskManager()
+                    }
+                }
+            }
             return noErr
         }, 1, &spec, nil, nil)
         registerSearch()
+        var note: EventHotKeyRef?, pin: EventHotKeyRef?
+        RegisterEventHotKey(UInt32(kVK_ANSI_N), UInt32(controlKey | optionKey), EventHotKeyID(signature: OSType(0x574B4654), id: 3),
+                            GetApplicationEventTarget(), 0, &note)
+        RegisterEventHotKey(UInt32(kVK_ANSI_P), UInt32(controlKey | cmdKey), EventHotKeyID(signature: OSType(0x574B4654), id: 4),
+                            GetApplicationEventTarget(), 0, &pin)
         var ref: EventHotKeyRef?
         RegisterEventHotKey(UInt32(kVK_Escape), UInt32(controlKey | shiftKey),
                             EventHotKeyID(signature: OSType(0x574B4654), id: 1), GetApplicationEventTarget(), 0, &ref)
@@ -2009,6 +2348,8 @@ struct MenuContent: View {
         }
         Divider()
         Button("Suche …") { SearchPanel.show() }
+        Button("Schnellnotiz   ⌃⌥N") { QuickNote.shared.toggle() }
+        if !Pins.shared.pinned.isEmpty { Button("Alle angehefteten Fenster lösen") { Pins.shared.unpinAll() } }
         Button("Task-Manager …") { openTaskManager() }
             .keyboardShortcut(.escape, modifiers: [.control, .shift])
         Button("Autostarts …") { openAutostarts() }

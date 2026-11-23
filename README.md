@@ -9,8 +9,11 @@ Windows-Komfort für macOS als Menüleisten-App – jede Funktion einzeln schalt
 - **Startmenü:** Control kurz antippen wie die Windows-Taste – Apps suchen, angeheftete Apps, Ein/Aus
 - **Task-Manager** mit ⌃⇧⎋: Apps und Hintergrund-Apps mit CPU und Arbeitsspeicher, Task beenden, Stromfresser beenden
 - **Autostarts:** Apps beim Anmelden, Hintergrundaktivitäten und Hintergrund-Starter fremder Apps an- und ausschalten (umkehrbar)
-- **Mitteilungen:** „Nicht stören“ und Mitteilungen pro App direkt in WinKomfort
+- **Mitteilungen:** „Nicht stören“, Hauptschalter für alle und Mitteilungen pro App direkt in WinKomfort
 - **Menüleiste:** Symbole von macOS und Apps ein-/ausblenden – Platz neben der Notch schaffen
+- **Suche** (⌥ Leertaste): Apps, Dateien, Rechner, Web – mit Pfeiltasten und Enter
+- **Schnellnotiz** (⌃⌥N): kleine Notiz oben links, immer im Vordergrund, speichert automatisch
+- **Fenster anheften** (⌃⌘P): Fenster bleibt immer im Vordergrund (Live-Kopie, braucht einmal „Bildschirmaufnahme“)
 - **Wach bleiben:** Bildschirm an lassen oder nur den Mac wach halten, für 30 Min bis unbegrenzt
 - **Mac aufräumen:** entfernbare Standard-Apps (GarageBand, iMovie, Keynote, Pages, Numbers + Sounds) in den Papierkorb – mit Protokoll und Wiederherstellen
 
