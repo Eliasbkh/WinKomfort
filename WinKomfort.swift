@@ -632,7 +632,7 @@ struct StartView: View {
                 Text(NSFullUserName())
                 Spacer()
                 Button { StartMenu.hide(); QuickNote.shared.show() } label: { Image(systemName: "note.text") }
-                    .help("Schnellnotiz (⌃⌥N)").accessibilityLabel("Schnellnotiz")
+                    .help("Schnellnotiz" + (HotAction.note.current.map { " (\($0.display))" } ?? "")).accessibilityLabel("Schnellnotiz")
                 Button { StartMenu.hide(); openTaskManager() } label: { Image(systemName: "list.bullet.rectangle") }
                     .help("Task-Manager").accessibilityLabel("Task-Manager")
                 Button { StartMenu.hide(); openSettingsWindow() } label: { Image(systemName: "macwindow.on.rectangle") }
@@ -1315,7 +1315,7 @@ struct QuickNoteView: View {
                 Button { n.text = "" } label: { Image(systemName: "trash") }
                     .help("Notiz leeren").accessibilityLabel("Notiz leeren").disabled(n.text.isEmpty)
                 Button { n.hide() } label: { Image(systemName: "xmark") }
-                    .help("Ausblenden (⌃⌥N)").accessibilityLabel("Notiz ausblenden")
+                    .help("Ausblenden" + (HotAction.note.current.map { " (\($0.display))" } ?? "")).accessibilityLabel("Notiz ausblenden")
             }
             .buttonStyle(.borderless)
             .padding(.horizontal, 12).padding(.vertical, 8)
@@ -1737,6 +1737,90 @@ struct AnimationTab: View {
     }
 }
 
+// MARK: - Willkommen (einmal beim ersten Start, wie bei Apple-Apps)
+
+struct WelcomeView: View {
+    var close: () -> Void
+    private let highlights: [(String, Color, String, String)] = [
+        ("square.grid.2x2.fill", .blue, "Startmenü", "Control kurz antippen – Apps suchen, Ein/Aus."),
+        ("magnifyingglass", .gray, "Suche", "Apps, Dateien und Rechnen – mit \(HotAction.search.current?.display ?? "eigenem Kürzel")."),
+        ("macwindow", .indigo, "Fenster wie bei Windows", "Einrasten, anheften, Schließen beendet die App."),
+        ("dock.rectangle", .teal, "Dock wie die Taskleiste", "Kommt zuverlässig – auch über Vollbild-Apps."),
+    ]
+    var body: some View {
+        VStack(spacing: 0) {
+            Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 88, height: 88).accessibilityHidden(true)
+                .padding(.top, 28)
+            Text("Willkommen bei WinKomfort").font(.largeTitle.bold()).padding(.top, 10)
+            Text("Windows-Komfort für deinen Mac – sparsam und direkt eingebaut.")
+                .foregroundStyle(.secondary).padding(.top, 4)
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(highlights, id: \.2) { h in
+                    HStack(alignment: .top, spacing: 14) {
+                        Image(systemName: h.0).font(.title2).foregroundStyle(h.1).frame(width: 30).accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(h.2).font(.headline)
+                            Text(h.3).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .padding(.top, 24).padding(.horizontal, 44)
+            Form {
+                Section("Freigaben") {
+                    TimelineView(.periodic(from: .now, by: 1)) { _ in
+                        VStack(spacing: 10) {
+                            permission("Bedienungshilfen", "Für Startmenü, Ziehen und Fenster-Funktionen.", AXIsProcessTrusted()) {
+                                AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+                                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+                            }
+                            Divider()
+                            permission("Bildschirmaufnahme", "Nur zum Anheften von Fenstern – kann auch später.", CGPreflightScreenCaptureAccess()) {
+                                CGRequestScreenCaptureAccess()
+                            }
+                        }
+                    }
+                }
+            }
+            .formStyle(.grouped).scrollDisabled(true).frame(height: 190).padding(.horizontal, 24)
+            Button("Los geht’s") { close() }
+                .keyboardShortcut(.defaultAction).controlSize(.large)
+                .padding(.bottom, 24)
+        }
+        .frame(width: 560)
+    }
+
+    private func permission(_ title: String, _ hint: String, _ granted: Bool, _ action: @escaping () -> Void) -> some View {
+        LabeledContent {
+            if granted {
+                Label("Erlaubt", systemImage: "checkmark.circle.fill").foregroundStyle(.green).labelStyle(.titleAndIcon)
+            } else {
+                Button("Erlauben …", action: action)
+            }
+        } label: {
+            Text(title)
+            Text(hint)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+@MainActor func openWelcome() {
+    if windows["welcome"] == nil {
+        let w = NSWindow(contentRect: .zero, styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+        w.titlebarAppearsTransparent = true
+        w.titleVisibility = .hidden
+        w.isMovableByWindowBackground = true
+        w.isReleasedWhenClosed = false
+        w.contentViewController = NSHostingController(rootView: WelcomeView { windows["welcome"]?.close() })
+        w.center()
+        windows["welcome"] = w
+    }
+    UserDefaults.standard.set(true, forKey: "welcomeShown")
+    NSApp.activate(ignoringOtherApps: true)
+    windows["welcome"]?.makeKeyAndOrderFront(nil)
+}
+
 // MARK: - Fenster-Helfer
 
 @MainActor var windows: [String: NSWindow] = [:]
@@ -1899,48 +1983,169 @@ struct TaskView: View {
     TaskModel.shared.start()
 }
 
+// Globale Tastenkürzel – selbst festlegbar unter Einstellungen → Tastenkürzel
+enum HotAction: String, CaseIterable, Identifiable {
+    case search, note, pin, tasks
+    var id: UInt32 { switch self { case .tasks: 1; case .search: 2; case .note: 3; case .pin: 4 } }
+    var title: String {
+        switch self {
+        case .search: "Suche öffnen"
+        case .note: "Schnellnotiz ein-/ausblenden"
+        case .pin: "Fenster anheften / lösen"
+        case .tasks: "Task-Manager"
+        }
+    }
+    var standard: Shortcut {
+        switch self {
+        case .search: Shortcut(code: kVK_Space, mods: optionKey)
+        case .note: Shortcut(code: kVK_ANSI_N, mods: controlKey | optionKey, key: "N")
+        case .pin: Shortcut(code: kVK_ANSI_P, mods: controlKey | cmdKey, key: "P")
+        case .tasks: Shortcut(code: kVK_Escape, mods: controlKey | shiftKey)
+        }
+    }
+    private var storeKey: String { "shortcut.\(rawValue)" }
+    // nil = ausgeschaltet
+    var current: Shortcut? {
+        get {
+            guard let d = UserDefaults.standard.data(forKey: storeKey) else { return standard }
+            return (try? JSONDecoder().decode(Shortcut?.self, from: d)) ?? standard
+        }
+        nonmutating set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: storeKey) }
+    }
+    func reset() { UserDefaults.standard.removeObject(forKey: storeKey) }
+    @MainActor func perform() {
+        switch self {
+        case .search: SearchPanel.toggle()
+        case .note: QuickNote.shared.toggle()
+        case .pin: Pins.shared.toggleFrontmost()
+        case .tasks: openTaskManager()
+        }
+    }
+}
+
 enum HotKey {
-    private static var searchRef: EventHotKeyRef?
-    static let searchKeys: [(id: String, title: String, mods: Int)] =
-        [("opt", "⌥ Leertaste", optionKey), ("cmd", "⌘ Leertaste", cmdKey), ("ctrl", "⌃ Leertaste", controlKey), ("off", "Aus", 0)]
+    private static var refs: [UInt32: EventHotKeyRef] = [:]
+    private(set) static var failed: Set<HotAction> = []
 
     static func register() {
+        // Umstellung von ≤ 1.6: altes Such-Kürzel (⌥/⌘/⌃ + Leertaste) übernehmen
+        if let old = UserDefaults.standard.string(forKey: "searchHotkey") {
+            let mods = ["opt": optionKey, "cmd": cmdKey, "ctrl": controlKey][old]
+            HotAction.search.current = mods.map { Shortcut(code: kVK_Space, mods: $0) }
+            UserDefaults.standard.removeObject(forKey: "searchHotkey")
+        }
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
             var hk = EventHotKeyID()
             GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
                               MemoryLayout<EventHotKeyID>.size, nil, &hk)
             let id = hk.id
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    switch id {
-                    case 2: SearchPanel.toggle()
-                    case 3: QuickNote.shared.toggle()
-                    case 4: Pins.shared.toggleFrontmost()
-                    default: openTaskManager()
-                    }
-                }
-            }
+            DispatchQueue.main.async { MainActor.assumeIsolated { HotAction.allCases.first { $0.id == id }?.perform() } }
             return noErr
         }, 1, &spec, nil, nil)
-        registerSearch()
-        var note: EventHotKeyRef?, pin: EventHotKeyRef?
-        RegisterEventHotKey(UInt32(kVK_ANSI_N), UInt32(controlKey | optionKey), EventHotKeyID(signature: OSType(0x574B4654), id: 3),
-                            GetApplicationEventTarget(), 0, &note)
-        RegisterEventHotKey(UInt32(kVK_ANSI_P), UInt32(controlKey | cmdKey), EventHotKeyID(signature: OSType(0x574B4654), id: 4),
-                            GetApplicationEventTarget(), 0, &pin)
-        var ref: EventHotKeyRef?
-        RegisterEventHotKey(UInt32(kVK_Escape), UInt32(controlKey | shiftKey),
-                            EventHotKeyID(signature: OSType(0x574B4654), id: 1), GetApplicationEventTarget(), 0, &ref)
+        registerAll()
     }
 
-    // Suche: Kürzel aus den Einstellungen (Standard ⌥ Leertaste)
-    static func registerSearch() {
-        if let r = searchRef { UnregisterEventHotKey(r); searchRef = nil }
-        let key = UserDefaults.standard.string(forKey: "searchHotkey") ?? "opt"
-        guard let k = searchKeys.first(where: { $0.id == key }), k.mods != 0 else { return }
-        RegisterEventHotKey(UInt32(kVK_Space), UInt32(k.mods), EventHotKeyID(signature: OSType(0x574B4654), id: 2),
-                            GetApplicationEventTarget(), 0, &searchRef)
+    static func registerAll() {
+        unregisterAll()
+        for a in HotAction.allCases {
+            guard let s = a.current else { continue }
+            var ref: EventHotKeyRef?
+            if RegisterEventHotKey(UInt32(s.code), UInt32(s.mods), EventHotKeyID(signature: OSType(0x574B4654), id: a.id),
+                                   GetApplicationEventTarget(), 0, &ref) == noErr, let ref { refs[a.id] = ref } else { failed.insert(a) }
+        }
+    }
+
+    // Während der Aufnahme aus – sonst würde das alte Kürzel die Taste wegschnappen
+    static func unregisterAll() {
+        refs.values.forEach { UnregisterEventHotKey($0) }
+        refs = [:]
+        failed = []
+    }
+}
+
+// Aufnahme eines Kürzels wie in den macOS-Systemeinstellungen
+@MainActor final class ShortcutRecorder: ObservableObject {
+    static let shared = ShortcutRecorder()
+    @Published private(set) var recording: HotAction?
+    @Published var message = ""
+    private var monitor: Any?
+
+    func start(_ a: HotAction) {
+        stop()
+        recording = a
+        message = ""
+        HotKey.unregisterAll()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            MainActor.assumeIsolated { ShortcutRecorder.shared.handle(e) }
+            return nil
+        }
+    }
+
+    func stop() {
+        if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
+        recording = nil
+        HotKey.registerAll()
+    }
+
+    private func handle(_ e: NSEvent) {
+        guard let a = recording else { return }
+        let f = e.modifierFlags
+        if f.intersection([.command, .control, .option]).isEmpty {
+            if e.keyCode == 53 { stop(); return }                                   // Esc: abbrechen
+            if e.keyCode == 51 || e.keyCode == 117 { a.current = nil; stop(); return } // ⌫: Kürzel aus
+        }
+        var mods = 0
+        if f.contains(.command) { mods |= cmdKey }
+        if f.contains(.control) { mods |= controlKey }
+        if f.contains(.option) { mods |= optionKey }
+        if f.contains(.shift) { mods |= shiftKey }
+        let s = Shortcut(code: Int(e.keyCode), mods: mods, key: e.charactersIgnoringModifiers)
+        guard s.isValid else { NSSound.beep(); message = "Bitte mit ⌘, ⌃ oder ⌥ kombinieren."; return }
+        if let other = HotAction.allCases.first(where: { $0 != a && $0.current?.code == s.code && $0.current?.mods == s.mods }) {
+            NSSound.beep(); message = "Schon vergeben an „\(other.title)“."; return
+        }
+        a.current = s
+        stop()
+        if HotKey.failed.contains(a) { message = "\(s.display) ist schon von macOS oder einer anderen App belegt." }
+    }
+}
+
+struct ShortcutsTab: View {
+    @ObservedObject var r = ShortcutRecorder.shared
+    var body: some View {
+        Form {
+            Section {
+                ForEach(HotAction.allCases) { a in
+                    LabeledContent(a.title) {
+                        HStack(spacing: 8) {
+                            Button {
+                                if r.recording == a { r.stop() } else { r.start(a) }
+                            } label: {
+                                Text(r.recording == a ? "Kürzel drücken …" : (a.current?.display ?? "Aus"))
+                                    .frame(minWidth: 120)
+                                    .foregroundStyle(r.recording == a ? Color.accentColor : (a.current == nil ? .secondary : .primary))
+                            }
+                            .accessibilityLabel("\(a.title): \(a.current?.display ?? "aus")")
+                            .accessibilityHint("Klicken und neue Tastenkombination drücken")
+                            Button { a.reset(); HotKey.registerAll(); r.message = "" } label: { Image(systemName: "arrow.counterclockwise") }
+                                .buttonStyle(.borderless)
+                                .help("Auf Standard (\(a.standard.display)) zurücksetzen")
+                                .accessibilityLabel("\(a.title) auf Standard zurücksetzen")
+                                .disabled(a.current == a.standard)
+                        }
+                    }
+                }
+            } footer: {
+                Text(r.message.isEmpty ? "Klicken, dann die neue Kombination drücken. Esc bricht ab, ⌫ schaltet das Kürzel aus." : r.message)
+                    .foregroundStyle(r.message.isEmpty ? Color.secondary : Color.red)
+            }
+            Section {
+                LabeledContent("Startmenü") { Text("Control kurz antippen").foregroundStyle(.secondary) }
+            }
+        }
+        .formStyle(.grouped)
+        .onDisappear { if r.recording != nil { r.stop() } }
     }
 }
 
@@ -2548,6 +2753,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if d.bool(forKey: "startMenu") { StartKey.start() }
         HotKey.register()
         SearchPanel.prepare()
+        if !d.bool(forKey: "welcomeShown") { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MainActor.assumeIsolated { openWelcome() } } }
         DockReveal.start()
         Task { await Updater.shared.loop() }
     }
@@ -2612,7 +2818,7 @@ struct MenuContent: View {
         }
         Divider()
         Button("Suche …") { SearchPanel.show() }
-        Button("Schnellnotiz   ⌃⌥N") { QuickNote.shared.toggle() }
+        Button("Schnellnotiz") { QuickNote.shared.toggle() }
         if !Pins.shared.pinned.isEmpty { Button("Alle angehefteten Fenster lösen") { Pins.shared.unpinAll() } }
         Button("Task-Manager …") { openTaskManager() }
             .keyboardShortcut(.escape, modifiers: [.control, .shift])
@@ -2629,13 +2835,14 @@ struct MenuContent: View {
 // Einstellungsfenster wie bei Systemapps: AppKit-Tabs im Toolbar-Stil, Inhalt in SwiftUI
 // Seiten wie in den Systemeinstellungen: farbige Symbolkachel, Titel, Suchbegriffe
 enum Pane: String, CaseIterable, Identifiable {
-    case general, input, windows, finder, screenshots, notifications, menubar, animations, autostarts, cleanup
+    case general, input, shortcuts, windows, finder, screenshots, notifications, menubar, animations, autostarts, cleanup
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .general: "Allgemein"
         case .input: "Eingabe"
+        case .shortcuts: "Tastenkürzel"
         case .windows: "Fenster"
         case .finder: "Finder"
         case .screenshots: "Screenshots"
@@ -2650,6 +2857,7 @@ enum Pane: String, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape.fill"
         case .input: "hand.tap.fill"
+        case .shortcuts: "command"
         case .windows: "macwindow"
         case .finder: "folder.fill"
         case .screenshots: "camera.viewfinder"
@@ -2665,6 +2873,7 @@ enum Pane: String, CaseIterable, Identifiable {
         switch self {
         case .general: .gray
         case .input: .blue
+        case .shortcuts: .gray
         case .windows: .indigo
         case .finder: .cyan
         case .screenshots: .gray
@@ -2689,7 +2898,8 @@ enum Pane: String, CaseIterable, Identifiable {
         var t = [title]
         if let g = group { t += features.filter { $0.group == g }.flatMap { [$0.title, $0.hint] } }
         switch self {
-        case .general: t += ["Anmelden Start Updates Version Bedienungshilfen Wach bleiben Bildschirm Ruhezustand Task-Manager Suche"]
+        case .general: t += ["Anmelden Start Updates Version Bedienungshilfen Wach bleiben Bildschirm Ruhezustand"]
+        case .shortcuts: t += HotAction.allCases.map(\.title) + ["Kürzel Tastatur Hotkey Startmenü"]
         case .input: t += ["Startmenü Control Suche Tastenkürzel Trackpad Ziehen"]
         case .windows: t += ["Schließen beendet die App"]
         case .notifications: t += ["Nicht stören Fokus Alle Mitteilungen"]
@@ -2743,6 +2953,7 @@ struct SettingsRoot: View {
                 case .notifications: NotificationsTab()
                 case .menubar: MenuBarTab()
                 case .animations: AnimationTab()
+                case .shortcuts: ShortcutsTab()
                 case .autostarts: AutostartView()
                 case .cleanup: CleanupView()
                 case let p: FeatureTab(store: Store.shared, group: p.group ?? groups[0])
@@ -2789,14 +3000,6 @@ struct FeatureTab: View {
         Form {
             Section {
                 if group == groups[0] {
-                    Picker(selection: Binding(get: { UserDefaults.standard.string(forKey: "searchHotkey") ?? "opt" },
-                                              set: { UserDefaults.standard.set($0, forKey: "searchHotkey"); HotKey.registerSearch(); store.objectWillChange.send() })) {
-                        ForEach(HotKey.searchKeys, id: \.id) { Text($0.title).tag($0.id) }
-                    } label: {
-                        Text("Suche öffnen mit")
-                        Text("Apps, Dateien, Rechnen und Web – wie Spotlight, nur schneller.")
-                    }
-                    .accessibilityLabel("Suche öffnen mit")
                     Toggle(isOn: store.startMenu) {
                         Text("Control antippen öffnet das Startmenü")
                         Text("Wie die Windows-Taste: Control kurz allein drücken – Apps suchen, Ein/Aus.")
@@ -2854,6 +3057,9 @@ struct GeneralTab: View {
                     if awake.mode != nil { Button("Beenden") { awake.stop() } }
                 }
             }
+            Section {
+                Button("Einführung erneut zeigen …") { openWelcome() }
+            }
             Section("Updates") {
                 Toggle("Updates automatisch installieren", isOn: $autoUpdate)
                 LabeledContent("Version", value: appVersion)
@@ -2861,7 +3067,6 @@ struct GeneralTab: View {
                 Button("Jetzt nach Updates suchen") { Task { await updater.check(manual: true) } }
             }
             Section {
-                LabeledContent("Task-Manager", value: "⌃⇧⎋")
             }
         }
         .formStyle(.grouped)

@@ -1,4 +1,4 @@
-// Tests: swiftc TapDragLogic.swift Calc.swift Tests/main.swift -o /tmp/wktest && /tmp/wktest
+// Tests: swiftc TapDragLogic.swift Calc.swift Shortcut.swift Tests/main.swift -o /tmp/wktest && /tmp/wktest
 typealias A = TapDragLogic.Action
 typealias P = TapDragLogic.Point
 
@@ -98,6 +98,23 @@ calc("2024", nil)        // reine Zahl ist keine Rechnung
 calc("Safari", nil)
 calc("", nil)
 calc("3..2+1", nil)
+
+// Tastenkürzel
+func sc(_ name: String, _ got: String, _ want: String) {
+    let ok = got == want
+    if !ok { failed += 1 }
+    print(ok ? "✅" : "❌", "Kürzel \(name) → \(got)", ok ? "" : "(erwartet \(want))")
+}
+sc("⌃⌥N", Shortcut(code: 45, mods: Shortcut.control | Shortcut.option, key: "n").display, "⌃⌥N")
+sc("⌥ Leertaste", Shortcut(code: 49, mods: Shortcut.option, key: " ").display, "⌥ Leertaste")
+sc("⌃⇧⎋", Shortcut(code: 53, mods: Shortcut.control | Shortcut.shift).display, "⌃⇧⎋")
+sc("Reihenfolge ⌃⌥⇧⌘", Shortcut(code: 35, mods: Shortcut.command | Shortcut.shift | Shortcut.option | Shortcut.control, key: "p").display, "⌃⌥⇧⌘P")
+sc("F5 ohne Modifier", Shortcut(code: 96, mods: 0).display, "F5")
+sc("Gültig mit ⌘", "\(Shortcut(code: 35, mods: Shortcut.command, key: "p").isValid)", "true")
+sc("Ungültig: nur Buchstabe", "\(Shortcut(code: 35, mods: 0, key: "p").isValid)", "false")
+sc("Ungültig: nur ⇧ + Buchstabe", "\(Shortcut(code: 35, mods: Shortcut.shift, key: "p").isValid)", "false")
+sc("Gültig: F-Taste allein", "\(Shortcut(code: 96, mods: 0).isValid)", "true")
+sc("Deutsche Tastatur: Taste 6 heißt Z", Shortcut(code: 6, mods: Shortcut.command, key: "z").display, "⌘Z")
 
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }
