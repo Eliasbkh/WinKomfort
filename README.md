@@ -16,7 +16,8 @@ Windows-Komfort für macOS als Menüleisten-App – jede Funktion einzeln schalt
 - **Fenster wechseln wie Alt-Tab** (⌥⇥, ⌥⇧⇥ rückwärts): kurz tippen = letztes Fenster, halten = Übersicht mit Live-Vorschau
 - **Finder wie Explorer**: ⌘X schneidet Dateien aus, ⌘V verschiebt sie; neue Textdatei im offenen Ordner (⌃⌥⌘N)
 - **Zwischenablage-Verlauf** (⌃⌥V): letzte 50 Texte und 10 Bilder, nur im Arbeitsspeicher, Passwörter aus Passwort-Managern werden nie gespeichert
-- **OneNote als PDF** (⌃⌥P in OneNote): aktuelle Seite, ganzen Abschnitt oder ganzes Notizbuch als eine PDF in „Downloads“
+- **OneNote als PDF** (⌃⌥P in OneNote): aktuelle Seite, ganzen Abschnitt oder ganzes Notizbuch als eine PDF in „Downloads“ (≈ 1 s pro Seite, mit Fortschrittsanzeige)
+- **Explorer** (⌃⌥E): eigener Dateimanager in drei Stilen – GNOME, KDE Dolphin, Windows 11 – mit Live-Vorschau in den Einstellungen und Quick Look (Leertaste)
 - **Fenster einrasten per Tastatur** (⌃⌥←/→/↑/↓): linke/rechte Hälfte, maximieren, zurück bzw. minimieren
 - **Fenster anheften** (⌃⌘P): Fenster bleibt immer im Vordergrund (Live-Kopie, braucht einmal „Bildschirmaufnahme“)
 - **Wach bleiben:** Bildschirm an lassen oder nur den Mac wach halten, für 30 Min bis unbegrenzt
