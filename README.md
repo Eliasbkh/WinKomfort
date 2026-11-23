@@ -14,6 +14,7 @@ Windows-Komfort für macOS als Menüleisten-App – jede Funktion einzeln schalt
 - **Suche** (⌥ Leertaste): Apps, Dateien, Rechner, Web – mit Pfeiltasten und Enter
 - **Schnellnotiz** (⌃⌥N): kleine Notiz oben links, immer im Vordergrund, speichert automatisch
 - **Fenster wechseln wie Alt-Tab** (⌥⇥, ⌥⇧⇥ rückwärts): kurz tippen = letztes Fenster, halten = Übersicht mit Live-Vorschau
+- **Finder wie Explorer**: ⌘X schneidet Dateien aus, ⌘V verschiebt sie; neue Textdatei im offenen Ordner (⌃⌥⌘N)
 - **Zwischenablage-Verlauf** (⌃⌥V): letzte 50 Texte und 10 Bilder, nur im Arbeitsspeicher, Passwörter aus Passwort-Managern werden nie gespeichert
 - **Fenster einrasten per Tastatur** (⌃⌥←/→/↑/↓): linke/rechte Hälfte, maximieren, zurück bzw. minimieren
 - **Fenster anheften** (⌃⌘P): Fenster bleibt immer im Vordergrund (Live-Kopie, braucht einmal „Bildschirmaufnahme“)

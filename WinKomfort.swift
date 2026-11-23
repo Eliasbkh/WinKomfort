@@ -140,6 +140,9 @@ let features: [Feature] = [
                     Pref(domain: "com.apple.finder", key: "_FXSortFoldersFirst", on: yes),
                     Pref(domain: "com.apple.finder", key: "_FXShowPosixPathInTitle", on: yes)],
             restart: ["Finder"]),
+    Feature(id: "cut", group: groups[2], title: "⌘X schneidet Dateien aus",
+            hint: "Wie im Explorer: ⌘X und dann ⌘V verschiebt die Dateien. Neue Textdatei im offenen Ordner: ⌃⌥⌘N.",
+            prefs: [Pref(domain: "de.winkomfort.app", key: "finderCut", on: yes)]),
     Feature(id: "finderquit", group: groups[2], title: "Finder beenden erlauben",
             hint: "Wie jede andere App: ⌘Q beendet den Finder. Ein Klick aufs Finder-Symbol im Dock öffnet ihn wieder.",
             prefs: [Pref(domain: "com.apple.finder", key: "QuitMenuItem", on: yes)],
@@ -207,6 +210,7 @@ func apply(_ f: Feature, _ on: Bool) {
             apply(f, v)
             self.on[f.id] = v
             if f.id == "drag" { if v { TapDragFix.start(prompt: true) } else { TapDragFix.stop() } }
+            if f.id == "cut" { if v { FinderCut.start(prompt: true) } else { FinderCut.stop() } }
         })
     }
     var startMenu: Binding<Bool> {
@@ -1985,11 +1989,11 @@ struct TaskView: View {
 
 // Globale Tastenkürzel – selbst festlegbar unter Einstellungen → Tastenkürzel
 enum HotAction: String, CaseIterable, Identifiable {
-    case search, switcher, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, tasks
+    case search, switcher, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, newFile, tasks
     var id: UInt32 {
         switch self {
         case .tasks: 1; case .search: 2; case .note: 3; case .pin: 4; case .clipboard: 5
-        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9; case .switcher: 10
+        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9; case .switcher: 10; case .newFile: 12
         }
     }
     var title: String {
@@ -2000,6 +2004,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .tasks: "Task-Manager"
         case .clipboard: "Zwischenablage-Verlauf"
         case .switcher: "Fenster wechseln (⇧ dazu: rückwärts)"
+        case .newFile: "Neue Textdatei im Finder"
         case .snapLeft: "Fenster: linke Hälfte"
         case .snapRight: "Fenster: rechte Hälfte"
         case .snapMax: "Fenster: maximieren"
@@ -2013,6 +2018,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .pin: Shortcut(code: kVK_ANSI_P, mods: controlKey | cmdKey, key: "P")
         case .tasks: Shortcut(code: kVK_Escape, mods: controlKey | shiftKey)
         case .switcher: Shortcut(code: kVK_Tab, mods: optionKey)
+        case .newFile: Shortcut(code: kVK_ANSI_N, mods: controlKey | optionKey | cmdKey, key: "N")
         case .clipboard: Shortcut(code: kVK_ANSI_V, mods: controlKey | optionKey, key: "V")
         case .snapLeft: Shortcut(code: kVK_LeftArrow, mods: controlKey | optionKey)
         case .snapRight: Shortcut(code: kVK_RightArrow, mods: controlKey | optionKey)
@@ -2038,6 +2044,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .tasks: openTaskManager()
         case .clipboard: ClipPanel.toggle()
         case .switcher: WindowSwitcher.shared.step(1)
+        case .newFile: newTextFile()
         case .snapLeft: Snap.run(.left)
         case .snapRight: Snap.run(.right)
         case .snapMax: Snap.run(.max)
@@ -2177,6 +2184,88 @@ struct ShortcutsTab: View {
         }
         .formStyle(.grouped)
         .onDisappear { if r.recording != nil { r.stop() } }
+    }
+}
+
+// MARK: - Finder wie der Explorer: ⌘X schneidet Dateien aus, ⌘V verschiebt sie
+
+enum FinderCut {
+    private static var tap: CFMachPort?
+    private static var cutChange: Int?   // Zwischenablage-Stand direkt nach ⌘X
+
+    static func start(prompt: Bool = false) {
+        afterTrust(prompt: prompt) {
+            guard tap == nil, isOn(features.first { $0.id == "cut" }!) else { return }
+            tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
+                                    eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue), callback: { _, type, event, _ in
+                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    if let t = FinderCut.tap { CGEvent.tapEnable(tap: t, enable: true) }
+                } else if type == .keyDown { FinderCut.handle(event) }
+                return Unmanaged.passUnretained(event)
+            }, userInfo: nil)
+            guard let tap else { return }
+            CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+        }
+    }
+
+    static func stop() {
+        guard let t = tap else { return }
+        CGEvent.tapEnable(tap: t, enable: false)
+        CFMachPortInvalidate(t)
+        tap = nil
+        cutChange = nil
+    }
+
+    // Nur ⌘X / ⌘V im Finder, und nicht beim Umbenennen oder in der Suche (dort bleibt es Text ausschneiden/einfügen)
+    private static func handle(_ e: CGEvent) {
+        let code = e.getIntegerValueField(.keyboardEventKeycode)
+        guard code == 7 || code == 9,
+              e.flags.intersection([.maskCommand, .maskShift, .maskAlternate, .maskControl]) == .maskCommand,
+              NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder", !editingText() else { return }
+        if code == 7 { // ⌘X → Finder kopiert (⌘C), WinKomfort merkt sich: das war Ausschneiden
+            e.setIntegerValueField(.keyboardEventKeycode, value: 8)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                cutChange = NSPasteboard.general.changeCount
+                MainActor.assumeIsolated { Toast.show("Ausgeschnitten – mit ⌘V verschieben", symbol: "scissors") }
+            }
+        } else if let c = cutChange, c == NSPasteboard.general.changeCount { // ⌘V nach ⌘X → verschieben (⌥⌘V)
+            e.flags.insert(.maskAlternate)
+            cutChange = nil
+        }
+    }
+
+    private static func editingText() -> Bool {
+        guard let f = UIAuto.attr(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute) else { return false }
+        return ["AXTextField", "AXTextArea", "AXComboBox"].contains(UIAuto.role(f as! AXUIElement) ?? "")
+    }
+}
+
+// Neue Textdatei im offenen Finder-Ordner (wie „Neu › Textdokument“ im Explorer), direkt zum Umbenennen
+@MainActor func newTextFile() {
+    guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder" else {
+        Toast.show("Im Finder benutzen", symbol: "doc.badge.plus"); return
+    }
+    var err: NSDictionary?
+    guard let dir = NSAppleScript(source: "tell application \"Finder\" to return POSIX path of (insertion location as alias)")?
+            .executeAndReturnError(&err).stringValue else {
+        Toast.show("Bitte erlauben, dass WinKomfort den Finder steuert", symbol: "lock"); return
+    }
+    var url = URL(fileURLWithPath: dir).appendingPathComponent("Neue Textdatei.txt")
+    var n = 2
+    while FileManager.default.fileExists(atPath: url.path) {
+        url = URL(fileURLWithPath: dir).appendingPathComponent("Neue Textdatei \(n).txt")
+        n += 1
+    }
+    guard FileManager.default.createFile(atPath: url.path, contents: Data()) else {
+        Toast.show("Hier darf keine Datei angelegt werden", symbol: "exclamationmark.triangle"); return
+    }
+    let p = url.path.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+    NSAppleScript(source: "tell application \"Finder\" to select (POSIX file \"\(p)\" as alias)")?.executeAndReturnError(&err)
+    // ↩ startet im Finder das Umbenennen – nur, wenn der Finder noch vorne ist
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder" else { return }
+        for down in [true, false] { CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: down)?.post(tap: .cghidEventTap) }
     }
 }
 
@@ -3230,6 +3319,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            defaults("read", Pref(domain: "com.apple.dock", key: "autohide-time-modifier", on: [])) == "0.25" { apply(dock, true) }
         Store.shared.reload()
         if d.bool(forKey: "startMenu") { StartKey.start() }
+        FinderCut.start()
         HotKey.register()
         ClipHistory.shared.start()
         SearchPanel.prepare()
