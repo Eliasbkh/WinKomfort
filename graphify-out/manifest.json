@@ -1,0 +1,38 @@
+{
+  "WinKomfort.swift": {
+    "mtime": 1795417059.3485672,
+    "seen": 1795420669.5999591,
+    "ast_hash": "adf9e6027e58cc15f85fb64e1d51f72b",
+    "semantic_hash": ""
+  },
+  "build.sh": {
+    "mtime": 1795389739.3335123,
+    "seen": 1795420669.599961,
+    "ast_hash": "8f10f7474f0925f26d16865ab56e60af",
+    "semantic_hash": ""
+  },
+  "release.sh": {
+    "mtime": 1795385214.6160538,
+    "seen": 1795420669.599963,
+    "ast_hash": "56d1aeb33d650ae87a588f706aee0d83",
+    "semantic_hash": ""
+  },
+  "sign.swift": {
+    "mtime": 1795385168.6454644,
+    "seen": 1795420669.599963,
+    "ast_hash": "cd98582ceb4cb7f317a2bcbb0f7da810",
+    "semantic_hash": ""
+  },
+  "windows-features.sh": {
+    "mtime": 1795384664.1201994,
+    "seen": 1795420669.599964,
+    "ast_hash": "42404b6e93a6135fd2ec90801373ea13",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1795387216.5059347,
+    "seen": 1795420669.599964,
+    "ast_hash": "9034f700d04f35616ba15cb165de5d5a",
+    "semantic_hash": ""
+  }
+}

@@ -205,20 +205,20 @@ func apply(_ f: Feature, _ on: Bool) {
         Binding(get: { self.on[f.id] ?? false }, set: { v in
             apply(f, v)
             self.on[f.id] = v
-            if f.id == "drag" { if v { TapDragFix.start() } else { TapDragFix.stop() } }
+            if f.id == "drag" { if v { TapDragFix.start(prompt: true) } else { TapDragFix.stop() } }
         })
     }
     var startMenu: Binding<Bool> {
         Binding(get: { UserDefaults.standard.bool(forKey: "startMenu") }, set: { v in
             UserDefaults.standard.set(v, forKey: "startMenu")
-            if v { StartKey.start() } else { StartKey.stop() }
+            if v { StartKey.start(prompt: true) } else { StartKey.stop() }
             self.objectWillChange.send()
         })
     }
     var closeQuits: Binding<Bool> {
         Binding(get: { UserDefaults.standard.bool(forKey: "closeQuits") }, set: { v in
             UserDefaults.standard.set(v, forKey: "closeQuits")
-            CloseWatcher.shared.setEnabled(v)
+            CloseWatcher.shared.setEnabled(v, prompt: true)
             self.objectWillChange.send()
         })
     }
@@ -240,22 +240,19 @@ final class CloseWatcher {
     private var observers: [pid_t: AXObserver] = [:]
     private var tokens: [NSObjectProtocol] = []
     private var pending: Set<pid_t> = []
-    private var waitTimer: Timer?
     private let skip: Set<String> = ["com.apple.finder", "de.winkomfort.app"]
 
-    func setEnabled(_ on: Bool) {
+    func setEnabled(_ on: Bool, prompt: Bool = false) {
         stop()
         guard on else { return }
-        let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        guard AXIsProcessTrustedWithOptions(opts) else {
-            // Nur solange die Freigabe fehlt: alle 2 s nachsehen, dann sofort starten
-            waitTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] t in
-                guard AXIsProcessTrusted() else { return }
-                t.invalidate()
-                self?.setEnabled(true)
-            }
-            return
+        afterTrust(prompt: prompt) { [weak self] in
+            guard UserDefaults.standard.bool(forKey: "closeQuits") else { return } // inzwischen wieder ausgeschaltet
+            self?.begin()
         }
+    }
+
+    private func begin() {
+        guard tokens.isEmpty else { return }
         let nc = NSWorkspace.shared.notificationCenter
         tokens.append(nc.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { [weak self] n in
             if let app = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication { self?.watch(app) }
@@ -267,7 +264,6 @@ final class CloseWatcher {
     }
 
     private func stop() {
-        waitTimer?.invalidate()
         tokens.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
         tokens = []
         observers.keys.forEach(unwatch)
@@ -313,13 +309,26 @@ final class CloseWatcher {
 // (privates MultitouchSupport – liefert nur bei Berührung Daten) und lassen los, sobald kein Finger mehr liegt.
 
 // Bedienungshilfen-Freigabe anfragen; fehlt sie, alle 2 s nachsehen und danach `then` ausführen
-func afterTrust(_ then: @escaping () -> Void) {
-    let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-    if AXIsProcessTrustedWithOptions(opts) { then(); return }
-    Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { t in
+// Nachgefragt wird nur, wenn du eine Funktion einschaltest – und höchstens einmal pro Start. Beim Start wird still gewartet.
+private var trustWaiters: [() -> Void] = []
+private var trustTimer: Timer?
+private var trustPrompted = false
+
+func afterTrust(prompt: Bool = false, _ then: @escaping () -> Void) {
+    if AXIsProcessTrusted() { then(); return }
+    if prompt, !trustPrompted {
+        trustPrompted = true
+        AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+    }
+    trustWaiters.append(then)
+    guard trustTimer == nil else { return }
+    trustTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { t in
         guard AXIsProcessTrusted() else { return }
         t.invalidate()
-        then()
+        trustTimer = nil
+        let waiting = trustWaiters
+        trustWaiters = []
+        waiting.forEach { $0() }
     }
 }
 
@@ -345,9 +354,9 @@ enum TapDragFix {
         return 0
     }
 
-    static func start() {
-        afterTrust {
-            guard devices.isEmpty,
+    static func start(prompt: Bool = false) {
+        afterTrust(prompt: prompt) {
+            guard devices.isEmpty, features.first(where: { $0.id == "drag" }).map(isOn) == true,
                   let list = fn("MTDeviceCreateList", (@convention(c) () -> Unmanaged<CFArray>?).self)?()?.takeUnretainedValue(),
                   let register = fn("MTRegisterContactFrameCallback", DevFn.self),
                   let startDev = fn("MTDeviceStart", (@convention(c) (UnsafeMutableRawPointer, Int32) -> Void).self)
@@ -374,28 +383,43 @@ enum TapDragFix {
 
 enum StartKey {
     private static var downAt: Date?
-    private static var monitors: [Any] = []
+    private static var tap: CFMachPort?
 
-    static func start() {
-        afterTrust {
-            guard monitors.isEmpty else { return }
-            let cancel: NSEvent.EventTypeMask = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
-            if let m = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged, handler: handle) { monitors.append(m) }
-            if let m = NSEvent.addGlobalMonitorForEvents(matching: cancel, handler: { _ in downAt = nil }) { monitors.append(m) }
-            if let m = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged, handler: { handle($0); return $0 }) { monitors.append(m) }
-            if let m = NSEvent.addLocalMonitorForEvents(matching: cancel, handler: { downAt = nil; return $0 }) { monitors.append(m) }
+    // Reiner Zuhörer im System-Tastaturstrom (verändert nichts) – zuverlässig, auch wenn WinKomfort nie im Vordergrund war
+    static func start(prompt: Bool = false) {
+        afterTrust(prompt: prompt) {
+            guard tap == nil, UserDefaults.standard.bool(forKey: "startMenu") else { return }
+            // Scrollen zählt nicht als Abbruch: ein auf dem Trackpad liegender Finger erzeugt ständig Scroll-Ereignisse
+            let types: [CGEventType] = [.flagsChanged, .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+            let mask = types.reduce(CGEventMask(0)) { $0 | (1 << $1.rawValue) }
+            tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
+                                    eventsOfInterest: mask, callback: { _, type, event, _ in
+                switch type {
+                case .tapDisabledByTimeout, .tapDisabledByUserInput:
+                    if let t = StartKey.tap { CGEvent.tapEnable(tap: t, enable: true) }
+                case .flagsChanged: StartKey.handle(event.flags)
+                default:
+                    StartKey.downAt = nil // andere Taste oder Klick dazwischen → kein Startmenü
+                }
+                return Unmanaged.passUnretained(event)
+            }, userInfo: nil)
+            guard let tap else { return }
+            CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
         }
     }
 
     static func stop() {
-        monitors.forEach(NSEvent.removeMonitor)
-        monitors = []
+        guard let t = tap else { return }
+        CGEvent.tapEnable(tap: t, enable: false)
+        CFMachPortInvalidate(t)
+        tap = nil
     }
 
     // Nur Control gedrückt und innerhalb 0,4 s wieder losgelassen – ohne andere Taste oder Klick dazwischen
-    private static func handle(_ e: NSEvent) {
-        let f = e.modifierFlags.intersection([.shift, .control, .option, .command, .function])
-        if f == .control { downAt = Date() }
+    private static func handle(_ flags: CGEventFlags) {
+        let f = flags.intersection([.maskShift, .maskControl, .maskAlternate, .maskCommand, .maskSecondaryFn])
+        if f == .maskControl { downAt = Date() }
         else if f.isEmpty, let d = downAt, Date().timeIntervalSince(d) < 0.4 {
             downAt = nil
             DispatchQueue.main.async { MainActor.assumeIsolated { StartMenu.toggle() } }
@@ -476,13 +500,15 @@ final class KeyPanel: NSPanel {
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main!
         let v = screen.visibleFrame, size = p.frame.size
         p.setFrameOrigin(NSPoint(x: v.midX - size.width / 2, y: v.minY + 16))
-        NSApp.activate(ignoringOtherApps: true)
-        p.makeKeyAndOrderFront(nil)
+        // Nicht aktivierendes Panel (wie Spotlight): erscheint und nimmt Tastatur an, ohne WinKomfort nach vorne zu holen
+        p.orderFrontRegardless()
+        p.makeKey()
     }
 
     private static func make() -> KeyPanel {
-        let p = KeyPanel(contentRect: NSRect(x: 0, y: 0, width: 600, height: 520), styleMask: [.borderless],
+        let p = KeyPanel(contentRect: NSRect(x: 0, y: 0, width: 600, height: 520), styleMask: [.borderless, .nonactivatingPanel],
                          backing: .buffered, defer: false)
+        p.becomesKeyOnlyIfNeeded = false
         p.isOpaque = false
         p.backgroundColor = .clear
         p.hasShadow = true
@@ -1250,3 +1276,4 @@ struct GeneralTab: View {
         MenuBarExtra("WinKomfort", systemImage: "macwindow.on.rectangle") { MenuContent() }
     }
 }
+
