@@ -815,6 +815,37 @@ struct NotifApp: Identifiable {
     }
 }
 
+struct MenuBarTab: View {
+    @ObservedObject var m = menuBarSwitches
+    var body: some View {
+        Form {
+            Section {
+                Text("Rechts neben der Notch ist wenig Platz – was nicht mehr passt, blendet macOS einfach aus. Schalte hier Symbole ab, die du nicht brauchst.")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(["Symbole von macOS", "Symbole von Apps"], id: \.self) { group in
+                Section {
+                    ForEach(m.items.filter { $0.group == group }) { item in
+                        Toggle(item.name, isOn: Binding(get: { item.on }, set: { m.set(item.id, $0) }))
+                            .accessibilityLabel(item.name)
+                            .disabled(m.busy)
+                    }
+                    if m.items.isEmpty { Text(m.busy ? "Lese Menüleiste …" : m.message).foregroundStyle(.secondary) }
+                } header: {
+                    HStack {
+                        Text(group)
+                        Spacer()
+                        if m.busy && group == "Symbole von macOS" { ProgressView().controlSize(.small) }
+                    }
+                }
+            }
+            if !m.message.isEmpty && !m.items.isEmpty { Section { Text(m.message).foregroundStyle(.red) } }
+        }
+        .formStyle(.grouped)
+        .onAppear { if m.items.isEmpty && !m.busy { m.load() } }
+    }
+}
+
 struct NotificationsTab: View {
     @ObservedObject var n = Notifs.shared
     var body: some View {
@@ -1090,6 +1121,8 @@ struct LaunchItem: Identifiable {
 
 struct AutostartView: View {
     @ObservedObject var a = Autostarts.shared
+    @ObservedObject var login = LoginItems.shared
+    @ObservedObject var bg = backgroundSwitches
     var body: some View {
         Form {
             Section {
@@ -1106,26 +1139,249 @@ struct AutostartView: View {
             } footer: {
                 Text("Ausschalten verhindert den automatischen Start – nichts wird gelöscht, Einschalten macht es rückgängig. Apple-Dienste werden nicht angezeigt.")
             }
-            Section {
-                LabeledContent {
-                    Button("Öffnen …") {
-                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension")!)
+            Section("Apps beim Anmelden") {
+                if login.items.isEmpty { Text(login.message.isEmpty ? "Keine." : login.message).foregroundStyle(.secondary) }
+                ForEach(login.items) { app in
+                    Toggle(isOn: Binding(get: { app.on }, set: { login.set(app, $0) })) {
+                        Text(app.name)
+                        Text(app.path)
                     }
-                } label: {
-                    Text("Apps beim Anmelden")
-                    Text("Apps wie Spotify oder Steam stellst du in den Systemeinstellungen ein.")
+                    .accessibilityLabel(app.name)
+                    .disabled(login.busy)
                 }
+            }
+            Section {
+                if bg.items.isEmpty { Text(bg.busy ? "Lese Hintergrundaktivitäten …" : bg.message).foregroundStyle(.secondary) }
+                ForEach(bg.items) { item in
+                    Toggle(isOn: Binding(get: { item.on }, set: { bg.set(item.id, $0) })) {
+                        Text(item.name)
+                        Text(item.detail)
+                    }
+                    .accessibilityLabel(item.name)
+                    .disabled(bg.busy)
+                }
+            } header: {
+                HStack {
+                    Text("Hintergrundaktivitäten")
+                    Spacer()
+                    if bg.busy { ProgressView().controlSize(.small) }
+                }
+            } footer: {
+                Text(bg.message.isEmpty ? "Darf eine App im Hintergrund laufen (Updater, Sync …)?" : bg.message)
             }
             if !a.message.isEmpty { Section { Text(a.message) } }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 480)
+        .frame(width: 520, height: 600)
     }
 }
 
 @MainActor func openAutostarts() {
     Autostarts.shared.scan()
+    LoginItems.shared.load()
+    if !backgroundSwitches.busy { backgroundSwitches.load() }
     showWindow("autostarts", "Autostarts") { AutostartView() }
+}
+
+// MARK: - Schalter aus den Systemeinstellungen, direkt in WinKomfort
+// Wie bei den Mitteilungen: Apple bietet keine Schnittstelle, also bedient WinKomfort die Seite unsichtbar im Hintergrund.
+
+extension UIAuto {
+    static let settings = "com.apple.systempreferences"
+
+    // Öffnet eine Einstellungsseite unsichtbar, wartet bis sie bereit ist, arbeitet darauf und schließt sie wieder
+    static func onSettingsPage<T>(_ url: String, ready: ([AXUIElement]) -> Bool, _ work: ([AXUIElement]) -> T?) -> T? {
+        let wasRunning = !NSRunningApplication.runningApplications(withBundleIdentifier: settings).isEmpty
+        defer { if !wasRunning { NSRunningApplication.runningApplications(withBundleIdentifier: settings).first?.terminate() } }
+        let cfg = NSWorkspace.OpenConfiguration()
+        cfg.activates = false
+        cfg.hides = true
+        NSWorkspace.shared.open(URL(string: url)!, configuration: cfg)
+        guard let e = wait(settings, ready) else { return nil }
+        return work(e)
+    }
+
+    static func value(_ e: AXUIElement) -> Bool { (attr(e, kAXValueAttribute) as? Int) == 1 }
+}
+
+struct SysSwitch: Identifiable {
+    let id: String      // stabile Kennung zum Wiederfinden
+    let name: String
+    let group: String
+    var on: Bool
+    var detail = ""
+}
+
+// Eine Einstellungsseite mit vielen Schaltern: lesen und einzeln umschalten
+@MainActor final class SettingsSwitches: ObservableObject {
+    @Published var items: [SysSwitch] = []
+    @Published var busy = false
+    @Published var message = ""
+    let url: String
+    let ready: ([AXUIElement]) -> Bool
+    let extract: ([AXUIElement]) -> [(SysSwitch, AXUIElement)]
+    private let queue = DispatchQueue(label: "winkomfort.sysswitches")
+
+    nonisolated init(url: String, ready: @escaping ([AXUIElement]) -> Bool, extract: @escaping ([AXUIElement]) -> [(SysSwitch, AXUIElement)]) {
+        self.url = url; self.ready = ready; self.extract = extract
+    }
+
+    private func run(_ work: @escaping () -> ([SysSwitch]?, String)) {
+        busy = true
+        message = ""
+        queue.async {
+            let (items, msg) = work()
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    if let items { self.items = items }
+                    self.message = msg
+                    self.busy = false
+                }
+            }
+        }
+    }
+
+    func load() {
+        let (url, ready, extract) = (url, ready, extract)
+        run {
+            let r = UIAuto.onSettingsPage(url, ready: ready) { extract($0).map(\.0) }
+            return (r, r == nil ? "Konnte die Einstellungen nicht lesen." : "")
+        }
+    }
+
+    func set(_ id: String, _ on: Bool) {
+        let (url, ready, extract) = (url, ready, extract)
+        run {
+            let r: [SysSwitch]? = UIAuto.onSettingsPage(url, ready: ready) { e in
+                guard let (_, el) = extract(e).first(where: { $0.0.id == id }) else { return nil }
+                if UIAuto.value(el) != on {
+                    UIAuto.press(el)
+                    for _ in 0..<20 where UIAuto.value(el) != on { usleep(100_000) }
+                }
+                return UIAuto.app(UIAuto.settings).map { extract(UIAuto.elements($0)).map(\.0) }
+            }
+            let ok = r?.first(where: { $0.id == id })?.on == on
+            return (r, ok ? "" : "Konnte den Schalter nicht umstellen.")
+        }
+    }
+}
+
+// Systemeinstellungen → Allgemein → Anmeldeobjekte → App-Hintergrundaktivitäten
+let backgroundSwitches = SettingsSwitches(
+    url: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
+    ready: { $0.contains { UIAuto.id($0)?.hasPrefix("background-switch-") == true } },
+    extract: { e in
+        var seen = Set<String>()
+        return e.compactMap { el -> (SysSwitch, AXUIElement)? in
+            guard UIAuto.role(el) == "AXCheckBox", let id = UIAuto.id(el), id.hasPrefix("background-switch-"),
+                  UIAuto.label(el) != "Im Finder anzeigen", seen.insert(id).inserted else { return nil }
+            let name = String(id.dropFirst("background-switch-".count))
+            guard name != "WinKomfort" else { return nil } // sich selbst nicht abschaltbar machen
+            let detail = e.first { UIAuto.id($0) == "background-detail-for-\(name)-app-login-items" && UIAuto.role($0) == "AXStaticText" }
+                .flatMap { UIAuto.attr($0, kAXValueAttribute) as? String } ?? ""
+            return (SysSwitch(id: id, name: name, group: "Hintergrund", on: UIAuto.value(el), detail: detail), el)
+        }
+    })
+
+// Systemeinstellungen → Menüleiste: Symbole von macOS und von Apps
+let menuBarSwitches = SettingsSwitches(
+    url: "x-apple.systempreferences:com.apple.ControlCenter-Settings.extension",
+    ready: { $0.contains { UIAuto.role($0) == "AXHeading" && UIAuto.label($0) == "In Menüleiste erlauben" } },
+    extract: { e in
+        let names = ["controlcenter-battery-id": "Batterie", "controlcenter-userSwitcher-id": "Schneller Benutzerwechsel"]
+        var out: [(SysSwitch, AXUIElement)] = []
+        var lastText = "", inApps = false
+        for el in e {
+            let role = UIAuto.role(el)
+            if role == "AXHeading" { inApps = UIAuto.label(el) == "In Menüleiste erlauben" }
+            if role == "AXStaticText" { lastText = (UIAuto.attr(el, kAXValueAttribute) as? String) ?? "" }
+            guard role == "AXCheckBox" else { continue }
+            if let id = UIAuto.id(el), id.hasPrefix("controlcenter-"), id.hasSuffix("-id") {
+                let label = UIAuto.label(el)
+                out.append((SysSwitch(id: id, name: label.isEmpty ? (names[id] ?? id) : label.replacingOccurrences(of: "\u{AD}", with: ""),
+                                      group: "Symbole von macOS", on: UIAuto.value(el)), el))
+            } else if inApps, !lastText.isEmpty, lastText != "WinKomfort" { // WinKomfort selbst bleibt immer sichtbar
+                out.append((SysSwitch(id: "app:" + lastText, name: lastText, group: "Symbole von Apps", on: UIAuto.value(el)), el))
+            }
+        }
+        return out
+    })
+
+// Apps beim Anmelden – über die offizielle Skript-Schnittstelle „System Events“ (umkehrbar: Pfad wird gemerkt)
+struct LoginApp: Identifiable {
+    let name: String
+    let path: String
+    var on: Bool
+    var id: String { name }
+}
+
+@MainActor final class LoginItems: ObservableObject {
+    static let shared = LoginItems()
+    @Published var items: [LoginApp] = []
+    @Published var message = ""
+    @Published var busy = false
+    private let queue = DispatchQueue(label: "winkomfort.loginitems")
+    private var removed: [String: String] {
+        get { UserDefaults.standard.dictionary(forKey: "removedLoginItems") as? [String: String] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: "removedLoginItems") }
+    }
+
+    // Läuft im Hintergrund über osascript – beim ersten Mal wartet macOS auf deine Erlaubnis, die App friert dabei nicht ein
+    private nonisolated static func script(_ s: String) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        p.arguments = ["-e", "tell application \"System Events\"\n\(s)\nend tell"]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = Pipe()
+        guard (try? p.run()) != nil else { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return p.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : nil
+    }
+
+    private nonisolated static func read() -> [LoginApp]? {
+        // Name und Pfad je Zeile, damit Kommas in Namen nichts kaputt machen
+        guard let out = script("set out to \"\"\nrepeat with i in every login item\nset out to out & name of i & tab & path of i & linefeed\nend repeat\nreturn out") else { return nil }
+        return out.split(separator: "\n").compactMap { line in
+            let p = line.split(separator: "\t", maxSplits: 1).map(String.init)
+            return p.count == 2 ? LoginApp(name: p[0], path: p[1], on: true) : nil
+        }
+    }
+
+    private func run(_ work: @escaping () -> (list: [LoginApp]?, change: (String, String?)?)) {
+        busy = true
+        message = items.isEmpty ? "Warte auf Erlaubnis für „System Events“ …" : ""
+        queue.async {
+            let r = work()
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self.busy = false
+                    if let (name, path) = r.change { self.removed[name] = path }
+                    guard let list = r.list else {
+                        self.message = "Kein Zugriff auf „System Events“. Erlauben unter Datenschutz & Sicherheit → Automation."
+                        return
+                    }
+                    var all = list.filter { $0.name != "WinKomfort" } // WinKomfort selbst: Einstellungen → Allgemein
+                    for (name, path) in self.removed where !all.contains(where: { $0.name == name }) { all.append(LoginApp(name: name, path: path, on: false)) }
+                    self.items = all.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                    self.message = ""
+                }
+            }
+        }
+    }
+
+    func load() { run { (Self.read(), nil) } }
+
+    func set(_ app: LoginApp, _ on: Bool) {
+        let esc = { (s: String) in s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") }
+        run {
+            let ok = on ? Self.script("make login item at end with properties {path:\"\(esc(app.path))\", hidden:false}") != nil
+                        : Self.script("delete login item \"\(esc(app.name))\"") != nil
+            // Entfernt → Pfad merken (zum Wiederherstellen); wieder an → vergessen
+            return (Self.read(), ok ? (app.name, on ? nil : app.path) : nil)
+        }
+    }
 }
 
 // MARK: - Mac aufräumen (mit Protokoll zum Rückgängigmachen)
@@ -1497,6 +1753,7 @@ struct MenuContent: View {
         add("Allgemein", "gearshape", GeneralTab(store: Store.shared))
         for i in groups.indices { add(groups[i], groupIcons[i], FeatureTab(store: Store.shared, group: groups[i])) }
         add("Mitteilungen", "bell.badge", NotificationsTab())
+        add("Menüleiste", "menubar.rectangle", MenuBarTab())
         let w = NSWindow(contentViewController: tabs)
         w.styleMask = [.titled, .closable]
         w.title = "Allgemein"
