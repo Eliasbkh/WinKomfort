@@ -1,14 +1,20 @@
 {
   "0": "WinKomfort.swift",
-  "1": "Bool",
+  "1": "Store",
   "2": "TaskModel",
   "3": "String",
-  "4": "String",
+  "4": "ObservableObject",
   "5": "Cleaner",
   "6": "KeyPanel",
-  "8": "sign.swift",
-  "9": "Autostarts",
+  "7": "Awake",
+  "8": "Parser",
+  "9": "PinnedWindow",
   "10": "WinKomfort",
   "11": "windows-features.sh",
-  "12": "build.sh script"
+  "12": "build.sh script",
+  "13": "TapDragLogic",
+  "14": "SearchField",
+  "15": "Double",
+  "16": "Int32",
+  "17": "String"
 }

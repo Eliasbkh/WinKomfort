@@ -1,14 +1,14 @@
 {
   "WinKomfort.swift": {
-    "mtime": 1795421000.1116002,
-    "seen": 1795421124.187567,
-    "ast_hash": "2fca9b2a8f5d474315927108321327f3",
+    "mtime": 1795430320.815608,
+    "seen": 1795460619.777515,
+    "ast_hash": "7ad284834e156d90b30ad4ee51ac8318",
     "semantic_hash": ""
   },
   "build.sh": {
-    "mtime": 1795389739.3335123,
-    "seen": 1795420669.599961,
-    "ast_hash": "8f10f7474f0925f26d16865ab56e60af",
+    "mtime": 1795425114.6381457,
+    "seen": 1795460619.7775161,
+    "ast_hash": "a66e1a4f464e7e41752047c76e0e5128",
     "semantic_hash": ""
   },
   "release.sh": {
@@ -30,9 +30,27 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1795387216.5059347,
-    "seen": 1795420669.599964,
-    "ast_hash": "9034f700d04f35616ba15cb165de5d5a",
+    "mtime": 1795427142.856329,
+    "seen": 1795460619.7775202,
+    "ast_hash": "94a96afcd66f1aeaaf24631de45ebadd",
+    "semantic_hash": ""
+  },
+  "Calc.swift": {
+    "mtime": 1795425028.944696,
+    "seen": 1795460619.777511,
+    "ast_hash": "0aaad5807bc6d2d8c49e0d7f80e86eb8",
+    "semantic_hash": ""
+  },
+  "TapDragLogic.swift": {
+    "mtime": 1795425269.0788357,
+    "seen": 1795460619.777513,
+    "ast_hash": "4dcaedb363e5dd91c03cee20d9a4aaf1",
+    "semantic_hash": ""
+  },
+  "Tests/main.swift": {
+    "mtime": 1795425300.5132322,
+    "seen": 1795460619.777514,
+    "ast_hash": "91d41f446cdc06a458dbafbc325374d9",
     "semantic_hash": ""
   }
 }

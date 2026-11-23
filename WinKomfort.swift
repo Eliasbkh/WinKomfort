@@ -140,6 +140,10 @@ let features: [Feature] = [
                     Pref(domain: "com.apple.finder", key: "_FXSortFoldersFirst", on: yes),
                     Pref(domain: "com.apple.finder", key: "_FXShowPosixPathInTitle", on: yes)],
             restart: ["Finder"]),
+    Feature(id: "finderquit", group: groups[2], title: "Finder beenden erlauben",
+            hint: "Wie jede andere App: ⌘Q beendet den Finder. Ein Klick aufs Finder-Symbol im Dock öffnet ihn wieder.",
+            prefs: [Pref(domain: "com.apple.finder", key: "QuitMenuItem", on: yes)],
+            restart: ["Finder"]),
     Feature(id: "search", group: groups[2], title: "Suche im aktuellen Ordner + Listenansicht",
             hint: "Wie im Explorer: Suche startet im offenen Ordner, Dateien als Liste.",
             prefs: [Pref(domain: "com.apple.finder", key: "FXDefaultSearchScope", on: ["-string", "SCcf"]),
@@ -237,14 +241,14 @@ func apply(_ f: Feature, _ on: Bool) {
 // MARK: - Schließen beendet die App (wie Windows)
 // Ereignisgesteuert über die Bedienungshilfen-API: kein Polling, nur Reaktion, wenn in einer App etwas geschlossen wird.
 
-let closeHint = "Wie bei Windows: Letztes Fenster zu = App beendet (außer Finder)."
+let closeHint = "Wie bei Windows: Letztes Fenster zu = App beendet. Den Finder nur, wenn „Finder beenden erlauben“ an ist."
 
 final class CloseWatcher {
     static let shared = CloseWatcher()
     private var observers: [pid_t: AXObserver] = [:]
     private var tokens: [NSObjectProtocol] = []
     private var pending: Set<pid_t> = []
-    private let skip: Set<String> = ["com.apple.finder", "de.winkomfort.app"]
+    private let skip: Set<String> = ["de.winkomfort.app"]
 
     func setEnabled(_ on: Bool, prompt: Bool = false) {
         stop()
@@ -275,7 +279,10 @@ final class CloseWatcher {
 
     private func watch(_ app: NSRunningApplication) {
         let pid = app.processIdentifier
-        guard app.activationPolicy == .regular, let id = app.bundleIdentifier, !skip.contains(id),
+        // Finder nur, wenn „Finder beenden erlauben“ an ist – sonst ließe er sich gar nicht beenden
+        let finderQuittable = app.bundleIdentifier != "com.apple.finder"
+            || defaults("read", Pref(domain: "com.apple.finder", key: "QuitMenuItem", on: [])) == "1"
+        guard app.activationPolicy == .regular, let id = app.bundleIdentifier, !skip.contains(id), finderQuittable,
               observers[pid] == nil else { return }
         var obs: AXObserver?
         let callback: AXObserverCallback = { _, _, _, ctx in
@@ -301,8 +308,10 @@ final class CloseWatcher {
             self?.pending.remove(pid)
             var value: CFTypeRef?
             guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXWindowsAttribute as CFString, &value) == .success,
-                  let windows = value as? [AXUIElement], windows.isEmpty,
-                  let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else { return }
+                  let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated,
+                  // Der Schreibtisch zählt beim Finder als Fenster (ohne Fensterart) – ihn nicht mitzählen
+                  let windows = (value as? [AXUIElement])?.filter({ app.bundleIdentifier != "com.apple.finder" || UIAuto.attr($0, kAXSubroleAttribute) != nil }),
+                  windows.isEmpty else { return }
             app.terminate()
         }
     }
