@@ -5,6 +5,7 @@ import AppKit
 import ServiceManagement
 import CryptoKit
 import Carbon.HIToolbox
+import IOKit.pwr_mgt
 
 let repo = "Eliasbkh/WinKomfort" // GitHub-Repo, aus dessen Releases Updates kommen
 // Öffentlicher Ed25519-Schlüssel: nur Zips, die mit dem passenden geheimen Schlüssel (sign.swift) signiert sind, werden installiert
@@ -67,9 +68,10 @@ let groupIcons = ["hand.tap", "macwindow", "folder", "camera.viewfinder"]
 let features: [Feature] = [
     // Trackpad & Tastatur
     Feature(id: "drag", group: groups[0], title: "2× tippen und halten zum Ziehen",
-            hint: "Wie bei Windows: Loslassen lässt sofort los.",
-            prefs: trackpads.flatMap { [
-                Pref(domain: $0, key: "Dragging", on: yes),
+            hint: "Wie bei Windows: Finger heben lässt sofort los.",
+            // WinKomfort zieht selbst (TapDragLogic) – das Ziehen von macOS ist dafür aus, sonst hält es nach dem Abheben fest
+            prefs: [Pref(domain: "de.winkomfort.app", key: "tapDrag", on: yes)] + trackpads.flatMap { [
+                Pref(domain: $0, key: "Dragging", on: no),
                 Pref(domain: $0, key: "DragLock", on: no),
                 Pref(domain: $0, key: "Clicking", on: yes, keep: true),
             ] } + [
@@ -110,7 +112,7 @@ let features: [Feature] = [
             hint: "Mehr Platz; das Dock kommt sofort, wenn die Maus nach unten geht.",
             prefs: [Pref(domain: "com.apple.dock", key: "autohide", on: yes),
                     Pref(domain: "com.apple.dock", key: "autohide-delay", on: ["-float", "0"]),
-                    Pref(domain: "com.apple.dock", key: "autohide-time-modifier", on: ["-float", "0.25"])],
+                    Pref(domain: "com.apple.dock", key: "autohide-time-modifier", on: ["-float", "0.12"])],
             restart: ["Dock"]),
     Feature(id: "snap", group: groups[1], title: "Fenster-Snapping mit Vorschau",
             hint: "An Rand oder nach oben ziehen → Vorschau → einrasten. Per Tastatur: fn ⌃ + Pfeiltasten.",
@@ -200,7 +202,8 @@ func apply(_ f: Feature, _ on: Bool) {
 @MainActor final class Store: ObservableObject {
     static let shared = Store()
     @Published var on: [String: Bool] = [:]
-    init() { for f in features { on[f.id] = isOn(f) } }
+    init() { reload() }
+    func reload() { for f in features { on[f.id] = isOn(f) } } // nach Umstellungen beim Start erneut lesen
     func binding(_ f: Feature) -> Binding<Bool> {
         Binding(get: { self.on[f.id] ?? false }, set: { v in
             apply(f, v)
@@ -341,16 +344,22 @@ enum TapDragFix {
         return unsafeBitCast(f, to: T.self)
     }
     private static var devices: [UnsafeMutableRawPointer] = []
-    private static var lastCount: Int32 = 0
+    private static var logic = TapDragLogic()   // nur im Trackpad-Thread benutzt
+    private static var dragging = false         // vom Bewegungs-Zuhörer gelesen; ein Bool, kurzes Nachhinken ist harmlos
+    private static var moveTap: CFMachPort?
 
-    private static let callback: Callback = { _, _, touches, _, _ in
-        // shortcut: hält jemand gleichzeitig die Taste einer externen Maus, lässt das Abheben vom Trackpad auch sie los
-        if touches == 0, TapDragFix.lastCount > 0, CGEventSource.buttonState(.combinedSessionState, button: .left) {
-            let pos = CGEvent(source: nil)?.location ?? .zero
-            CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: pos, mouseButton: .left)?
-                .post(tap: .cghidEventTap)
+    private static func click(_ type: CGEventType) {
+        let pos = CGEvent(source: nil)?.location ?? .zero
+        CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: pos, mouseButton: .left)?.post(tap: .cghidEventTap)
+    }
+
+    // Jeder Trackpad-Frame: Fingeranzahl + Zeit → drücken / loslassen
+    private static let callback: Callback = { _, _, touches, time, _ in
+        switch TapDragFix.logic.frame(fingers: Int(touches), time: time) {
+        case .press: TapDragFix.dragging = true; TapDragFix.click(.leftMouseDown)
+        case .release: TapDragFix.dragging = false; TapDragFix.click(.leftMouseUp)
+        case .none: break
         }
-        TapDragFix.lastCount = touches
         return 0
     }
 
@@ -368,10 +377,26 @@ enum TapDragFix {
                 startDev(dev, 0)
                 devices.append(dev)
             }
+            // Während des Ziehens werden Mausbewegungen zu Zieh-Bewegungen, damit Apps Fenster/Dateien mitnehmen
+            moveTap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
+                                        eventsOfInterest: CGEventMask(1 << CGEventType.mouseMoved.rawValue), callback: { _, type, event, _ in
+                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    if let t = TapDragFix.moveTap { CGEvent.tapEnable(tap: t, enable: true) }
+                } else if type == .mouseMoved, TapDragFix.dragging {
+                    event.type = .leftMouseDragged
+                }
+                return Unmanaged.passUnretained(event)
+            }, userInfo: nil)
+            if let moveTap {
+                CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, moveTap, 0), .commonModes)
+                CGEvent.tapEnable(tap: moveTap, enable: true)
+            }
         }
     }
 
     static func stop() {
+        if dragging { dragging = false; click(.leftMouseUp) }
+        if let t = moveTap { CGEvent.tapEnable(tap: t, enable: false); CFMachPortInvalidate(t); moveTap = nil }
         guard let unregister = fn("MTUnregisterContactFrameCallback", DevFn.self),
               let stopDev = fn("MTDeviceStop", (@convention(c) (UnsafeMutableRawPointer) -> Void).self) else { return }
         for dev in devices { unregister(dev, callback); stopDev(dev) }
@@ -583,6 +608,10 @@ struct StartView: View {
                 Image(systemName: "person.crop.circle.fill").font(.title2).foregroundStyle(.secondary)
                 Text(NSFullUserName())
                 Spacer()
+                Button { StartMenu.hide(); openTaskManager() } label: { Image(systemName: "list.bullet.rectangle") }
+                    .help("Task-Manager").accessibilityLabel("Task-Manager")
+                Button { StartMenu.hide(); openSettingsWindow() } label: { Image(systemName: "macwindow.on.rectangle") }
+                    .help("WinKomfort-Einstellungen").accessibilityLabel("WinKomfort-Einstellungen")
                 Button { m.open(m.entry("/System/Applications/System Settings.app")) } label: {
                     Image(systemName: "gearshape")
                 }
@@ -1365,15 +1394,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         d.set(appVersion, forKey: "lastVersion")
         if d.bool(forKey: "closeQuits") { CloseWatcher.shared.setEnabled(true) }
-        if let drag = features.first(where: { $0.id == "drag" }), isOn(drag) { TapDragFix.start() }
+        if let drag = features.first(where: { $0.id == "drag" }) {
+            // Umstellung von ≤ 1.2: dort war das Ziehen von macOS an – jetzt übernimmt WinKomfort
+            if d.object(forKey: "tapDrag") == nil,
+               defaults("read", Pref(domain: trackpads[0], key: "Dragging", on: yes)) == "1" { apply(drag, true) }
+            if isOn(drag) { TapDragFix.start() }
+        }
+        // Umstellung von ≤ 1.2: Dock-Animation von 0,25 s auf 0,12 s
+        if let dock = features.first(where: { $0.id == "dock" }), isOn(dock),
+           defaults("read", Pref(domain: "com.apple.dock", key: "autohide-time-modifier", on: [])) == "0.25" { apply(dock, true) }
+        Store.shared.reload()
         if d.bool(forKey: "startMenu") { StartKey.start() }
         HotKey.register()
         Task { await Updater.shared.loop() }
     }
 }
 
+// MARK: - Wach bleiben (offizielle macOS-Energie-Schnittstelle, wie „caffeinate“)
+
+@MainActor final class Awake: ObservableObject {
+    static let shared = Awake()
+    enum Mode: String { case display = "Bildschirm bleibt an", system = "Mac bleibt wach, Bildschirm darf aus" }
+    @Published private(set) var mode: Mode?
+    @Published private(set) var until: Date?
+    private var assertion: IOPMAssertionID = 0
+    private var timer: Timer?
+
+    static let durations: [(String, Int?)] = [("30 Minuten", 30), ("1 Stunde", 60), ("2 Stunden", 120), ("5 Stunden", 300), ("Unbegrenzt", nil)]
+
+    func start(_ m: Mode, minutes: Int?) {
+        stop()
+        let type = m == .display ? kIOPMAssertionTypePreventUserIdleDisplaySleep : kIOPMAssertionTypePreventUserIdleSystemSleep
+        guard IOPMAssertionCreateWithName(type as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                          "WinKomfort: \(m.rawValue)" as CFString, &assertion) == kIOReturnSuccess else { return }
+        mode = m
+        if let minutes {
+            until = Date().addingTimeInterval(Double(minutes) * 60)
+            timer = Timer.scheduledTimer(withTimeInterval: Double(minutes) * 60, repeats: false) { _ in
+                MainActor.assumeIsolated { Awake.shared.stop() }
+            }
+        }
+    }
+
+    func stop() {
+        if assertion != 0 { IOPMAssertionRelease(assertion); assertion = 0 }
+        timer?.invalidate()
+        timer = nil
+        mode = nil
+        until = nil
+    }
+
+    var status: String {
+        guard let mode else { return "Aus" }
+        return mode.rawValue + (until.map { " – bis \($0.formatted(date: .omitted, time: .shortened))" } ?? " – unbegrenzt")
+    }
+}
+
 struct MenuContent: View {
+    @ObservedObject var awake = Awake.shared
     var body: some View {
+        Menu("Wach bleiben") {
+            Text(awake.status)
+            Divider()
+            ForEach([Awake.Mode.display, .system], id: \.self) { m in
+                Section(m.rawValue) {
+                    ForEach(Awake.durations, id: \.0) { d in
+                        Button(d.0) { awake.start(m, minutes: d.1) }
+                    }
+                }
+            }
+            Divider()
+            Button("Bildschirm jetzt aus – Mac arbeitet weiter") { sh(["/usr/bin/pmset", "displaysleepnow"]) }
+            if awake.mode != nil { Button("Wach bleiben beenden") { awake.stop() } }
+        }
+        Divider()
         Button("Task-Manager …") { openTaskManager() }
             .keyboardShortcut(.escape, modifiers: [.control, .shift])
         Button("Autostarts …") { openAutostarts() }
@@ -1443,6 +1537,7 @@ struct FeatureTab: View {
 
 struct GeneralTab: View {
     @ObservedObject var store: Store
+    @ObservedObject var awake = Awake.shared
     @ObservedObject var updater = Updater.shared
     @AppStorage("autoUpdate") var autoUpdate = true
     var body: some View {
@@ -1458,6 +1553,23 @@ struct GeneralTab: View {
                     TimelineView(.periodic(from: .now, by: 2)) { _ in
                         Text(AXIsProcessTrusted() ? "Freigegeben ✓" : "Nicht freigegeben – nötig für Startmenü, Ziehen und „Schließen beendet die App“")
                     }
+                }
+            }
+            Section("Wach bleiben") {
+                LabeledContent("Status", value: awake.status)
+                ForEach([Awake.Mode.display, .system], id: \.self) { m in
+                    LabeledContent(m.rawValue) {
+                        Menu("Starten") {
+                            ForEach(Awake.durations, id: \.0) { d in Button(d.0) { awake.start(m, minutes: d.1) } }
+                        }
+                        .fixedSize()
+                        .accessibilityLabel("\(m.rawValue) starten")
+                    }
+                }
+                HStack {
+                    Button("Bildschirm jetzt aus – Mac arbeitet weiter") { sh(["/usr/bin/pmset", "displaysleepnow"]) }
+                    Spacer()
+                    if awake.mode != nil { Button("Beenden") { awake.stop() } }
                 }
             }
             Section("Updates") {
@@ -1479,8 +1591,10 @@ struct GeneralTab: View {
 @main struct WinKomfortApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject var store = Store.shared
+    @StateObject var awake = Awake.shared
     var body: some Scene {
-        MenuBarExtra("WinKomfort", systemImage: "macwindow.on.rectangle") { MenuContent() }
+        // Kaffeetasse, solange „Wach bleiben“ aktiv ist
+        MenuBarExtra("WinKomfort", systemImage: awake.mode == nil ? "macwindow.on.rectangle" : "cup.and.saucer.fill") { MenuContent() }
     }
 }
 
