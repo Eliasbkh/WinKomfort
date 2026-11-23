@@ -274,22 +274,52 @@ final class CloseWatcher {
         observers.keys.forEach(unwatch)
     }
 
-    private func watch(_ app: NSRunningApplication) {
+    private func watch(_ app: NSRunningApplication) { watch(app, tries: 0) }
+
+    private func watch(_ app: NSRunningApplication, tries: Int) {
         let pid = app.processIdentifier
         // Finder nur, wenn „Finder beenden erlauben“ an ist – sonst ließe er sich gar nicht beenden
         let finderQuittable = app.bundleIdentifier != "com.apple.finder"
             || defaults("read", Pref(domain: "com.apple.finder", key: "QuitMenuItem", on: [])) == "1"
-        guard app.activationPolicy == .regular, let id = app.bundleIdentifier, !skip.contains(id), finderQuittable,
-              observers[pid] == nil else { return }
+        guard !tokens.isEmpty, !app.isTerminated, app.activationPolicy == .regular, let id = app.bundleIdentifier,
+              !skip.contains(id), finderQuittable, observers[pid] == nil else { return }
         var obs: AXObserver?
-        let callback: AXObserverCallback = { _, _, _, ctx in
+        let callback: AXObserverCallback = { obs, el, note, ctx in
+            // Neues Fenster: auch dessen Schließen direkt beobachten (manche Apps melden es nicht an die App selbst)
+            if note as String == kAXWindowCreatedNotification {
+                AXObserverAddNotification(obs, el, kAXUIElementDestroyedNotification as CFString, ctx)
+                return
+            }
             CloseWatcher.shared.schedule(pid_t(Int(bitPattern: ctx)))
         }
         guard AXObserverCreate(pid, callback, &obs) == .success, let obs else { return }
-        AXObserverAddNotification(obs, AXUIElementCreateApplication(pid), kAXUIElementDestroyedNotification as CFString,
-                                  UnsafeMutableRawPointer(bitPattern: Int(pid)))
+        let el = AXUIElementCreateApplication(pid), ctx = UnsafeMutableRawPointer(bitPattern: Int(pid))
+        // Frisch gestartete Apps sind oft noch nicht bereit – dann bis zu 10× im Sekundentakt erneut versuchen
+        guard AXObserverAddNotification(obs, el, kAXUIElementDestroyedNotification as CFString, ctx) == .success else {
+            if tries < 10 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.watch(app, tries: tries + 1) }
+            }
+            return
+        }
+        AXObserverAddNotification(obs, el, kAXWindowCreatedNotification as CFString, ctx)
+        var value: CFTypeRef?
+        if AXUIElementCopyAttributeValue(el, kAXWindowsAttribute as CFString, &value) == .success {
+            (value as? [AXUIElement])?.forEach { AXObserverAddNotification(obs, $0, kAXUIElementDestroyedNotification as CFString, ctx) }
+        }
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(obs), .defaultMode)
         observers[pid] = obs
+    }
+
+    // Bedienungshilfen sehen nur Fenster im aktuellen Space. Fenster in anderen Spaces oder im Vollbild
+    // stehen nur in der Fensterliste – erkennbar am Titel (den liefert macOS nur mit Bildschirmaufnahme-Freigabe).
+    // shortcut: ohne diese Freigabe wird so ein Fenster nicht erkannt; dann WinKomfort Bildschirmaufnahme erlauben
+    private static func hasWindowInOtherSpace(_ pid: pid_t) -> Bool {
+        let list = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        return list.contains { w in
+            (w[kCGWindowOwnerPID as String] as? pid_t) == pid && (w[kCGWindowLayer as String] as? Int) == 0
+                && (w[kCGWindowIsOnscreen as String] as? Bool) != true
+                && !((w[kCGWindowName as String] as? String) ?? "").isEmpty
+        }
     }
 
     private func unwatch(_ pid: pid_t) {
@@ -308,7 +338,7 @@ final class CloseWatcher {
                   let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated,
                   // Der Schreibtisch zählt beim Finder als Fenster (ohne Fensterart) – ihn nicht mitzählen
                   let windows = (value as? [AXUIElement])?.filter({ app.bundleIdentifier != "com.apple.finder" || UIAuto.attr($0, kAXSubroleAttribute) != nil }),
-                  windows.isEmpty else { return }
+                  windows.isEmpty, !Self.hasWindowInOtherSpace(pid) else { return }
             app.terminate()
         }
     }
