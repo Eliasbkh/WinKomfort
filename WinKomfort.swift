@@ -1985,11 +1985,11 @@ struct TaskView: View {
 
 // Globale Tastenkürzel – selbst festlegbar unter Einstellungen → Tastenkürzel
 enum HotAction: String, CaseIterable, Identifiable {
-    case search, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, tasks
+    case search, switcher, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, tasks
     var id: UInt32 {
         switch self {
         case .tasks: 1; case .search: 2; case .note: 3; case .pin: 4; case .clipboard: 5
-        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9
+        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9; case .switcher: 10
         }
     }
     var title: String {
@@ -1999,6 +1999,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .pin: "Fenster anheften / lösen"
         case .tasks: "Task-Manager"
         case .clipboard: "Zwischenablage-Verlauf"
+        case .switcher: "Fenster wechseln (⇧ dazu: rückwärts)"
         case .snapLeft: "Fenster: linke Hälfte"
         case .snapRight: "Fenster: rechte Hälfte"
         case .snapMax: "Fenster: maximieren"
@@ -2011,6 +2012,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .note: Shortcut(code: kVK_ANSI_N, mods: controlKey | optionKey, key: "N")
         case .pin: Shortcut(code: kVK_ANSI_P, mods: controlKey | cmdKey, key: "P")
         case .tasks: Shortcut(code: kVK_Escape, mods: controlKey | shiftKey)
+        case .switcher: Shortcut(code: kVK_Tab, mods: optionKey)
         case .clipboard: Shortcut(code: kVK_ANSI_V, mods: controlKey | optionKey, key: "V")
         case .snapLeft: Shortcut(code: kVK_LeftArrow, mods: controlKey | optionKey)
         case .snapRight: Shortcut(code: kVK_RightArrow, mods: controlKey | optionKey)
@@ -2035,6 +2037,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .pin: Pins.shared.toggleFrontmost()
         case .tasks: openTaskManager()
         case .clipboard: ClipPanel.toggle()
+        case .switcher: WindowSwitcher.shared.step(1)
         case .snapLeft: Snap.run(.left)
         case .snapRight: Snap.run(.right)
         case .snapMax: Snap.run(.max)
@@ -2046,6 +2049,7 @@ enum HotAction: String, CaseIterable, Identifiable {
 enum HotKey {
     private static var refs: [UInt32: EventHotKeyRef] = [:]
     private(set) static var failed: Set<HotAction> = []
+    static let switchBack: UInt32 = 11 // dasselbe Kürzel mit ⇧: rückwärts blättern
 
     static func register() {
         // Umstellung von ≤ 1.6: altes Such-Kürzel (⌥/⌘/⌃ + Leertaste) übernehmen
@@ -2060,7 +2064,9 @@ enum HotKey {
             GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
                               MemoryLayout<EventHotKeyID>.size, nil, &hk)
             let id = hk.id
-            DispatchQueue.main.async { MainActor.assumeIsolated { HotAction.allCases.first { $0.id == id }?.perform() } }
+            DispatchQueue.main.async { MainActor.assumeIsolated {
+                if id == HotKey.switchBack { WindowSwitcher.shared.step(-1) } else { HotAction.allCases.first { $0.id == id }?.perform() }
+            } }
             return noErr
         }, 1, &spec, nil, nil)
         registerAll()
@@ -2073,6 +2079,11 @@ enum HotKey {
             var ref: EventHotKeyRef?
             if RegisterEventHotKey(UInt32(s.code), UInt32(s.mods), EventHotKeyID(signature: OSType(0x574B4654), id: a.id),
                                    GetApplicationEventTarget(), 0, &ref) == noErr, let ref { refs[a.id] = ref } else { failed.insert(a) }
+        }
+        if let s = HotAction.switcher.current, s.mods & shiftKey == 0 {
+            var ref: EventHotKeyRef?
+            if RegisterEventHotKey(UInt32(s.code), UInt32(s.mods | shiftKey), EventHotKeyID(signature: OSType(0x574B4654), id: switchBack),
+                                   GetApplicationEventTarget(), 0, &ref) == noErr, let ref { refs[switchBack] = ref }
         }
     }
 
@@ -2166,6 +2177,205 @@ struct ShortcutsTab: View {
         }
         .formStyle(.grouped)
         .onDisappear { if r.recording != nil { r.stop() } }
+    }
+}
+
+// MARK: - Fenster-Umschalter mit Vorschau (wie Alt-Tab unter Windows)
+
+struct SwitchWin: Identifiable {
+    let id: CGWindowID
+    let pid: pid_t
+    let title: String
+    let icon: NSImage
+    var thumb: CGImage?
+}
+
+@MainActor final class WindowSwitcher: ObservableObject {
+    static let shared = WindowSwitcher()
+    @Published var wins: [SwitchWin] = []
+    @Published var selected = 0
+    private var panel: KeyPanel?
+    private var timer: Timer?
+    private var active = false
+    private var shown = false
+    private var hold: CGEventFlags = []
+    private static let cols = 6, cardW: CGFloat = 216, cardH: CGFloat = 176
+
+    // Erster Druck: Liste holen, das vorige Fenster wählen. Weitere Drücke (Taste gehalten): weiterblättern
+    func step(_ d: Int) {
+        if active {
+            selected = (selected + d + wins.count) % wins.count
+            if !shown { show() }
+            return
+        }
+        guard AXIsProcessTrusted() else {
+            afterTrust(prompt: true) {}
+            Toast.show("Bitte „Bedienungshilfen“ für WinKomfort erlauben", symbol: "lock"); return
+        }
+        wins = Self.list()
+        guard wins.count > 1 else { NSSound.beep(); return }
+        active = true
+        selected = d > 0 ? 1 : wins.count - 1
+        let m = HotAction.switcher.current?.mods ?? 0
+        hold = []
+        if m & optionKey != 0 { hold.insert(.maskAlternate) }
+        if m & cmdKey != 0 { hold.insert(.maskCommand) }
+        if m & controlKey != 0 { hold.insert(.maskControl) }
+        // Loslassen der Taste erkennen: nur solange der Umschalter offen ist, alle 30 ms eine Zahl lesen
+        let t = Timer(timeInterval: 0.03, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                let s = WindowSwitcher.shared
+                if !CGEventSource.flagsState(.combinedSessionState).isSuperset(of: s.hold) { s.commit() }
+            }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+        // Kurz getippt = sofort wechseln ohne Aufblitzen; erst beim Halten erscheint die Übersicht
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            MainActor.assumeIsolated { let s = WindowSwitcher.shared; if s.active && !s.shown { s.show() } }
+        }
+        loadThumbs()
+    }
+
+    func commit() {
+        guard active, wins.indices.contains(selected) else { finish(); return }
+        let w = wins[selected]
+        finish()
+        // Erst nachdem die Übersicht weg ist – sonst gibt macOS den Fokus beim Schließen ans alte Fenster zurück
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { Self.raise(w) }
+    }
+
+    private static func raise(_ w: SwitchWin) {
+        let axApp = AXUIElementCreateApplication(w.pid)
+        AXUIElementSetMessagingTimeout(axApp, 1)
+        let all = UIAuto.attr(axApp, kAXWindowsAttribute) as? [AXUIElement] ?? []
+        if let win = all.first(where: { var id: CGWindowID = 0; return _AXUIElementGetWindow($0, &id) == .success && id == w.id }) {
+            AXUIElementPerformAction(win, kAXRaiseAction as CFString)
+            AXUIElementSetAttributeValue(win, kAXMainAttribute as CFString, kCFBooleanTrue)
+        }
+        AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+    }
+
+    func finish() {
+        timer?.invalidate()
+        timer = nil
+        active = false
+        shown = false
+        panel?.orderOut(nil)
+    }
+
+    // Sichtbare Fenster normaler Apps, vorderstes zuerst (so liefert macOS die Liste)
+    private static func list() -> [SwitchWin] {
+        let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        var out: [SwitchWin] = []
+        for w in infos {
+            guard (w[kCGWindowLayer as String] as? Int) == 0, let pid = w[kCGWindowOwnerPID as String] as? pid_t, pid != getpid(),
+                  let id = w[kCGWindowNumber as String] as? CGWindowID,
+                  let bd = w[kCGWindowBounds as String] as? NSDictionary, let b = CGRect(dictionaryRepresentation: bd),
+                  b.width >= 120, b.height >= 80,
+                  let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular else { continue }
+            let name = (w[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? app.localizedName ?? "Fenster"
+            out.append(SwitchWin(id: id, pid: pid, title: name, icon: app.icon ?? NSImage(), thumb: nil))
+            if out.count == 18 { break } // 3 Reihen à 6
+        }
+        return out
+    }
+
+    // Vorschaubilder nur, wenn „Bildschirmaufnahme“ schon erlaubt ist (sonst App-Symbole) – nie extra nachfragen
+    private func loadThumbs() {
+        guard CGPreflightScreenCaptureAccess() else { return }
+        let ids = wins.map(\.id)
+        Task { @MainActor in
+            guard let content = try? await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true) else { return }
+            for sw in content.windows where ids.contains(sw.windowID) {
+                Task { @MainActor in
+                    let cfg = SCStreamConfiguration()
+                    let scale = min(400 / max(sw.frame.width, 1), 250 / max(sw.frame.height, 1))
+                    cfg.width = max(Int(sw.frame.width * scale), 1)
+                    cfg.height = max(Int(sw.frame.height * scale), 1)
+                    cfg.showsCursor = false
+                    guard let img = try? await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: sw),
+                                                                                configuration: cfg),
+                          self.active, let i = self.wins.firstIndex(where: { $0.id == sw.windowID }) else { return }
+                    self.wins[i].thumb = img
+                }
+            }
+        }
+    }
+
+    private func show() {
+        let p = panel ?? make()
+        let cols = min(wins.count, Self.cols), rows = (wins.count + Self.cols - 1) / Self.cols
+        let size = NSSize(width: CGFloat(cols) * Self.cardW + 24, height: CGFloat(rows) * Self.cardH + 24)
+        let m = NSEvent.mouseLocation
+        let v = (NSScreen.screens.first { NSMouseInRect(m, $0.frame, false) } ?? NSScreen.main!).visibleFrame
+        p.setFrame(NSRect(x: v.midX - size.width / 2, y: v.midY - size.height / 2, width: size.width, height: size.height), display: true)
+        p.orderFrontRegardless()
+        p.makeKey()
+        shown = true
+    }
+
+    private func make() -> KeyPanel {
+        let p = KeyPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        p.becomesKeyOnlyIfNeeded = false
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = true
+        p.level = .popUpMenu
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.contentView = fixedHost(SwitcherView())
+        // ←/→ blättern, ↩ wechseln, Esc abbrechen
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            guard WindowSwitcher.shared.panel?.isKeyWindow == true else { return e }
+            return MainActor.assumeIsolated {
+                let s = WindowSwitcher.shared
+                switch e.keyCode {
+                case 53: s.finish()
+                case 36, 76: s.commit()
+                case 123: s.step(-1)
+                case 124: s.step(1)
+                default: return e
+                }
+                return nil
+            }
+        }
+        panel = p
+        return p
+    }
+}
+
+struct SwitcherView: View {
+    @ObservedObject var s = WindowSwitcher.shared
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(200), spacing: 16), count: min(max(s.wins.count, 1), 6)), spacing: 12) {
+            ForEach(Array(s.wins.enumerated()), id: \.element.id) { i, w in
+                let on = i == s.selected
+                Button { s.selected = i; s.commit() } label: {
+                    VStack(spacing: 8) {
+                        Group {
+                            if let t = w.thumb { Image(decorative: t, scale: 2).resizable().scaledToFit() }
+                            else { Image(nsImage: w.icon).resizable().frame(width: 64, height: 64) }
+                        }
+                        .frame(width: 184, height: 115)
+                        HStack(spacing: 6) {
+                            Image(nsImage: w.icon).resizable().frame(width: 16, height: 16)
+                            Text(w.title).font(.callout).lineLimit(1).truncationMode(.tail)
+                        }
+                        .frame(maxWidth: 184)
+                    }
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(on ? 0.12 : 0)))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.accentColor, lineWidth: on ? 2.5 : 0))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(w.title)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
