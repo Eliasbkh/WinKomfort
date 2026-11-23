@@ -1058,13 +1058,20 @@ struct SearchHit: Identifiable {
         resize()
         p.orderFrontRegardless()
         p.makeKey()
-        // Fokus sofort ins Suchfeld – sonst gehen die ersten Buchstaben verloren, wenn man direkt lostippt
-        func field(_ v: NSView) -> NSTextField? {
-            if let t = v as? NSTextField, t.isEditable { return t }
-            for s in v.subviews { if let f = field(s) { return f } }
-            return nil
+        focusField()
+    }
+
+    // Textfeld aktivieren (blinkender Cursor). Klappt es nicht sofort, gleich noch einmal versuchen
+    static func focusField(retries: Int = 3) {
+        guard let p = panel, p.isVisible else { return }
+        if !(p.firstResponder is NSTextView), let f = SearchField.current {
+            p.makeKey()
+            p.makeFirstResponder(f)
+            (f.currentEditor() as? NSTextView)?.setSelectedRange(NSRange(location: (f.stringValue as NSString).length, length: 0))
         }
-        if let content = p.contentView, let f = field(content) { p.makeFirstResponder(f) }
+        if !(p.firstResponder is NSTextView), retries > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { MainActor.assumeIsolated { focusField(retries: retries - 1) } }
+        }
     }
 
     // Fensterhöhe folgt der Trefferzahl, die Oberkante bleibt stehen
@@ -1104,6 +1111,7 @@ struct SearchHit: Identifiable {
                 MainActor.assumeIsolated {
                     if e.keyCode == 51 { _ = SearchModel.shared.query.popLast() } // Rückschritt
                     else if chars.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) { SearchModel.shared.query += chars }
+                    focusField(retries: 0)
                 }
                 return nil
             }
@@ -1119,18 +1127,54 @@ struct SearchHit: Identifiable {
     }
 }
 
+// Echtes macOS-Textfeld statt SwiftUI-TextField: lässt sich im schwebenden Panel zuverlässig aktivieren (mit Cursor)
+struct SearchField: NSViewRepresentable {
+    @Binding var text: String
+    var onSubmit: () -> Void
+    static weak var current: NSTextField?
+
+    func makeNSView(context: Context) -> NSTextField {
+        let f = NSTextField()
+        f.isBordered = false
+        f.drawsBackground = false
+        f.focusRingType = .none
+        f.font = .systemFont(ofSize: 22)
+        f.placeholderString = "Suchen – Apps, Dateien, Rechnen …"
+        f.cell?.isScrollable = true
+        f.cell?.wraps = false
+        f.delegate = context.coordinator
+        f.setAccessibilityLabel("Suche")
+        SearchField.current = f
+        return f
+    }
+
+    func updateNSView(_ f: NSTextField, context: Context) {
+        context.coordinator.parent = self
+        guard f.stringValue != text else { return }
+        f.stringValue = text
+        (f.currentEditor() as? NSTextView)?.setSelectedRange(NSRange(location: (text as NSString).length, length: 0)) // Cursor ans Ende
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: SearchField
+        init(_ p: SearchField) { parent = p }
+        func controlTextDidChange(_ n: Notification) { parent.text = (n.object as? NSTextField)?.stringValue ?? "" }
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
+            if sel == #selector(NSResponder.insertNewline(_:)) { parent.onSubmit(); return true }
+            return false
+        }
+    }
+}
+
 struct SearchView: View {
     @ObservedObject var m = SearchModel.shared
-    @FocusState var focused: Bool
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 Image(systemName: "magnifyingglass").font(.title2).foregroundStyle(.secondary)
-                TextField("Suchen – Apps, Dateien, Rechnen …", text: $m.query)
-                    .textFieldStyle(.plain).font(.system(size: 22))
-                    .focused($focused)
-                    .onSubmit { m.openSelected() }
-                    .accessibilityLabel("Suche")
+                SearchField(text: $m.query) { m.openSelected() }
             }
             .padding(.horizontal, 18).frame(height: 60)
             if !m.hits.isEmpty {
@@ -1169,8 +1213,6 @@ struct SearchView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.primary.opacity(0.1)))
         .onChange(of: m.hits.count) { _, _ in SearchPanel.resize() }
-        .onChange(of: m.opened) { _, _ in focused = true }
-        .onAppear { focused = true }
     }
 }
 
@@ -1545,11 +1587,24 @@ enum DockReveal {
         }) else { return }
         let bottom = primary.frame.maxY - screen.frame.minY
         let tile = Double(UserDefaults(suiteName: "com.apple.dock")?.integer(forKey: "tilesize") ?? 48)
-        if !shown, p.y >= bottom - 1 {
+        if !shown, p.y >= bottom - 1, !frontIsFullScreen() {
             set(hidden: false)
         } else if shown, p.y < bottom - (max(tile, 32) + 45) { // über dem Dock → wieder ausblenden
             set(hidden: true)
         }
+    }
+
+    // Vollbild-App vorne? Dort hat macOS sein eigenes Dock-Verhalten – WinKomfort hält sich raus. (1 s gemerkt, damit
+    // nicht bei jeder Mausbewegung am Rand nachgefragt wird)
+    private static var fullScreenCache: (pid: pid_t, value: Bool, at: Date)?
+    private static func frontIsFullScreen() -> Bool {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return false }
+        if let c = fullScreenCache, c.pid == app.processIdentifier, Date().timeIntervalSince(c.at) < 1 { return c.value }
+        let ax = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(ax, 0.2)
+        let full = UIAuto.attr(ax, kAXFocusedWindowAttribute).map { (UIAuto.attr($0 as! AXUIElement, "AXFullScreen") as? Bool) == true } ?? false
+        fullScreenCache = (app.processIdentifier, full, Date())
+        return full
     }
 
     private static func set(hidden: Bool) {
