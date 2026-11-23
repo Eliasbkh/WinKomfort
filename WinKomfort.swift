@@ -110,7 +110,7 @@ let features: [Feature] = [
                     Pref(domain: "NSGlobalDomain", key: "AppleMenuBarVisibleInFullscreen", on: no)],
             notify: "AppleInterfaceMenuBarHidingChangedNotification"),
     Feature(id: "dock", group: groups[1], title: "Dock ausblenden – ohne Verzögerung",
-            hint: "Mehr Platz; das Dock kommt sofort, wenn die Maus nach unten geht.",
+            hint: "Wie die Windows-Taskleiste: kommt sofort, sobald die Maus irgendwo den unteren Rand berührt.",
             prefs: [Pref(domain: "com.apple.dock", key: "autohide", on: yes),
                     Pref(domain: "com.apple.dock", key: "autohide-delay", on: ["-float", "0"]),
                     Pref(domain: "com.apple.dock", key: "autohide-time-modifier", on: ["-float", "0.12"])],
@@ -210,6 +210,7 @@ func apply(_ f: Feature, _ on: Bool) {
             apply(f, v)
             self.on[f.id] = v
             if f.id == "drag" { if v { TapDragFix.start(prompt: true) } else { TapDragFix.stop() } }
+            if f.id == "dock" { if v { DockReveal.start() } else { DockReveal.stop() } }
         })
     }
     var startMenu: Binding<Bool> {
@@ -1091,6 +1092,21 @@ struct SearchHit: Identifiable {
         }
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
             guard panel?.isKeyWindow == true else { return e }
+            // ⌥ noch gedrückt vom Öffnen mit ⌥ Leertaste? Dann normale Buchstaben statt ®, ∑ & Co.
+            if e.modifierFlags.contains(.option), !e.modifierFlags.contains(.command), !e.modifierFlags.contains(.control),
+               let plain = e.charactersIgnoringModifiers, plain.count == 1, plain.first!.isLetter || plain.first!.isNumber {
+                MainActor.assumeIsolated { SearchModel.shared.query += e.modifierFlags.contains(.shift) ? plain.uppercased() : plain }
+                return nil
+            }
+            // Textfeld in den ersten Millisekunden noch nicht bereit? Dann selbst ins Suchfeld schreiben – kein Buchstabe geht verloren
+            if !(panel?.firstResponder is NSTextView), !e.modifierFlags.contains(.command), !e.modifierFlags.contains(.control),
+               let chars = e.characters, !chars.isEmpty, e.keyCode != 53, e.keyCode != 125, e.keyCode != 126, e.keyCode != 36 {
+                MainActor.assumeIsolated {
+                    if e.keyCode == 51 { _ = SearchModel.shared.query.popLast() } // Rückschritt
+                    else if chars.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) { SearchModel.shared.query += chars }
+                }
+                return nil
+            }
             switch e.keyCode {
             case 53: MainActor.assumeIsolated { hide() }; return nil                       // Esc
             case 125: MainActor.assumeIsolated { SearchModel.shared.move(1) }; return nil  // ↓
@@ -1469,6 +1485,80 @@ final class ClickView: NSView {
         quitToken = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { n in
             let pid = (n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
             MainActor.assumeIsolated { Pins.shared.pinned.filter { $0.pid == pid }.forEach { Pins.shared.remove($0) } }
+        }
+    }
+}
+
+// MARK: - Dock wie die Windows-Taskleiste: kommt, sobald die Maus IRGENDWO den unteren Rand berührt
+// macOS blendet das Dock nur ein, wenn man genau darunter (Mitte) unten anstößt. WinKomfort beobachtet nur die
+// Mausposition (reiner Zuhörer) und schaltet bei Bedarf den offiziellen Dock-Schalter „automatisch ausblenden“ kurz aus.
+
+enum DockReveal {
+    private static var tap: CFMachPort?
+    private static var shown = false
+    private static var switching = false
+    // Einmal vorbereitet → schneller als jedes Mal ein Hilfsprogramm zu starten
+    private static let showScript = NSAppleScript(source: "tell application \"System Events\" to set autohide of dock preferences to false")
+    private static let hideScript = NSAppleScript(source: "tell application \"System Events\" to set autohide of dock preferences to true")
+
+    static var enabled: Bool {
+        features.first(where: { $0.id == "dock" }).map(isOn) == true
+            && (UserDefaults(suiteName: "com.apple.dock")?.string(forKey: "orientation") ?? "bottom") == "bottom"
+    }
+
+    static func start() {
+        afterTrust {
+            guard tap == nil, enabled else { return }
+            // Einmal vorab ausführen: das erste AppleScript lädt sonst ~1 s lang und das Dock käme beim ersten Mal zu spät
+            var err: NSDictionary?
+            NSAppleScript(source: "tell application \"System Events\" to get autohide of dock preferences")?.executeAndReturnError(&err)
+            showScript?.compileAndReturnError(&err)
+            hideScript?.compileAndReturnError(&err)
+            let mask = CGEventMask(1 << CGEventType.mouseMoved.rawValue) | CGEventMask(1 << CGEventType.leftMouseDragged.rawValue)
+            tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .tailAppendEventTap, options: .listenOnly,
+                                    eventsOfInterest: mask, callback: { _, type, event, _ in
+                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    if let t = DockReveal.tap { CGEvent.tapEnable(tap: t, enable: true) }
+                } else {
+                    DockReveal.check(event.location)
+                }
+                return Unmanaged.passUnretained(event)
+            }, userInfo: nil)
+            guard let tap else { return }
+            CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+        }
+    }
+
+    static func stop() {
+        if let t = tap { CGEvent.tapEnable(tap: t, enable: false); CFMachPortInvalidate(t); tap = nil }
+        if shown { set(hidden: true) }
+    }
+
+    // p in Bildschirmkoordinaten mit Ursprung oben links (wie Mausereignisse)
+    private static func check(_ p: CGPoint) {
+        guard !switching, let primary = NSScreen.screens.first else { return }
+        // Bildschirm unter der Maus → dessen Unterkante in denselben Koordinaten
+        guard let screen = NSScreen.screens.first(where: {
+            let top = primary.frame.maxY - $0.frame.maxY
+            return p.x >= $0.frame.minX && p.x < $0.frame.maxX && p.y >= top && p.y <= top + $0.frame.height
+        }) else { return }
+        let bottom = primary.frame.maxY - screen.frame.minY
+        let tile = Double(UserDefaults(suiteName: "com.apple.dock")?.integer(forKey: "tilesize") ?? 48)
+        if !shown, p.y >= bottom - 1 {
+            set(hidden: false)
+        } else if shown, p.y < bottom - (max(tile, 32) + 45) { // über dem Dock → wieder ausblenden
+            set(hidden: true)
+        }
+    }
+
+    private static func set(hidden: Bool) {
+        switching = true
+        shown = !hidden
+        DispatchQueue.main.async {
+            var err: NSDictionary?
+            (hidden ? hideScript : showScript)?.executeAndReturnError(&err)
+            switching = false
         }
     }
 }
@@ -2252,6 +2342,9 @@ struct Release: Decodable {
 // MARK: - App
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    // Beim Beenden das Dock wieder automatisch ausblenden, falls WinKomfort es gerade hervorgeholt hat
+    func applicationWillTerminate(_ n: Notification) { MainActor.assumeIsolated { DockReveal.stop() } }
+
     // App erneut öffnen (Finder, Spotlight, Startmenü) → Einstellungen zeigen, auch wenn das Menüleisten-Symbol versteckt ist
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         MainActor.assumeIsolated { openSettingsWindow() }
@@ -2285,6 +2378,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if d.bool(forKey: "startMenu") { StartKey.start() }
         HotKey.register()
         SearchPanel.prepare()
+        DockReveal.start()
         Task { await Updater.shared.loop() }
     }
 }
