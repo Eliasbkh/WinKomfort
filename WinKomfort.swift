@@ -1189,6 +1189,7 @@ struct MenuContent: View {
         func add<V: View>(_ title: String, _ icon: String, _ view: V) {
             let vc = NSHostingController(rootView: view.frame(width: 560, height: 440))
             vc.title = title // wird zum Fenstertitel, wie bei Systemapps
+            vc.preferredContentSize = NSSize(width: 560, height: 440) // sonst bleibt das Fenster schmaler als der Inhalt
             let item = NSTabViewItem(viewController: vc)
             item.label = title
             item.image = NSImage(systemSymbolName: icon, accessibilityDescription: title)
