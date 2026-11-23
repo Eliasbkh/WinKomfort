@@ -2357,7 +2357,7 @@ enum OneNotePDF {
         }
     }
 
-    struct Failure: Error { let text: String }
+    struct Failure: Error { let text: String; var retry = false }
 
     private static func outline(_ win: AXUIElement, _ name: String) -> AXUIElement? {
         UIAuto.elements(win, windowsOnly: false).first { UIAuto.role($0) == "AXOutline" && UIAuto.label($0) == name }
@@ -2366,6 +2366,9 @@ enum OneNotePDF {
     private static func selected(_ o: AXUIElement) -> AXUIElement? { rows(o).first { UIAuto.attr($0, kAXSelectedAttribute) as? Bool == true } }
     private static func select(_ o: AXUIElement, _ row: AXUIElement) {
         AXUIElementSetAttributeValue(o, kAXSelectedRowsAttribute as CFString, [row] as CFArray)
+    }
+    private static func pageTitles(_ o: AXUIElement) -> [String] {
+        rows(o).map { r in UIAuto.elements(r, windowsOnly: false).lazy.compactMap { UIAuto.attr($0, kAXTitleAttribute) as? String }.first { !$0.isEmpty } ?? "" }
     }
     private static func isFront(_ pid: pid_t) -> Bool { NSWorkspace.shared.frontmostApplication?.processIdentifier == pid }
 
@@ -2386,10 +2389,12 @@ enum OneNotePDF {
         }
         // Welche Abschnitte: beim Notizbuch erst alle Abschnittsgruppen aufklappen; Gruppen-Zeilen selbst haben keine Seiten
         if scope == .notebook {
-            for r in rows(sections) where UIAuto.attr(r, kAXDisclosingAttribute) as? Bool == false {
-                AXUIElementSetAttributeValue(r, kAXDisclosingAttribute as CFString, kCFBooleanTrue)
+            for _ in 0..<3 { // verschachtelte Gruppen: mehrmals, bis nichts Neues mehr aufgeht
+                let closed = rows(sections).filter { UIAuto.attr($0, kAXDisclosingAttribute) as? Bool == false }
+                closed.forEach { AXUIElementSetAttributeValue($0, kAXDisclosingAttribute as CFString, kCFBooleanTrue) }
+                usleep(300_000)
+                if rows(sections).filter({ UIAuto.attr($0, kAXDisclosingAttribute) as? Bool == false }).count == closed.count { break }
             }
-            usleep(500_000)
         }
         let sectionRows: [AXUIElement?] = scope == .notebook
             ? rows(sections).filter { ((UIAuto.attr($0, kAXDisclosedRowsAttribute) as? [AXUIElement]) ?? []).isEmpty }
@@ -2398,11 +2403,24 @@ enum OneNotePDF {
         var parts: [URL] = []
         defer { parts.forEach { try? FileManager.default.removeItem(at: $0) } }
         for sec in sectionRows {
-            if let sec { select(sections, sec); usleep(1_200_000) }
+            if let sec {
+                // Warten, bis OneNote die Seiten des neuen Abschnitts zeigt (statt fester Pause)
+                let before = pageTitles(pages)
+                select(sections, sec)
+                for _ in 0..<40 { usleep(60_000); if pageTitles(pages) != before { break } }
+                usleep(150_000)
+            }
             let list = scope == .page ? [origPage].compactMap { $0 } : rows(pages)
             for row in list {
-                if scope != .page { select(pages, row); usleep(900_000) }
-                switch savePage(ax: ax, pid: pid, name: "WinKomfort-\(token)-\(String(format: "%04d", parts.count))") {
+                if scope != .page {
+                    select(pages, row)
+                    for _ in 0..<20 where UIAuto.attr(row, kAXSelectedAttribute) as? Bool != true { usleep(50_000) }
+                    usleep(250_000)
+                }
+                let name = "WinKomfort-\(token)-\(String(format: "%04d", parts.count))"
+                var r = savePage(ax: ax, pid: pid, name: name)
+                if case .failure(let e) = r, e.retry { r = savePage(ax: ax, pid: pid, name: name + "b") } // einmal neu versuchen
+                switch r {
                 case .success(let url): parts.append(url)
                 case .failure(let e): return .failure(e)
                 }
@@ -2433,15 +2451,15 @@ enum OneNotePDF {
         UIAuto.press(item)
         // Auf den Speichern-Dialog warten (Fenster mit „Save“-Knopf)
         var save: AXUIElement?
-        for _ in 0..<50 where save == nil {
-            usleep(100_000)
+        for _ in 0..<100 where save == nil {
+            usleep(50_000)
             for w in UIAuto.attr(ax, kAXWindowsAttribute) as? [AXUIElement] ?? [] {
                 save = UIAuto.elements(w, windowsOnly: false).first { UIAuto.role($0) == "AXButton" && saveButtons.contains(UIAuto.attr($0, kAXTitleAttribute) as? String ?? "") }
                 if save != nil { break }
             }
         }
-        guard let save else { return .failure(Failure(text: "Speichern-Dialog von OneNote kam nicht")) }
-        usleep(400_000)
+        guard let save else { return .failure(Failure(text: "Speichern-Dialog von OneNote kam nicht", retry: true)) }
+        usleep(250_000)
         // Der Name lässt sich nur per Tastatur setzen (Dialog läuft in einem eigenen Prozess); er ist beim Öffnen markiert
         guard isFront(pid) else { return .failure(abort) }
         let chars = Array(name.utf16)
@@ -2450,20 +2468,22 @@ enum OneNotePDF {
             if down { e?.keyboardSetUnicodeString(stringLength: chars.count, unicodeString: chars) }
             e?.post(tap: .cghidEventTap)
         }
-        usleep(300_000)
+        usleep(120_000)
         guard isFront(pid) else { return .failure(abort) }
         UIAuto.press(save)
         // Datei im gewählten Ordner suchen (Dialog merkt sich den letzten Ordner)
         let fm = FileManager.default
         let dirs: [FileManager.SearchPathDirectory] = [.documentDirectory, .desktopDirectory, .downloadsDirectory]
-        for _ in 0..<150 {
-            usleep(200_000)
+        var last = -1
+        for _ in 0..<300 {
+            usleep(100_000)
             for d in dirs {
                 let url = fm.urls(for: d, in: .userDomainMask)[0].appendingPathComponent("\(name).pdf")
-                if let size = (try? fm.attributesOfItem(atPath: url.path))?[.size] as? Int, size > 0 {
-                    usleep(500_000) // fertig schreiben lassen
-                    return .success(url)
-                }
+                guard let size = (try? fm.attributesOfItem(atPath: url.path))?[.size] as? Int, size > 0 else { continue }
+                // fertig, wenn die Größe gleich bleibt und der Dialog zu ist
+                let dialogOpen = UIAuto.role(save) != nil // Knopf existiert nicht mehr = Dialog zu
+                if size == last, !dialogOpen, PDFDocument(url: url) != nil { return .success(url) }
+                last = size
             }
         }
         return .failure(Failure(text: "PDF nicht gefunden – im Speichern-Dialog einmal „Dokumente“ wählen"))

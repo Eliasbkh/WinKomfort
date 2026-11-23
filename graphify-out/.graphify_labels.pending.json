@@ -1,12 +1,12 @@
 {
   "0": "WinKomfort.swift",
-  "1": "Store",
+  "1": "Bool",
   "2": "TaskModel",
   "3": "String",
   "4": "ObservableObject",
-  "5": "Cleaner",
+  "5": "ObservableObject",
   "6": "KeyPanel",
-  "7": "Awake",
+  "7": "ClipHistory",
   "8": "Parser",
   "9": "PinnedWindow",
   "10": "WinKomfort",
@@ -16,5 +16,10 @@
   "14": "SearchField",
   "15": "Double",
   "16": "Int32",
-  "17": "String"
+  "17": "String",
+  "18": "Pane",
+  "19": "HotAction",
+  "20": ".run",
+  "21": "CGFloat",
+  "22": "Bool"
 }

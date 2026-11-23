@@ -1,14 +1,14 @@
 {
   "WinKomfort.swift": {
-    "mtime": 1795430320.815608,
-    "seen": 1795460619.777515,
-    "ast_hash": "7ad284834e156d90b30ad4ee51ac8318",
+    "mtime": 1795465434.8095737,
+    "seen": 1795470398.746582,
+    "ast_hash": "61dab0b33e26b58cd28d3ad4c63c0f44",
     "semantic_hash": ""
   },
   "build.sh": {
-    "mtime": 1795425114.6381457,
-    "seen": 1795460619.7775161,
-    "ast_hash": "a66e1a4f464e7e41752047c76e0e5128",
+    "mtime": 1795463263.60696,
+    "seen": 1795470398.746582,
+    "ast_hash": "beecd311e8027b193938624397aca04e",
     "semantic_hash": ""
   },
   "release.sh": {
@@ -30,9 +30,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1795427142.856329,
-    "seen": 1795460619.7775202,
-    "ast_hash": "94a96afcd66f1aeaaf24631de45ebadd",
+    "mtime": 1795464811.1199384,
+    "seen": 1795470398.7465851,
+    "ast_hash": "c7c8274be4b1901afb70364a08fe4edb",
     "semantic_hash": ""
   },
   "Calc.swift": {
@@ -48,9 +48,27 @@
     "semantic_hash": ""
   },
   "Tests/main.swift": {
-    "mtime": 1795425300.5132322,
-    "seen": 1795460619.777514,
-    "ast_hash": "91d41f446cdc06a458dbafbc325374d9",
+    "mtime": 1795463274.1498203,
+    "seen": 1795470398.746581,
+    "ast_hash": "516569d725096f3ec3b54733577489a6",
+    "semantic_hash": ""
+  },
+  "Shortcut.swift": {
+    "mtime": 1795462373.943769,
+    "seen": 1795463135.153443,
+    "ast_hash": "3a4eb4b4fd2ecf5b3404eb0e331c9e31",
+    "semantic_hash": ""
+  },
+  "Icon/icon.svg": {
+    "mtime": 1795461626.1534412,
+    "seen": 1795463135.153451,
+    "ast_hash": "79b2e1186ecc3715a94b9def4ee5fb18",
+    "semantic_hash": ""
+  },
+  "SnapMath.swift": {
+    "mtime": 1795463212.7708015,
+    "seen": 1795470398.746579,
+    "ast_hash": "ecb0412f7f61355d20556425a4b19034",
     "semantic_hash": ""
   }
 }
