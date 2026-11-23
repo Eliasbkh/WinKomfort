@@ -4,7 +4,8 @@ set -e
 cd "$(dirname "$0")"
 V="${1:-1.0.0}"
 APP=build/WinKomfort.app
-rm -rf build && mkdir -p "$APP/Contents/MacOS"
+rm -rf build && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp Icon/WinKomfort.icns "$APP/Contents/Resources/" # Quelle: Icon/icon.svg
 swiftc -O -swift-version 5 -parse-as-library WinKomfort.swift TapDragLogic.swift Calc.swift -o "$APP/Contents/MacOS/WinKomfort"
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -19,6 +20,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>CFBundleDevelopmentRegion</key><string>de</string>
   <key>CFBundleLocalizations</key><array><string>de</string></array>
+  <key>CFBundleIconFile</key><string>WinKomfort</string>
   <key>LSUIElement</key><true/>
   <key>NSAppleEventsUsageDescription</key><string>WinKomfort bittet den Finder, Apps beim Aufräumen in den Papierkorb zu legen und wiederherzustellen.</string>
 </dict></plist>

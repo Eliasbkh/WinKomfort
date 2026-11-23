@@ -2058,15 +2058,16 @@ struct AutostartView: View {
             if !a.message.isEmpty { Section { Text(a.message) } }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 600)
+        .onAppear {
+            Autostarts.shared.scan()
+            LoginItems.shared.load()
+            if !backgroundSwitches.busy { backgroundSwitches.load() }
+        }
     }
 }
 
 @MainActor func openAutostarts() {
-    Autostarts.shared.scan()
-    LoginItems.shared.load()
-    if !backgroundSwitches.busy { backgroundSwitches.load() }
-    showWindow("autostarts", "Autostarts") { AutostartView() }
+    openSettingsWindow(.autostarts)
 }
 
 // MARK: - Schalter aus den Systemeinstellungen, direkt in WinKomfort
@@ -2406,14 +2407,11 @@ struct CleanupView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 500, height: 560)
+        .onAppear { Cleaner.shared.scan() }
     }
 }
 
-@MainActor func openCleanup() {
-    Cleaner.shared.scan()
-    showWindow("cleanup", "Mac aufräumen") { CleanupView() }
-}
+@MainActor func openCleanup() { openSettingsWindow(.cleanup) }
 
 // MARK: - Popup
 
@@ -2629,29 +2627,155 @@ struct MenuContent: View {
 }
 
 // Einstellungsfenster wie bei Systemapps: AppKit-Tabs im Toolbar-Stil, Inhalt in SwiftUI
-@MainActor func openSettingsWindow() {
-    if windows["settings"] == nil {
-        let tabs = NSTabViewController()
-        tabs.tabStyle = .toolbar
-        func add<V: View>(_ title: String, _ icon: String, _ view: V) {
-            let vc = NSHostingController(rootView: view.frame(width: 560, height: 440))
-            vc.title = title // wird zum Fenstertitel, wie bei Systemapps
-            vc.preferredContentSize = NSSize(width: 560, height: 440) // sonst bleibt das Fenster schmaler als der Inhalt
-            let item = NSTabViewItem(viewController: vc)
-            item.label = title
-            item.image = NSImage(systemSymbolName: icon, accessibilityDescription: title)
-            tabs.addTabViewItem(item)
+// Seiten wie in den Systemeinstellungen: farbige Symbolkachel, Titel, Suchbegriffe
+enum Pane: String, CaseIterable, Identifiable {
+    case general, input, windows, finder, screenshots, notifications, menubar, animations, autostarts, cleanup
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .general: "Allgemein"
+        case .input: "Eingabe"
+        case .windows: "Fenster"
+        case .finder: "Finder"
+        case .screenshots: "Screenshots"
+        case .notifications: "Mitteilungen"
+        case .menubar: "Menüleiste"
+        case .animations: "Animationen"
+        case .autostarts: "Autostarts"
+        case .cleanup: "Mac aufräumen"
         }
-        add("Allgemein", "gearshape", GeneralTab(store: Store.shared))
-        for i in groups.indices { add(groups[i], groupIcons[i], FeatureTab(store: Store.shared, group: groups[i])) }
-        add("Mitteilungen", "bell.badge", NotificationsTab())
-        add("Menüleiste", "menubar.rectangle", MenuBarTab())
-        add("Animationen", "wand.and.rays", AnimationTab())
-        let w = NSWindow(contentViewController: tabs)
-        w.styleMask = [.titled, .closable]
-        w.title = "Allgemein"
+    }
+    var symbol: String {
+        switch self {
+        case .general: "gearshape.fill"
+        case .input: "hand.tap.fill"
+        case .windows: "macwindow"
+        case .finder: "folder.fill"
+        case .screenshots: "camera.viewfinder"
+        case .notifications: "bell.badge.fill"
+        case .menubar: "menubar.rectangle"
+        case .animations: "wand.and.rays"
+        case .autostarts: "power"
+        case .cleanup: "trash.fill"
+        }
+    }
+    // Systemfarben wie in den macOS-Systemeinstellungen
+    var tint: Color {
+        switch self {
+        case .general: .gray
+        case .input: .blue
+        case .windows: .indigo
+        case .finder: .cyan
+        case .screenshots: .gray
+        case .notifications: .red
+        case .menubar: .secondary
+        case .animations: .purple
+        case .autostarts: .green
+        case .cleanup: .orange
+        }
+    }
+    var group: String? {
+        switch self {
+        case .input: groups[0]
+        case .windows: groups[1]
+        case .finder: groups[2]
+        case .screenshots: groups[3]
+        default: nil
+        }
+    }
+    // Wonach man suchen kann: Seitentitel, Schalter und Erklärungen darauf
+    var searchText: String {
+        var t = [title]
+        if let g = group { t += features.filter { $0.group == g }.flatMap { [$0.title, $0.hint] } }
+        switch self {
+        case .general: t += ["Anmelden Start Updates Version Bedienungshilfen Wach bleiben Bildschirm Ruhezustand Task-Manager Suche"]
+        case .input: t += ["Startmenü Control Suche Tastenkürzel Trackpad Ziehen"]
+        case .windows: t += ["Schließen beendet die App"]
+        case .notifications: t += ["Nicht stören Fokus Alle Mitteilungen"]
+        case .menubar: t += ["Symbole Notch Platz"]
+        case .animations: t += ["Trichter Minimieren Skalieren Tempo Dock Mission Control Übersicht"]
+        case .autostarts: t += ["Anmeldeobjekte Hintergrund Login Starter"]
+        case .cleanup: t += ["GarageBand iMovie Papierkorb löschen Speicher"]
+        default: break
+        }
+        return t.joined(separator: " ")
+    }
+}
+
+@MainActor final class SettingsNav: ObservableObject {
+    static let shared = SettingsNav()
+    @Published var pane: Pane? = .general
+    @Published var query = ""
+    var visible: [Pane] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        return q.isEmpty ? Pane.allCases : Pane.allCases.filter { $0.searchText.localizedCaseInsensitiveContains(q) }
+    }
+}
+
+struct PaneIcon: View {
+    let pane: Pane
+    var body: some View {
+        Image(systemName: pane.symbol)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 22, height: 22)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(pane.tint.gradient))
+            .accessibilityHidden(true)
+    }
+}
+
+struct SettingsRoot: View {
+    @ObservedObject var nav = SettingsNav.shared
+    var body: some View {
+        NavigationSplitView {
+            List(nav.visible, selection: $nav.pane) { pane in
+                NavigationLink(value: pane) {
+                    Label { Text(pane.title) } icon: { PaneIcon(pane: pane) }
+                }
+            }
+            .navigationSplitViewColumnWidth(min: 200, ideal: 215, max: 260)
+            .overlay { if nav.visible.isEmpty { ContentUnavailableView.search(text: nav.query) } }
+        } detail: {
+            Group {
+                switch nav.pane ?? .general {
+                case .general: GeneralTab(store: Store.shared)
+                case .notifications: NotificationsTab()
+                case .menubar: MenuBarTab()
+                case .animations: AnimationTab()
+                case .autostarts: AutostartView()
+                case .cleanup: CleanupView()
+                case let p: FeatureTab(store: Store.shared, group: p.group ?? groups[0])
+                }
+            }
+            .navigationTitle((nav.pane ?? .general).title)
+        }
+        .searchable(text: $nav.query, placement: .sidebar, prompt: "Suchen")
+        .onChange(of: nav.query) { _, _ in
+            // Bei der Suche automatisch die erste passende Seite zeigen
+            if let p = nav.pane, nav.visible.contains(p) { return }
+            nav.pane = nav.visible.first
+        }
+        .frame(minWidth: 720, minHeight: 500)
+    }
+}
+
+// Einstellungsfenster wie die Systemeinstellungen: Seitenleiste, Suche, Inhalt rechts
+@MainActor func openSettingsWindow(_ pane: Pane? = nil) {
+    if let pane { SettingsNav.shared.query = ""; SettingsNav.shared.pane = pane }
+    if windows["settings"] == nil {
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 780, height: 560),
+                         styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                         backing: .buffered, defer: false)
+        w.contentViewController = NSHostingController(rootView: SettingsRoot())
+        w.toolbar = NSToolbar() // Platz für Seitenleisten-Knopf und Titel, wie bei Systemapps
+        w.toolbarStyle = .unified
+        w.titlebarSeparatorStyle = .automatic
+        w.title = (SettingsNav.shared.pane ?? .general).title // wie bei Apple: Name der Seite oben
+        w.setContentSize(NSSize(width: 780, height: 560))
         w.isReleasedWhenClosed = false
-        w.center()
+        w.setFrameAutosaveName("WinKomfortSettings") // Größe und Position merken
+        if !w.setFrameUsingName("WinKomfortSettings") { w.center() }
         windows["settings"] = w
     }
     NSApp.activate(ignoringOtherApps: true)
@@ -2738,8 +2862,6 @@ struct GeneralTab: View {
             }
             Section {
                 LabeledContent("Task-Manager", value: "⌃⇧⎋")
-                Button("Autostarts …") { openAutostarts() }
-                Button("Mac aufräumen …") { openCleanup() }
             }
         }
         .formStyle(.grouped)
