@@ -13,6 +13,8 @@ Windows-Komfort für macOS als Menüleisten-App – jede Funktion einzeln schalt
 - **Menüleiste:** Symbole von macOS und Apps ein-/ausblenden – Platz neben der Notch schaffen
 - **Suche** (⌥ Leertaste): Apps, Dateien, Rechner, Web – mit Pfeiltasten und Enter
 - **Schnellnotiz** (⌃⌥N): kleine Notiz oben links, immer im Vordergrund, speichert automatisch
+- **Zwischenablage-Verlauf** (⌃⌥V): letzte 50 Texte und 10 Bilder, nur im Arbeitsspeicher, Passwörter aus Passwort-Managern werden nie gespeichert
+- **Fenster einrasten per Tastatur** (⌃⌥←/→/↑/↓): linke/rechte Hälfte, maximieren, zurück bzw. minimieren
 - **Fenster anheften** (⌃⌘P): Fenster bleibt immer im Vordergrund (Live-Kopie, braucht einmal „Bildschirmaufnahme“)
 - **Wach bleiben:** Bildschirm an lassen oder nur den Mac wach halten, für 30 Min bis unbegrenzt
 - **Mac aufräumen:** entfernbare Standard-Apps (GarageBand, iMovie, Keynote, Pages, Numbers + Sounds) in den Papierkorb – mit Protokoll und Wiederherstellen
@@ -26,7 +28,7 @@ Startet automatisch bei der Anmeldung und aktualisiert sich selbst über GitHub 
 ## Bauen / testen / veröffentlichen
 
 ```bash
-swiftc TapDragLogic.swift Tests/main.swift -o /tmp/tapdragtest && /tmp/tapdragtest
+swiftc TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift Tests/main.swift -o /tmp/wktest && /tmp/wktest
 ./build.sh 1.0.0
 ./release.sh 1.0.1 "Was ist neu"
 ```

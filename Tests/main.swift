@@ -1,4 +1,4 @@
-// Tests: swiftc TapDragLogic.swift Calc.swift Shortcut.swift Tests/main.swift -o /tmp/wktest && /tmp/wktest
+// Tests: swiftc TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift Tests/main.swift -o /tmp/wktest && /tmp/wktest
 typealias A = TapDragLogic.Action
 typealias P = TapDragLogic.Point
 
@@ -115,6 +115,15 @@ sc("Ungültig: nur Buchstabe", "\(Shortcut(code: 35, mods: 0, key: "p").isValid)
 sc("Ungültig: nur ⇧ + Buchstabe", "\(Shortcut(code: 35, mods: Shortcut.shift, key: "p").isValid)", "false")
 sc("Gültig: F-Taste allein", "\(Shortcut(code: 96, mods: 0).isValid)", "true")
 sc("Deutsche Tastatur: Taste 6 heißt Z", Shortcut(code: 6, mods: Shortcut.command, key: "z").display, "⌘Z")
+
+// Einrasten: MacBook 1470×956, Menüleiste 33 oben, Dock 70 unten → sichtbar (Cocoa) y 70…923
+import CoreGraphics
+let vis = SnapMath.toAX(CGRect(x: 0, y: 70, width: 1470, height: 853), primaryHeight: 956)
+sc("AX-Koordinaten: oben unter der Menüleiste", "\(vis)", "\(CGRect(x: 0, y: 33, width: 1470, height: 853))")
+sc("Linke Hälfte", "\(SnapMath.target(.left, in: vis))", "\(CGRect(x: 0, y: 33, width: 735, height: 853))")
+sc("Rechte Hälfte", "\(SnapMath.target(.right, in: vis))", "\(CGRect(x: 735, y: 33, width: 735, height: 853))")
+sc("Ungerade Breite: Hälften lückenlos", "\(SnapMath.target(.right, in: CGRect(x: 1470, y: -200, width: 1921, height: 1050)))", "\(CGRect(x: 2431, y: -200, width: 960, height: 1050))")
+sc("Maximieren", "\(SnapMath.target(.max, in: vis))", "\(vis)")
 
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }

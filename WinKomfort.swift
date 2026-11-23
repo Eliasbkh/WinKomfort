@@ -1985,14 +1985,24 @@ struct TaskView: View {
 
 // Globale Tastenkürzel – selbst festlegbar unter Einstellungen → Tastenkürzel
 enum HotAction: String, CaseIterable, Identifiable {
-    case search, note, pin, tasks
-    var id: UInt32 { switch self { case .tasks: 1; case .search: 2; case .note: 3; case .pin: 4 } }
+    case search, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, tasks
+    var id: UInt32 {
+        switch self {
+        case .tasks: 1; case .search: 2; case .note: 3; case .pin: 4; case .clipboard: 5
+        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9
+        }
+    }
     var title: String {
         switch self {
         case .search: "Suche öffnen"
         case .note: "Schnellnotiz ein-/ausblenden"
         case .pin: "Fenster anheften / lösen"
         case .tasks: "Task-Manager"
+        case .clipboard: "Zwischenablage-Verlauf"
+        case .snapLeft: "Fenster: linke Hälfte"
+        case .snapRight: "Fenster: rechte Hälfte"
+        case .snapMax: "Fenster: maximieren"
+        case .snapRestore: "Fenster: vorherige Größe / minimieren"
         }
     }
     var standard: Shortcut {
@@ -2001,6 +2011,11 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .note: Shortcut(code: kVK_ANSI_N, mods: controlKey | optionKey, key: "N")
         case .pin: Shortcut(code: kVK_ANSI_P, mods: controlKey | cmdKey, key: "P")
         case .tasks: Shortcut(code: kVK_Escape, mods: controlKey | shiftKey)
+        case .clipboard: Shortcut(code: kVK_ANSI_V, mods: controlKey | optionKey, key: "V")
+        case .snapLeft: Shortcut(code: kVK_LeftArrow, mods: controlKey | optionKey)
+        case .snapRight: Shortcut(code: kVK_RightArrow, mods: controlKey | optionKey)
+        case .snapMax: Shortcut(code: kVK_UpArrow, mods: controlKey | optionKey)
+        case .snapRestore: Shortcut(code: kVK_DownArrow, mods: controlKey | optionKey)
         }
     }
     private var storeKey: String { "shortcut.\(rawValue)" }
@@ -2019,6 +2034,11 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .note: QuickNote.shared.toggle()
         case .pin: Pins.shared.toggleFrontmost()
         case .tasks: openTaskManager()
+        case .clipboard: ClipPanel.toggle()
+        case .snapLeft: Snap.run(.left)
+        case .snapRight: Snap.run(.right)
+        case .snapMax: Snap.run(.max)
+        case .snapRestore: Snap.run(nil)
         }
     }
 }
@@ -2146,6 +2166,255 @@ struct ShortcutsTab: View {
         }
         .formStyle(.grouped)
         .onDisappear { if r.recording != nil { r.stop() } }
+    }
+}
+
+// MARK: - Fenster per Tastatur einrasten (wie Windows-Taste + Pfeile)
+
+@MainActor enum Snap {
+    private static var saved: [CGWindowID: CGRect] = [:] // Größe vor dem ersten Einrasten, je Fenster
+
+    // nil = zurück zur vorherigen Größe; war das Fenster nicht eingerastet, minimieren (wie Windows)
+    static func run(_ d: SnapMath.Dir?) {
+        guard AXIsProcessTrusted() else {
+            afterTrust(prompt: true) {}
+            Toast.show("Bitte „Bedienungshilfen“ für WinKomfort erlauben", symbol: "lock"); return
+        }
+        guard let app = NSWorkspace.shared.frontmostApplication, app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
+        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(axApp, 1)
+        guard let w = UIAuto.attr(axApp, kAXFocusedWindowAttribute), let frame = frame(w as! AXUIElement) else { NSSound.beep(); return }
+        let win = w as! AXUIElement
+        var id: CGWindowID = 0
+        _ = _AXUIElementGetWindow(win, &id)
+        guard let d else {
+            if let old = saved.removeValue(forKey: id) { set(win, old) }
+            else { AXUIElementSetAttributeValue(win, kAXMinimizedAttribute as CFString, kCFBooleanTrue) }
+            return
+        }
+        if saved[id] == nil { saved[id] = frame }
+        let primaryH = NSScreen.screens[0].frame.height
+        let center = CGPoint(x: frame.midX, y: primaryH - frame.midY)
+        let screen = NSScreen.screens.first { $0.frame.contains(center) } ?? NSScreen.main!
+        set(win, SnapMath.target(d, in: SnapMath.toAX(screen.visibleFrame, primaryHeight: primaryH)))
+    }
+
+    private static func frame(_ w: AXUIElement) -> CGRect? {
+        guard let p = UIAuto.attr(w, kAXPositionAttribute), let s = UIAuto.attr(w, kAXSizeAttribute) else { return nil }
+        var pos = CGPoint.zero, size = CGSize.zero
+        AXValueGetValue(p as! AXValue, .cgPoint, &pos)
+        AXValueGetValue(s as! AXValue, .cgSize, &size)
+        return CGRect(origin: pos, size: size)
+    }
+
+    // Größe, Position, Größe: manche Apps begrenzen die Größe je nach Position
+    private static func set(_ w: AXUIElement, _ r: CGRect) {
+        var pos = r.origin, size = r.size
+        let s = AXValueCreate(.cgSize, &size)!, p = AXValueCreate(.cgPoint, &pos)!
+        AXUIElementSetAttributeValue(w, kAXSizeAttribute as CFString, s)
+        AXUIElementSetAttributeValue(w, kAXPositionAttribute as CFString, p)
+        AXUIElementSetAttributeValue(w, kAXSizeAttribute as CFString, s)
+    }
+}
+
+// MARK: - Zwischenablage-Verlauf (wie Windows + V) – nur im Arbeitsspeicher
+
+struct ClipItem: Identifiable {
+    let id = UUID()
+    let text: String?
+    let image: NSImage?
+}
+
+@MainActor final class ClipHistory: ObservableObject {
+    static let shared = ClipHistory()
+    @Published private(set) var items: [ClipItem] = []
+    @Published var selected = 0
+    private var timer: Timer?
+    private var lastCount = NSPasteboard.general.changeCount
+    // So markieren Passwort-Manager Geheimes (nspasteboard.org) – das wird nie gespeichert
+    private static let secret: Set<String> = ["org.nspasteboard.ConcealedType", "org.nspasteboard.TransientType",
+                                              "org.nspasteboard.AutoGeneratedType", "com.agilebits.onepassword"]
+
+    var enabled: Bool { UserDefaults.standard.object(forKey: "clipHistory") as? Bool ?? true }
+
+    // macOS meldet neue Kopien nicht – nur eine Zahl abfragen kostet praktisch nichts
+    func start() {
+        timer?.invalidate()
+        timer = nil
+        guard enabled else { clear(); return }
+        lastCount = NSPasteboard.general.changeCount
+        let t = Timer(timeInterval: 0.7, repeats: true) { _ in MainActor.assumeIsolated { ClipHistory.shared.poll() } }
+        t.tolerance = 0.3
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    func clear() { items = []; selected = 0 }
+
+    private func poll() {
+        let pb = NSPasteboard.general
+        guard pb.changeCount != lastCount else { return }
+        lastCount = pb.changeCount
+        guard Set((pb.types ?? []).map(\.rawValue)).isDisjoint(with: Self.secret) else { return }
+        if let s = pb.string(forType: .string), !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            items.removeAll { $0.text == s }
+            items.insert(ClipItem(text: s, image: nil), at: 0)
+        } else if pb.canReadItem(withDataConformingToTypes: [NSPasteboard.PasteboardType.png.rawValue, NSPasteboard.PasteboardType.tiff.rawValue]),
+                  let img = NSImage(pasteboard: pb) {
+            items.insert(ClipItem(text: nil, image: img), at: 0)
+        } else { return }
+        var texts = 0, images = 0
+        items = items.filter { $0.image != nil ? { images += 1; return images <= 10 }() : { texts += 1; return texts <= 50 }() }
+    }
+
+    func remove(at i: Int) {
+        guard items.indices.contains(i) else { return }
+        items.remove(at: i)
+        selected = min(selected, max(items.count - 1, 0))
+    }
+
+    // In die App einfügen, die vorne ist: Eintrag in die Zwischenablage legen, dann ⌘V schicken
+    func paste(_ i: Int) {
+        guard items.indices.contains(i) else { return }
+        let item = items.remove(at: i)
+        items.insert(item, at: 0)
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        if let t = item.text { pb.setString(t, forType: .string) } else if let img = item.image { pb.writeObjects([img]) }
+        lastCount = pb.changeCount
+        ClipPanel.hide()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            let src = CGEventSource(stateID: .combinedSessionState)
+            for down in [true, false] {
+                let e = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: down)
+                e?.flags = .maskCommand
+                e?.post(tap: .cghidEventTap)
+            }
+        }
+    }
+}
+
+@MainActor enum ClipPanel {
+    private static var panel: KeyPanel?
+    private static let size = NSSize(width: 380, height: 440)
+
+    static func toggle() { if panel?.isVisible == true { hide() } else { show() } }
+    static func hide() { panel?.orderOut(nil) }
+
+    static func show() {
+        let h = ClipHistory.shared
+        guard h.enabled else { Toast.show("Zwischenablage-Verlauf ist aus (Einstellungen › Allgemein)", symbol: "clipboard"); return }
+        h.selected = 0
+        let p = panel ?? make()
+        // Wie bei Windows nah am Geschehen: unter dem Mauszeiger, aber immer ganz auf dem Bildschirm
+        let m = NSEvent.mouseLocation
+        let v = (NSScreen.screens.first { NSMouseInRect(m, $0.frame, false) } ?? NSScreen.main!).visibleFrame
+        p.setFrameOrigin(NSPoint(x: min(max(m.x - size.width / 2, v.minX + 8), v.maxX - size.width - 8),
+                                 y: min(max(m.y - size.height - 12, v.minY + 8), v.maxY - size.height - 8)))
+        p.orderFrontRegardless()
+        p.makeKey()
+    }
+
+    private static func make() -> KeyPanel {
+        let p = KeyPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel],
+                         backing: .buffered, defer: false)
+        p.becomesKeyOnlyIfNeeded = false
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = true
+        p.level = .popUpMenu
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.contentView = fixedHost(ClipView())
+        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: p, queue: .main) { _ in
+            MainActor.assumeIsolated { hide() }
+        }
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            guard panel?.isKeyWindow == true else { return e }
+            return MainActor.assumeIsolated { key(e) } ? nil : e
+        }
+        panel = p
+        return p
+    }
+
+    private static func key(_ e: NSEvent) -> Bool {
+        let h = ClipHistory.shared
+        switch e.keyCode {
+        case 53: hide()
+        case 125: h.selected = min(h.selected + 1, max(h.items.count - 1, 0))
+        case 126: h.selected = max(h.selected - 1, 0)
+        case 36, 76: h.paste(h.selected)
+        case 51, 117: h.remove(at: h.selected)
+        default:
+            guard let n = Int(e.charactersIgnoringModifiers ?? ""), (1...9).contains(n) else { return false }
+            h.paste(n - 1)
+        }
+        return true
+    }
+}
+
+struct ClipRow: View {
+    let item: ClipItem
+    let index: Int
+    @ObservedObject var h = ClipHistory.shared
+    var body: some View {
+        let selected = h.selected == index
+        Button { h.paste(index) } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Text(index < 9 ? "\(index + 1)" : "")
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 12)
+                if let t = item.text {
+                    Text(t.trimmingCharacters(in: .whitespacesAndNewlines)).lineLimit(3).truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else if let img = item.image {
+                    Image(nsImage: img).resizable().scaledToFit().frame(maxHeight: 70)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityLabel("Bild")
+                }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.accentColor.opacity(selected ? 0.22 : 0)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { if $0 { h.selected = index } }
+        .accessibilityHint(index < 9 ? "Einfügen, Taste \(index + 1)" : "Einfügen")
+    }
+}
+
+struct ClipView: View {
+    @ObservedObject var h = ClipHistory.shared
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Zwischenablage").font(.headline)
+                Spacer()
+                if !h.items.isEmpty { Button("Alle löschen") { h.clear() }.buttonStyle(.borderless) }
+            }
+            .padding(12)
+            Divider()
+            if h.items.isEmpty {
+                ContentUnavailableView("Noch nichts kopiert", systemImage: "clipboard",
+                                       description: Text("Kopierte Texte und Bilder erscheinen hier."))
+                    .frame(maxHeight: .infinity)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 2) {
+                            ForEach(Array(h.items.enumerated()), id: \.element.id) { i, item in
+                                ClipRow(item: item, index: i).id(item.id)
+                            }
+                        }
+                        .padding(6)
+                    }
+                    .onChange(of: h.selected) { _, s in if h.items.indices.contains(s) { proxy.scrollTo(h.items[s].id) } }
+                }
+            }
+            Divider()
+            Text("↑↓ wählen · ↩ einfügen · 1–9 direkt · ⌫ löschen · esc schließt")
+                .font(.caption).foregroundStyle(.secondary).padding(8)
+        }
+        .frame(width: 380, height: 440)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -2752,6 +3021,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Store.shared.reload()
         if d.bool(forKey: "startMenu") { StartKey.start() }
         HotKey.register()
+        ClipHistory.shared.start()
         SearchPanel.prepare()
         if !d.bool(forKey: "welcomeShown") { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MainActor.assumeIsolated { openWelcome() } } }
         DockReveal.start()
@@ -2898,7 +3168,7 @@ enum Pane: String, CaseIterable, Identifiable {
         var t = [title]
         if let g = group { t += features.filter { $0.group == g }.flatMap { [$0.title, $0.hint] } }
         switch self {
-        case .general: t += ["Anmelden Start Updates Version Bedienungshilfen Wach bleiben Bildschirm Ruhezustand"]
+        case .general: t += ["Anmelden Start Updates Version Bedienungshilfen Wach bleiben Bildschirm Ruhezustand Zwischenablage Verlauf Kopieren Einfügen"]
         case .shortcuts: t += HotAction.allCases.map(\.title) + ["Kürzel Tastatur Hotkey Startmenü"]
         case .input: t += ["Startmenü Control Suche Tastenkürzel Trackpad Ziehen"]
         case .windows: t += ["Schließen beendet die App"]
@@ -3025,6 +3295,7 @@ struct GeneralTab: View {
     @ObservedObject var awake = Awake.shared
     @ObservedObject var updater = Updater.shared
     @AppStorage("autoUpdate") var autoUpdate = true
+    @AppStorage("clipHistory") var clipHistory = true
     var body: some View {
         Form {
             Section {
@@ -3056,6 +3327,14 @@ struct GeneralTab: View {
                     Spacer()
                     if awake.mode != nil { Button("Beenden") { awake.stop() } }
                 }
+            }
+            Section {
+                Toggle("Zwischenablage-Verlauf (\(HotAction.clipboard.current?.display ?? "Kürzel aus"))", isOn: $clipHistory)
+                    .onChange(of: clipHistory) { ClipHistory.shared.start() }
+                Button("Verlauf jetzt leeren") { ClipHistory.shared.clear() }
+            } header: { Text("Zwischenablage") } footer: {
+                Text("Merkt sich die letzten 50 Texte und 10 Bilder – nur im Arbeitsspeicher, nach dem Neustart ist alles weg. Passwörter aus Passwort-Managern werden nie gespeichert.")
+                    .foregroundStyle(.secondary)
             }
             Section {
                 Button("Einführung erneut zeigen …") { openWelcome() }
