@@ -164,13 +164,6 @@ let features: [Feature] = [
                     Pref(domain: "NSGlobalDomain", key: "PMPrintingExpandedStateForPrint", on: yes),
                     Pref(domain: "NSGlobalDomain", key: "PMPrintingExpandedStateForPrint2", on: yes)]),
 
-    Feature(id: "fast", group: groups[1], title: "Schnellere Animationen",
-            hint: "Fenster öffnen sofort, Dock und Mission Control reagieren flotter.",
-            prefs: [Pref(domain: "NSGlobalDomain", key: "NSAutomaticWindowAnimationsEnabled", on: no),
-                    Pref(domain: "NSGlobalDomain", key: "NSWindowResizeTime", on: ["-float", "0.001"]),
-                    Pref(domain: "com.apple.dock", key: "launchanim", on: no),
-                    Pref(domain: "com.apple.dock", key: "expose-animation-duration", on: ["-float", "0.12"])],
-            restart: ["Dock"]),
 
     // Screenshots
     Feature(id: "shot", group: groups[3], title: "Screenshots in die Zwischenablage",
@@ -1602,6 +1595,148 @@ enum DockReveal {
     }
 }
 
+// MARK: - Animationen (Tempo der macOS-Animationen, Minimieren-Effekt)
+
+struct AnimSpeed: Identifiable {
+    let id: String
+    let title: String
+    let hint: String
+    let domain: String
+    let key: String
+    let standard: Double      // macOS-Standard in Sekunden
+    let range: ClosedRange<Double>
+    let restartDock: Bool
+}
+
+let animSpeeds = [
+    AnimSpeed(id: "dock", title: "Dock ein- und ausblenden", hint: "Wie schnell das Dock hereinfährt.",
+              domain: "com.apple.dock", key: "autohide-time-modifier", standard: 0.5, range: 0...1, restartDock: true),
+    AnimSpeed(id: "mission", title: "Mission Control", hint: "Öffnen und Schließen der Fensterübersicht.",
+              domain: "com.apple.dock", key: "expose-animation-duration", standard: 0.2, range: 0...1, restartDock: true),
+    AnimSpeed(id: "resize", title: "Fenster und Dialoge", hint: "Größe ändern, Speichern-Dialoge einblenden. Gilt nach dem Neustart einer App.",
+              domain: "NSGlobalDomain", key: "NSWindowResizeTime", standard: 0.2, range: 0.001...0.6, restartDock: false),
+    AnimSpeed(id: "quicklook", title: "Übersicht (Leertaste im Finder)", hint: "Aufzoomen der Dateivorschau.",
+              domain: "NSGlobalDomain", key: "QLPanelAnimationDuration", standard: 0.2, range: 0...1, restartDock: false),
+]
+
+@MainActor final class Animations: ObservableObject {
+    static let shared = Animations()
+    @Published var speeds: [String: Double] = [:]
+    @Published var effect = "genie"
+    @Published var windowAnim = true
+    @Published var launchBounce = true
+
+    init() { load() }
+
+    func load() {
+        for a in animSpeeds {
+            speeds[a.id] = Double(defaults("read", Pref(domain: a.domain, key: a.key, on: []))) ?? a.standard
+        }
+        let e = defaults("read", Pref(domain: "com.apple.dock", key: "mineffect", on: []))
+        effect = e.isEmpty ? "genie" : e
+        windowAnim = defaults("read", Pref(domain: "NSGlobalDomain", key: "NSAutomaticWindowAnimationsEnabled", on: [])) != "0"
+        launchBounce = defaults("read", Pref(domain: "com.apple.dock", key: "launchanim", on: [])) != "0"
+    }
+
+    // Kurz nach der letzten Änderung speichern (Maus, Pfeiltasten oder VoiceOver) – nicht bei jeder Bewegung,
+    // sonst würde das Dock dauernd neu starten
+    private var pending: [String: DispatchWorkItem] = [:]
+    func change(_ a: AnimSpeed, _ v: Double) {
+        speeds[a.id] = v
+        pending[a.id]?.cancel()
+        let w = DispatchWorkItem { MainActor.assumeIsolated { Animations.shared.commit(a) } }
+        pending[a.id] = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: w)
+    }
+
+    func commit(_ a: AnimSpeed) {
+        guard let v = speeds[a.id] else { return }
+        defaults("write", Pref(domain: a.domain, key: a.key, on: []), ["-float", String(format: "%.3f", v)])
+        if a.restartDock { sh(["/usr/bin/killall", "Dock"]) }
+    }
+
+    func setEffect(_ e: String) {
+        effect = e
+        defaults("write", Pref(domain: "com.apple.dock", key: "mineffect", on: []), ["-string", e])
+        sh(["/usr/bin/killall", "Dock"])
+    }
+
+    func setWindowAnim(_ on: Bool) {
+        windowAnim = on
+        let p = Pref(domain: "NSGlobalDomain", key: "NSAutomaticWindowAnimationsEnabled", on: [])
+        if on { defaults("delete", p) } else { defaults("write", p, ["-bool", "false"]) }
+    }
+
+    func setLaunchBounce(_ on: Bool) {
+        launchBounce = on
+        let p = Pref(domain: "com.apple.dock", key: "launchanim", on: [])
+        if on { defaults("delete", p) } else { defaults("write", p, ["-bool", "false"]) }
+        sh(["/usr/bin/killall", "Dock"])
+    }
+
+    // Alles auf den macOS-Standard zurück
+    func reset() {
+        for a in animSpeeds { defaults("delete", Pref(domain: a.domain, key: a.key, on: [])) }
+        for (d, k) in [("com.apple.dock", "mineffect"), ("com.apple.dock", "launchanim"), ("NSGlobalDomain", "NSAutomaticWindowAnimationsEnabled")] {
+            defaults("delete", Pref(domain: d, key: k, on: []))
+        }
+        sh(["/usr/bin/killall", "Dock"])
+        load()
+    }
+}
+
+struct AnimationTab: View {
+    @ObservedObject var m = Animations.shared
+    var body: some View {
+        Form {
+            Section {
+                Picker(selection: Binding(get: { m.effect }, set: { m.setEffect($0) })) {
+                    Text("Trichter").tag("genie")
+                    Text("Skalieren (schnell)").tag("scale")
+                    Text("Einsaugen").tag("suck")
+                } label: {
+                    Text("Minimieren-Effekt")
+                    Text("Für den Trichter gibt es keine Tempo-Einstellung – „Skalieren“ ist deutlich schneller.")
+                }
+                .accessibilityLabel("Minimieren-Effekt")
+            }
+            Section("Tempo") {
+                ForEach(animSpeeds) { a in
+                    LabeledContent {
+                        HStack(spacing: 10) {
+                            Slider(value: Binding(get: { m.speeds[a.id] ?? a.standard }, set: { m.change(a, $0) }), in: a.range)
+                                .frame(width: 170)
+                                .accessibilityLabel(a.title)
+                                .accessibilityValue("\((m.speeds[a.id] ?? a.standard).formatted(.number.precision(.fractionLength(2)))) Sekunden")
+                            Text("\((m.speeds[a.id] ?? a.standard).formatted(.number.precision(.fractionLength(2)))) s")
+                                .monospacedDigit().foregroundStyle(.secondary).frame(width: 46, alignment: .trailing)
+                        }
+                    } label: {
+                        Text(a.title)
+                        Text(a.hint)
+                    }
+                }
+            }
+            Section {
+                Toggle(isOn: Binding(get: { m.windowAnim }, set: { m.setWindowAnim($0) })) {
+                    Text("Fenster mit Animation öffnen")
+                    Text("Aus: Fenster erscheinen sofort. Gilt nach dem Neustart einer App.")
+                }
+                .accessibilityLabel("Fenster mit Animation öffnen")
+                Toggle(isOn: Binding(get: { m.launchBounce }, set: { m.setLaunchBounce($0) })) {
+                    Text("Apps hüpfen beim Start im Dock")
+                }
+                .accessibilityLabel("Apps hüpfen beim Start im Dock")
+            }
+            Section {
+                Button("Alles auf macOS-Standard zurücksetzen") { m.reset() }
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { m.load() }
+    }
+}
+
 // MARK: - Fenster-Helfer
 
 @MainActor var windows: [String: NSWindow] = [:]
@@ -2511,6 +2646,7 @@ struct MenuContent: View {
         for i in groups.indices { add(groups[i], groupIcons[i], FeatureTab(store: Store.shared, group: groups[i])) }
         add("Mitteilungen", "bell.badge", NotificationsTab())
         add("Menüleiste", "menubar.rectangle", MenuBarTab())
+        add("Animationen", "wand.and.rays", AnimationTab())
         let w = NSWindow(contentViewController: tabs)
         w.styleMask = [.titled, .closable]
         w.title = "Allgemein"
