@@ -740,7 +740,9 @@ struct NotifApp: Identifiable {
             let l = UIAuto.label(el)
             guard UIAuto.role(el) == "AXButton", let comma = l.range(of: ", ") else { return nil }
             let name = String(l[..<comma.lowerBound]).trimmingCharacters(in: CharacterSet(charactersIn: "\u{200E}\u{200F}"))
-            return (el, NotifApp(name: name, on: l[comma.upperBound...] != "Aus"))
+            // „Kritisch“ allein heißt: Mitteilungen aus, nur kritische Hinweise (Notfälle) kommen noch durch
+            let summary = String(l[comma.upperBound...])
+            return (el, NotifApp(name: name, on: summary != "Aus" && summary != "Kritisch"))
         }
     }
 
@@ -958,7 +960,6 @@ struct SearchHit: Identifiable {
     }
 
     private func collectFiles() {
-        mdq.disableUpdates()
         files = (0..<min(mdq.resultCount, 60)).compactMap { i -> SearchHit? in
             guard let item = mdq.result(at: i) as? NSMetadataItem,
                   let path = item.value(forAttribute: NSMetadataItemPathKey) as? String,
@@ -1036,6 +1037,8 @@ struct SearchHit: Identifiable {
 
     static func toggle() { if panel?.isVisible == true { hide() } else { show() } }
     static func hide() { panel?.orderOut(nil); SearchModel.shared.reset() }
+    // Beim Start einmal unsichtbar bauen – dann ist das Suchfeld beim ersten Öffnen sofort da
+    static func prepare() { _ = panel ?? make(); panel?.contentView?.layoutSubtreeIfNeeded() }
 
     static func show() {
         StartModel.shared.reload() // App-Liste frisch (dauert nur Millisekunden)
@@ -1044,6 +1047,13 @@ struct SearchHit: Identifiable {
         resize()
         p.orderFrontRegardless()
         p.makeKey()
+        // Fokus sofort ins Suchfeld – sonst gehen die ersten Buchstaben verloren, wenn man direkt lostippt
+        func field(_ v: NSView) -> NSTextField? {
+            if let t = v as? NSTextField, t.isEditable { return t }
+            for s in v.subviews { if let f = field(s) { return f } }
+            return nil
+        }
+        if let content = p.contentView, let f = field(content) { p.makeFirstResponder(f) }
     }
 
     // Fensterhöhe folgt der Trefferzahl, die Oberkante bleibt stehen
@@ -1935,6 +1945,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Store.shared.reload()
         if d.bool(forKey: "startMenu") { StartKey.start() }
         HotKey.register()
+        SearchPanel.prepare()
         Task { await Updater.shared.loop() }
     }
 }
