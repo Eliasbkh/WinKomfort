@@ -618,6 +618,211 @@ struct StartView: View {
     }
 }
 
+// MARK: - Mitteilungen
+// Apple bietet Apps keinen Weg, Mitteilungen anderer Apps oder „Nicht stören“ zu schalten. WinKomfort bedient deshalb
+// im Hintergrund dieselben Schalter wie du: Systemeinstellungen → Mitteilungen und Kontrollzentrum → Fokus.
+// shortcut: hängt an Apples interner Bedienstruktur (Kennungen wie „allow-notifications“) – nach großen macOS-Updates nachtesten
+
+enum UIAuto {
+    static func attr(_ e: AXUIElement, _ n: String) -> AnyObject? {
+        var v: CFTypeRef?
+        return AXUIElementCopyAttributeValue(e, n as CFString, &v) == .success ? v : nil
+    }
+    static func id(_ e: AXUIElement) -> String? { attr(e, kAXIdentifierAttribute) as? String }
+    static func role(_ e: AXUIElement) -> String? { attr(e, kAXRoleAttribute) as? String }
+    static func label(_ e: AXUIElement) -> String {
+        (attr(e, kAXDescriptionAttribute) as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (attr(e, kAXTitleAttribute) as? String) ?? ""
+    }
+    static func press(_ e: AXUIElement) { AXUIElementPerformAction(e, kAXPressAction as CFString) }
+    static func app(_ bundle: String) -> AXUIElement? {
+        guard let a = NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first else { return nil }
+        let ax = AXUIElementCreateApplication(a.processIdentifier)
+        AXUIElementSetMessagingTimeout(ax, 2)
+        return ax
+    }
+    // Alle Elemente der Fenster einer App in Baum-Reihenfolge
+    static func elements(_ ax: AXUIElement, windowsOnly: Bool = true) -> [AXUIElement] {
+        var out: [AXUIElement] = []
+        func walk(_ e: AXUIElement, _ d: Int) {
+            out.append(e)
+            if d < 14 { for k in attr(e, kAXChildrenAttribute) as? [AXUIElement] ?? [] { walk(k, d + 1) } }
+        }
+        if windowsOnly { for w in attr(ax, kAXWindowsAttribute) as? [AXUIElement] ?? [] { walk(w, 0) } } else { walk(ax, 0) }
+        return out
+    }
+    // Wartet bis zu 12 s, bis die Bedingung erfüllt ist (Kaltstart der Systemeinstellungen braucht ~5 s)
+    static func wait(_ bundle: String, windowsOnly: Bool = true, seconds: Double = 12, _ ok: ([AXUIElement]) -> Bool) -> [AXUIElement]? {
+        for _ in 0..<Int(seconds / 0.15) {
+            if let ax = app(bundle) { let e = elements(ax, windowsOnly: windowsOnly); if ok(e) { return e } }
+            usleep(150_000)
+        }
+        return nil
+    }
+}
+
+struct NotifApp: Identifiable {
+    let name: String
+    var on: Bool
+    var id: String { name }
+}
+
+@MainActor final class Notifs: ObservableObject {
+    static let shared = Notifs()
+    @Published var apps: [NotifApp] = []
+    @Published var dnd: Bool?
+    @Published var busy = false
+    @Published var message = ""
+    private let queue = DispatchQueue(label: "winkomfort.notifs") // nacheinander, nie gleichzeitig
+
+    private nonisolated static let settings = "com.apple.systempreferences"
+
+    // MARK: Systemeinstellungen → Mitteilungen
+    private nonisolated static func isOverview(_ e: [AXUIElement]) -> Bool {
+        e.contains { UIAuto.role($0) == "AXHeading" && UIAuto.label($0) == "App-Mitteilungen" }
+    }
+    private nonisolated static func isDetail(_ e: [AXUIElement]) -> Bool {
+        e.contains { UIAuto.id($0) == "allow-notifications" }
+    }
+
+    // Öffnet die Mitteilungs-Übersicht im Hintergrund und liefert die App-Zeilen
+    private nonisolated static func overview() -> [(AXUIElement, NotifApp)]? {
+        let cfg = NSWorkspace.OpenConfiguration()
+        cfg.activates = false
+        cfg.hides = true // unsichtbar öffnen – du siehst die Systemeinstellungen gar nicht
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!, configuration: cfg)
+        if let e = UIAuto.wait(settings, { isOverview($0) || isDetail($0) }), !isOverview(e),
+           let back = e.first(where: { UIAuto.id($0) == "chevron.backward" }) { UIAuto.press(back) }
+        guard let e = UIAuto.wait(settings, isOverview),
+              let start = e.firstIndex(where: { UIAuto.role($0) == "AXHeading" && UIAuto.label($0) == "App-Mitteilungen" }) else { return nil }
+        return e[start...].compactMap { el in
+            let l = UIAuto.label(el)
+            guard UIAuto.role(el) == "AXButton", let comma = l.range(of: ", ") else { return nil }
+            let name = String(l[..<comma.lowerBound]).trimmingCharacters(in: CharacterSet(charactersIn: "\u{200E}\u{200F}"))
+            return (el, NotifApp(name: name, on: l[comma.upperBound...] != "Aus"))
+        }
+    }
+
+    private nonisolated static func closeSettings(_ wasRunning: Bool) {
+        // Hattest du die Systemeinstellungen selbst offen, bleiben sie offen
+        if !wasRunning { NSRunningApplication.runningApplications(withBundleIdentifier: settings).first?.terminate() }
+    }
+
+    // MARK: Kontrollzentrum → Fokus
+    // Ein Durchgang: Kontrollzentrum öffnen, Fokus lesen, bei Bedarf schalten, schließen. `want == nil` = nur lesen
+    private nonisolated static func focus(want: Bool?) -> Bool? {
+        guard let bar = UIAuto.app("com.apple.MenuBarAgent"),
+              let item = UIAuto.elements(bar, windowsOnly: false).first(where: { UIAuto.id($0) == "com.apple.menuextra.controlcenter" })
+        else { return nil }
+        let isFocus = { (e: AXUIElement) in UIAuto.id(e)?.hasPrefix("controlcenter-focus-modes") == true }
+        // Direkt nach dem Schließen ignoriert macOS ein erneutes Öffnen kurz → bis zu 3 Versuche
+        var found: AXUIElement?
+        for _ in 0..<3 {
+            UIAuto.press(item)
+            if let e = UIAuto.wait("com.apple.controlcenter", seconds: 2, { $0.contains(where: isFocus) }) { found = e.first(where: isFocus); break }
+            usleep(700_000)
+        }
+        guard let sw = found else { return nil }
+        defer { UIAuto.press(item) } // Kontrollzentrum wieder schließen
+        let isOn = { (UIAuto.attr(sw, kAXValueAttribute) as? Int) == 1 }
+        if let want, isOn() != want {
+            UIAuto.press(sw)
+            for _ in 0..<20 where isOn() != want { usleep(100_000) } // Kontrollzentrum aktualisiert den Wert verzögert
+        }
+        return isOn()
+    }
+
+    // MARK: Aktionen (im Hintergrund, Ergebnis auf dem Hauptthread)
+    private func run(_ work: @escaping () -> (apps: [NotifApp]?, dnd: Bool?, message: String)) {
+        busy = true
+        message = ""
+        queue.async {
+            let r = work()
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    if let a = r.apps { self.apps = a }
+                    if let d = r.dnd { self.dnd = d }
+                    self.message = r.message
+                    self.busy = false
+                }
+            }
+        }
+    }
+
+    func load() {
+        run {
+            let was = !NSRunningApplication.runningApplications(withBundleIdentifier: Self.settings).isEmpty
+            let apps = Self.overview()?.map(\.1)
+            Self.closeSettings(was)
+            let dnd = Self.focus(want: nil)
+            return (apps, dnd, apps == nil ? "Mitteilungs-Einstellungen konnten nicht gelesen werden." : "")
+        }
+    }
+
+    func set(_ name: String, _ on: Bool) {
+        run {
+            let was = !NSRunningApplication.runningApplications(withBundleIdentifier: Self.settings).isEmpty
+            defer { Self.closeSettings(was) }
+            guard let row = Self.overview()?.first(where: { $0.1.name == name }) else {
+                return (nil, nil, "„\(name)“ wurde nicht gefunden.")
+            }
+            UIAuto.press(row.0)
+            guard let d = UIAuto.wait(Self.settings, Self.isDetail),
+                  let sw = d.first(where: { UIAuto.id($0) == "allow-notifications" }) else {
+                return (nil, nil, "Die Seite von „\(name)“ hat sich nicht geöffnet.")
+            }
+            if ((UIAuto.attr(sw, kAXValueAttribute) as? Int) == 1) != on { UIAuto.press(sw); usleep(400_000) }
+            let now = (UIAuto.attr(sw, kAXValueAttribute) as? Int) == 1
+            if let back = d.first(where: { UIAuto.id($0) == "chevron.backward" }) { UIAuto.press(back) }
+            let apps = Self.overview()?.map(\.1)
+            return (apps, nil, now == on ? "" : "„\(name)“ ließ sich nicht umschalten.")
+        }
+    }
+
+    func setDND(_ on: Bool) {
+        run {
+            guard let now = Self.focus(want: on) else { return (nil, nil, "Kontrollzentrum nicht erreichbar.") }
+            return (nil, now, now == on ? "" : "„Nicht stören“ ließ sich nicht umschalten.")
+        }
+    }
+}
+
+struct NotificationsTab: View {
+    @ObservedObject var n = Notifs.shared
+    var body: some View {
+        Form {
+            Section {
+                Toggle(isOn: Binding(get: { n.dnd ?? false }, set: { n.setDND($0) })) {
+                    Text("Nicht stören")
+                    Text("Schaltet alle Mitteilungen stumm – wie im Kontrollzentrum.")
+                }
+                .accessibilityLabel("Nicht stören")
+                .disabled(n.busy || n.dnd == nil)
+            }
+            Section {
+                if n.apps.isEmpty {
+                    Text(n.busy ? "Lese Mitteilungs-Einstellungen …" : "Keine Apps gefunden.").foregroundStyle(.secondary)
+                }
+                ForEach(n.apps) { app in
+                    Toggle(app.name, isOn: Binding(get: { app.on }, set: { n.set(app.name, $0) }))
+                        .accessibilityLabel(app.name)
+                        .disabled(n.busy)
+                }
+            } header: {
+                HStack {
+                    Text("Mitteilungen pro App")
+                    Spacer()
+                    if n.busy { ProgressView().controlSize(.small) }
+                }
+            } footer: {
+                Text(n.message.isEmpty ? "WinKomfort stellt das im Hintergrund in den Systemeinstellungen um – Apple bietet dafür keinen direkten Weg. Ein Schalter dauert 2–3 Sekunden." : n.message)
+                    .foregroundStyle(n.message.isEmpty ? Color.secondary : Color.red)
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { if n.apps.isEmpty && !n.busy { n.load() } }
+    }
+}
+
 // MARK: - Fenster-Helfer
 
 @MainActor var windows: [String: NSWindow] = [:]
@@ -1197,6 +1402,7 @@ struct MenuContent: View {
         }
         add("Allgemein", "gearshape", GeneralTab(store: Store.shared))
         for i in groups.indices { add(groups[i], groupIcons[i], FeatureTab(store: Store.shared, group: groups[i])) }
+        add("Mitteilungen", "bell.badge", NotificationsTab())
         let w = NSWindow(contentViewController: tabs)
         w.styleMask = [.titled, .closable]
         w.title = "Allgemein"
