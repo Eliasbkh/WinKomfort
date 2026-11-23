@@ -733,10 +733,13 @@ struct NotifApp: Identifiable {
     private let queue = DispatchQueue(label: "winkomfort.notifs") // nacheinander, nie gleichzeitig
 
     private nonisolated static let settings = "com.apple.systempreferences"
+    // Die Systemeinstellungen sprechen die Systemsprache – Texte daher auf Deutsch und Englisch erkennen
+    private nonisolated static let appHeadings: Set<String> = ["App-Mitteilungen", "Application Notifications"]
+    private nonisolated static let offSummaries: Set<String> = ["Aus", "Kritisch", "Off", "Critical"]
 
     // MARK: Systemeinstellungen → Mitteilungen
     private nonisolated static func isOverview(_ e: [AXUIElement]) -> Bool {
-        e.contains { UIAuto.role($0) == "AXHeading" && UIAuto.label($0) == "App-Mitteilungen" }
+        e.contains { UIAuto.id($0) == "summarize-previews" || (UIAuto.role($0) == "AXHeading" && appHeadings.contains(UIAuto.label($0))) }
     }
     private nonisolated static func isDetail(_ e: [AXUIElement]) -> Bool {
         e.contains { UIAuto.id($0) == "allow-notifications" }
@@ -751,14 +754,14 @@ struct NotifApp: Identifiable {
         if let e = UIAuto.wait(settings, { isOverview($0) || isDetail($0) }), !isOverview(e),
            let back = e.first(where: { UIAuto.id($0) == "chevron.backward" }) { UIAuto.press(back) }
         guard let e = UIAuto.wait(settings, isOverview),
-              let start = e.firstIndex(where: { UIAuto.role($0) == "AXHeading" && UIAuto.label($0) == "App-Mitteilungen" }) else { return nil }
+              let start = e.lastIndex(where: { UIAuto.role($0) == "AXHeading" }) else { return nil } // App-Liste kommt nach der letzten Überschrift
         return e[start...].compactMap { el in
             let l = UIAuto.label(el)
             guard UIAuto.role(el) == "AXButton", let comma = l.range(of: ", ") else { return nil }
             let name = String(l[..<comma.lowerBound]).trimmingCharacters(in: CharacterSet(charactersIn: "\u{200E}\u{200F}"))
             // „Kritisch“ allein heißt: Mitteilungen aus, nur kritische Hinweise (Notfälle) kommen noch durch
             let summary = String(l[comma.upperBound...])
-            return (el, NotifApp(name: name, on: summary != "Aus" && summary != "Kritisch"))
+            return (el, NotifApp(name: name, on: !offSummaries.contains(summary)))
         }
     }
 
@@ -2934,7 +2937,7 @@ let backgroundSwitches = SettingsSwitches(
         var seen = Set<String>()
         return e.compactMap { el -> (SysSwitch, AXUIElement)? in
             guard UIAuto.role(el) == "AXCheckBox", let id = UIAuto.id(el), id.hasPrefix("background-switch-"),
-                  UIAuto.label(el) != "Im Finder anzeigen", seen.insert(id).inserted else { return nil }
+                  !["Im Finder anzeigen", "Show in Finder"].contains(UIAuto.label(el)), seen.insert(id).inserted else { return nil }
             let name = String(id.dropFirst("background-switch-".count))
             guard name != "WinKomfort" else { return nil } // sich selbst nicht abschaltbar machen
             let detail = e.first { UIAuto.id($0) == "background-detail-for-\(name)-app-login-items" && UIAuto.role($0) == "AXStaticText" }
@@ -2944,16 +2947,17 @@ let backgroundSwitches = SettingsSwitches(
     })
 
 // Systemeinstellungen → Menüleiste: Symbole von macOS und von Apps
+let menuBarAppHeadings: Set<String> = ["In Menüleiste erlauben", "Allow in the Menu Bar"]
 let menuBarSwitches = SettingsSwitches(
     url: "x-apple.systempreferences:com.apple.ControlCenter-Settings.extension",
-    ready: { $0.contains { UIAuto.role($0) == "AXHeading" && UIAuto.label($0) == "In Menüleiste erlauben" } },
+    ready: { $0.contains { UIAuto.role($0) == "AXHeading" && menuBarAppHeadings.contains(UIAuto.label($0)) } },
     extract: { e in
         let names = ["controlcenter-battery-id": "Batterie", "controlcenter-userSwitcher-id": "Schneller Benutzerwechsel"]
         var out: [(SysSwitch, AXUIElement)] = []
         var lastText = "", inApps = false
         for el in e {
             let role = UIAuto.role(el)
-            if role == "AXHeading" { inApps = UIAuto.label(el) == "In Menüleiste erlauben" }
+            if role == "AXHeading" { inApps = menuBarAppHeadings.contains(UIAuto.label(el)) }
             if role == "AXStaticText" { lastText = (UIAuto.attr(el, kAXValueAttribute) as? String) ?? "" }
             guard role == "AXCheckBox" else { continue }
             if let id = UIAuto.id(el), id.hasPrefix("controlcenter-"), id.hasSuffix("-id") {
