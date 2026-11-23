@@ -2344,8 +2344,26 @@ enum OneNotePDF {
         @MainActor @objc func run(_ sender: NSMenuItem) {
             guard let scope = sender.representedObject as? Scope else { return }
             OneNotePDF.running = true
-            Toast.show("PDF wird erstellt – bitte OneNote nicht bedienen", symbol: "doc.richtext")
             DispatchQueue.global(qos: .userInitiated).async {
+                // Bevorzugt: Original-Dateien aus der Cloud – schnell, im Hintergrund, ohne OneNote zu bedienen
+                if let target = OneNoteCloud.target(scope) {
+                    DispatchQueue.main.async { MainActor.assumeIsolated {
+                        Toast.show(L("OneNote-PDF wird im Hintergrund erstellt", "Creating OneNote PDF in the background"), symbol: "doc.richtext")
+                        Task { @MainActor in
+                            let r = await OneNoteCloud.export(scope, target)
+                            OneNotePDF.running = false
+                            switch r {
+                            case .success(let url):
+                                Toast.show(L("PDF gespeichert: \(url.lastPathComponent)", "PDF saved: \(url.lastPathComponent)"), symbol: "checkmark.circle")
+                                NSWorkspace.shared.activateFileViewerSelecting([url])
+                            case .failure(let e): Toast.show(e.text, symbol: "exclamationmark.triangle")
+                            }
+                        }
+                    } }
+                    return
+                }
+                // Notbehelf (z. B. Notizbuch nur auf dem Mac): Seiten in OneNote einzeln sichern
+                DispatchQueue.main.async { MainActor.assumeIsolated { Toast.show(L("PDF wird erstellt – bitte OneNote nicht bedienen", "Creating PDF – please don't use OneNote"), symbol: "doc.richtext") } }
                 let result = OneNotePDF.export(scope)
                 DispatchQueue.main.async {
                     OneNotePDF.running = false
@@ -2371,6 +2389,11 @@ enum OneNotePDF {
             for f in files where f.hasPrefix("WinKomfort-") && f.hasSuffix(".pdf") && f.range(of: #"^WinKomfort-[0-9A-F]{8}-\d{4}b?\.pdf$"#, options: .regularExpression) != nil {
                 try? fm.removeItem(at: dir.appendingPathComponent(f))
             }
+        }
+        // Zwischenordner von OneNote-Umwandlungen (nach einem Absturz oder Update liegen gebliebene)
+        let tmp = fm.temporaryDirectory
+        for f in (try? fm.contentsOfDirectory(atPath: tmp.path)) ?? [] where f.hasPrefix("WinKomfort-OneNote-") {
+            try? fm.removeItem(at: tmp.appendingPathComponent(f))
         }
     }
 
@@ -2840,6 +2863,7 @@ struct ClipItem: Identifiable {
     }
 
     func clear() { items = []; selected = 0 }
+    func skipCurrent() { lastCount = NSPasteboard.general.changeCount } // eigene, kurz kopierte Inhalte nicht merken
 
     private func poll() {
         let pb = NSPasteboard.general
@@ -3895,6 +3919,7 @@ struct GeneralTab: View {
     @ObservedObject var updater = Updater.shared
     @AppStorage("autoUpdate") var autoUpdate = true
     @AppStorage("clipHistory") var clipHistory = true
+    @AppStorage("onenoteQuality") var onenoteQuality = PDFQuality.compact.rawValue
     var body: some View {
         Form {
             Section {
@@ -3933,6 +3958,15 @@ struct GeneralTab: View {
                 Button("Verlauf jetzt leeren") { ClipHistory.shared.clear() }
             } header: { Text("Zwischenablage") } footer: {
                 Text("Merkt sich die letzten 50 Texte und 10 Bilder – nur im Arbeitsspeicher, nach dem Neustart ist alles weg. Passwörter aus Passwort-Managern werden nie gespeichert.")
+                    .foregroundStyle(.secondary)
+            }
+            Section {
+                Picker(L("Größe der PDF", "PDF size"), selection: $onenoteQuality) {
+                    ForEach(PDFQuality.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+            } header: { Text("OneNote → PDF (\(HotAction.onenote.current?.display ?? "–"))") } footer: {
+                Text(L("Lädt die Original-Abschnitte mit deiner Microsoft-Anmeldung (einmalig) und baut die PDF im Hintergrund – OneNote kannst du dabei weiter benutzen. „Klein“ hält Bilder bei etwa 120 dpi: gut lesbar, viel kleiner.",
+                       "Downloads the original sections with your Microsoft sign-in (once) and builds the PDF in the background – you can keep using OneNote. “Small” keeps images at about 120 dpi: readable, much smaller."))
                     .foregroundStyle(.secondary)
             }
             Section {

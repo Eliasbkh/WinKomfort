@@ -6,7 +6,10 @@ V="${1:-1.0.0}"
 APP=build/WinKomfort.app
 rm -rf build && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Icon/WinKomfort.icns "$APP/Contents/Resources/" # Quelle: Icon/icon.svg
-swiftc -O -swift-version 5 -parse-as-library WinKomfort.swift Explorer.swift TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift -o "$APP/Contents/MacOS/WinKomfort"
+swiftc -O -swift-version 5 -parse-as-library WinKomfort.swift Explorer.swift OneNoteCloud.swift TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift -o "$APP/Contents/MacOS/WinKomfort"
+# OneNote-Umwandler (Rust, Open Source aus Joplin – siehe onenote/LICENSE)
+(cd onenote && PATH="$HOME/.cargo/bin:$PATH" cargo build --release -q -p onenote-html)
+cp onenote/target/release/onenote-html "$APP/Contents/MacOS/"
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -27,9 +30,11 @@ cat > "$APP/Contents/Info.plist" <<EOF
 EOF
 # Festes Zertifikat → macOS behält die Bedienungshilfen-Freigabe über Updates hinweg (sonst ad-hoc)
 if security find-certificate -c "WinKomfort Signing" >/dev/null 2>&1; then
+  codesign --force -s "WinKomfort Signing" "$APP/Contents/MacOS/onenote-html"
   codesign --force -s "WinKomfort Signing" "$APP"
 else
   echo "⚠️  Kein Zertifikat „WinKomfort Signing“ – ad-hoc signiert, Freigaben gehen bei Updates verloren"
+  codesign --force -s - "$APP/Contents/MacOS/onenote-html"
   codesign --force -s - "$APP"
 fi
 ditto -c -k --keepParent "$APP" "build/WinKomfort-$V.zip"
