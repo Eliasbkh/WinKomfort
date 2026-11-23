@@ -2023,11 +2023,11 @@ struct TaskView: View {
 
 // Globale Tastenkürzel – selbst festlegbar unter Einstellungen → Tastenkürzel
 enum HotAction: String, CaseIterable, Identifiable {
-    case search, switcher, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, newFile, tasks, onenote
+    case search, switcher, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, newFile, tasks, onenote, explorer
     var id: UInt32 {
         switch self {
         case .tasks: 1; case .search: 2; case .note: 3; case .pin: 4; case .clipboard: 5
-        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9; case .switcher: 10; case .newFile: 12; case .onenote: 13
+        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9; case .switcher: 10; case .newFile: 12; case .onenote: 13; case .explorer: 14
         }
     }
     var title: String {
@@ -2040,6 +2040,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .switcher: "Fenster wechseln (⇧ dazu: rückwärts)"
         case .newFile: "Neue Textdatei im Finder"
         case .onenote: "OneNote: Seite, Abschnitt oder Notizbuch als PDF"
+        case .explorer: "Explorer öffnen"
         case .snapLeft: "Fenster: linke Hälfte"
         case .snapRight: "Fenster: rechte Hälfte"
         case .snapMax: "Fenster: maximieren"
@@ -2056,6 +2057,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .newFile: Shortcut(code: kVK_ANSI_N, mods: controlKey | optionKey | cmdKey, key: "N")
         case .clipboard: Shortcut(code: kVK_ANSI_V, mods: controlKey | optionKey, key: "V")
         case .onenote: Shortcut(code: kVK_ANSI_P, mods: controlKey | optionKey, key: "P")
+        case .explorer: Shortcut(code: kVK_ANSI_E, mods: controlKey | optionKey, key: "E")
         case .snapLeft: Shortcut(code: kVK_LeftArrow, mods: controlKey | optionKey)
         case .snapRight: Shortcut(code: kVK_RightArrow, mods: controlKey | optionKey)
         case .snapMax: Shortcut(code: kVK_UpArrow, mods: controlKey | optionKey)
@@ -2082,6 +2084,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .switcher: WindowSwitcher.shared.step(1)
         case .newFile: newTextFile()
         case .onenote: OneNotePDF.showMenu()
+        case .explorer: openExplorer()
         case .snapLeft: Snap.run(.left)
         case .snapRight: Snap.run(.right)
         case .snapMax: Snap.run(.max)
@@ -2358,6 +2361,18 @@ enum OneNotePDF {
     }
 
     struct Failure: Error { let text: String; var retry = false }
+
+    // Selbstreparatur beim Start: Zwischendateien eines abgebrochenen Exports (z. B. bei einem Update) entfernen
+    static func cleanLeftovers() {
+        let fm = FileManager.default
+        for d in [FileManager.SearchPathDirectory.documentDirectory, .desktopDirectory, .downloadsDirectory] {
+            guard let dir = fm.urls(for: d, in: .userDomainMask).first,
+                  let files = try? fm.contentsOfDirectory(atPath: dir.path) else { continue }
+            for f in files where f.hasPrefix("WinKomfort-") && f.hasSuffix(".pdf") && f.range(of: #"^WinKomfort-[0-9A-F]{8}-\d{4}b?\.pdf$"#, options: .regularExpression) != nil {
+                try? fm.removeItem(at: dir.appendingPathComponent(f))
+            }
+        }
+    }
 
     private static func outline(_ win: AXUIElement, _ name: String) -> AXUIElement? {
         UIAuto.elements(win, windowsOnly: false).first { UIAuto.role($0) == "AXOutline" && UIAuto.label($0) == name }
@@ -3544,6 +3559,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FinderCut.start()
         HotKey.register()
         ClipHistory.shared.start()
+        DispatchQueue.global(qos: .utility).async { OneNotePDF.cleanLeftovers() }
         SearchPanel.prepare()
         if !d.bool(forKey: "welcomeShown") { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MainActor.assumeIsolated { openWelcome() } } }
         DockReveal.start()
@@ -3610,6 +3626,7 @@ struct MenuContent: View {
         }
         Divider()
         Button("Suche …") { SearchPanel.show() }
+        Button("Explorer …") { openExplorer() }
         Button("Schnellnotiz") { QuickNote.shared.toggle() }
         if !Pins.shared.pinned.isEmpty { Button("Alle angehefteten Fenster lösen") { Pins.shared.unpinAll() } }
         Button("Task-Manager …") { openTaskManager() }
@@ -3627,7 +3644,7 @@ struct MenuContent: View {
 // Einstellungsfenster wie bei Systemapps: AppKit-Tabs im Toolbar-Stil, Inhalt in SwiftUI
 // Seiten wie in den Systemeinstellungen: farbige Symbolkachel, Titel, Suchbegriffe
 enum Pane: String, CaseIterable, Identifiable {
-    case general, input, shortcuts, windows, finder, screenshots, notifications, menubar, animations, autostarts, cleanup
+    case general, input, shortcuts, windows, finder, explorer, screenshots, notifications, menubar, animations, autostarts, cleanup
     var id: String { rawValue }
 
     var title: String {
@@ -3637,6 +3654,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .shortcuts: "Tastenkürzel"
         case .windows: "Fenster"
         case .finder: "Finder"
+        case .explorer: "Explorer"
         case .screenshots: "Screenshots"
         case .notifications: "Mitteilungen"
         case .menubar: "Menüleiste"
@@ -3652,6 +3670,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .shortcuts: "command"
         case .windows: "macwindow"
         case .finder: "folder.fill"
+        case .explorer: "folder.badge.gearshape"
         case .screenshots: "camera.viewfinder"
         case .notifications: "bell.badge.fill"
         case .menubar: "menubar.rectangle"
@@ -3668,6 +3687,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .shortcuts: .gray
         case .windows: .indigo
         case .finder: .cyan
+        case .explorer: .teal
         case .screenshots: .gray
         case .notifications: .red
         case .menubar: .secondary
@@ -3694,6 +3714,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .shortcuts: t += HotAction.allCases.map(\.title) + ["Kürzel Tastatur Hotkey Startmenü"]
         case .input: t += ["Startmenü Control Suche Tastenkürzel Trackpad Ziehen"]
         case .windows: t += ["Schließen beendet die App"]
+        case .explorer: t += ["Dateimanager GNOME Nautilus Dolphin KDE Linux Windows 11 Quick Look Vorschau Stil"]
         case .notifications: t += ["Nicht stören Fokus Alle Mitteilungen"]
         case .menubar: t += ["Symbole Notch Platz"]
         case .animations: t += ["Trichter Minimieren Skalieren Tempo Dock Mission Control Übersicht"]
@@ -3748,6 +3769,7 @@ struct SettingsRoot: View {
                 case .shortcuts: ShortcutsTab()
                 case .autostarts: AutostartView()
                 case .cleanup: CleanupView()
+                case .explorer: ExplorerTab()
                 case let p: FeatureTab(store: Store.shared, group: p.group ?? groups[0])
                 }
             }
