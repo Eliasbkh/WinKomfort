@@ -1,4 +1,4 @@
-// Tests: swiftc TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift OneNoteOrder.swift Tests/main.swift -o /tmp/wktest && /tmp/wktest
+// Tests: swiftc TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift OneNoteOrder.swift TimeParse.swift Tests/main.swift -o /tmp/wktest && /tmp/wktest
 typealias A = TapDragLogic.Action
 typealias P = TapDragLogic.Point
 
@@ -131,6 +131,11 @@ sc("OneNote-Reihenfolge", OneNoteOrder.sort(["_Inhaltsbibliothek/JavaKara.one", 
     "_Inhaltsbibliothek/Formelsammlung.one", "_Collaboration Space/Nutzt es!.one", "_Inhaltsbibliothek/DBS.one"], order: side).joined(separator: ","),
    "Willkommen.one,_Collaboration Space/Nutzt es!.one,_Inhaltsbibliothek/Formelsammlung.one,_Inhaltsbibliothek/JavaKara.one,_Inhaltsbibliothek/DBS.one,Elias Burkhardt - TGI11/Kursnotizen.one")
 sc("OneNote ohne Seitenleiste: alphabetisch", OneNoteOrder.sort(["b.one", "a.one", "Gruppe/c.one"], order: []).joined(separator: ","), "a.one,b.one,Gruppe/c.one")
+
+// KI-Zeitangaben
+for (q, want) in [("halt den mac zwei minuten wach", "2"), ("eine halbe stunde", "30"), ("keep my mac awake for 2 hours", "120"), ("1,5 stunden", "90"), ("mac wach", "nil")] {
+    sc("Zeit „\(q)“", TimeParse.minutes(in: q).map(String.init) ?? "nil", want)
+}
 
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }

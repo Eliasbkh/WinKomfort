@@ -42,7 +42,7 @@ Startet automatisch bei der Anmeldung und aktualisiert sich selbst über GitHub 
 ## Bauen / testen / veröffentlichen
 
 ```bash
-swiftc TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift OneNoteOrder.swift Tests/main.swift -o /tmp/wktest && /tmp/wktest
+swiftc TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift OneNoteOrder.swift TimeParse.swift Tests/main.swift -o /tmp/wktest && /tmp/wktest
 ./build.sh 1.0.0
 ./release.sh 1.0.1 "Was ist neu"
 ```
