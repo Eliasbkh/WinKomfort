@@ -307,7 +307,6 @@
 
 /* Stay awake */
 "Bildschirm bleibt an" = "Keep display on";
-"Mac bleibt wach, Bildschirm darf aus" = "Keep Mac awake, display may sleep";
 "30 Minuten" = "30 minutes";
 "1 Stunde" = "1 hour";
 "2 Stunden" = "2 hours";
@@ -379,4 +378,4 @@
 "Anmelden Start Updates Version Bedienungshilfen Wach bleiben Bildschirm Ruhezustand Zwischenablage Verlauf Kopieren Einfügen Text-Kürzel Snippets Textbausteine Siri Kurzbefehle Shortcuts KI Selbsttest Reparieren Protokoll Sprache Englisch Deutsch OneNote PDF Größe" = "Login Start Updates Version Accessibility Stay awake Display Sleep Clipboard History Copy Paste Text snippets Snippets Siri Shortcuts AI Self-check Repair Log Language English German OneNote PDF Size";
 "Startmenü Control Suche Tastenkürzel Trackpad Ziehen Maus Scrollen Scrollrichtung Mausrad Tempo CPU RAM Speicher Auslastung Menüleiste" = "Start menu Control Search Shortcuts Trackpad Drag Mouse Scrolling Scroll direction Mouse wheel Speed CPU RAM Memory Load Menu bar";
 "Dock Position Größe Vergrößerung Taskleiste Ecke Schreibtisch Symbole Widgets Laufwerke" = "Dock Position Size Magnification Taskbar Corner Desktop Icons Widgets Drives";
-"Auch zugeklappt weiterarbeiten" = "Keep working with the lid closed";
+"Bildschirm aus, Mac arbeitet weiter" = "Display off, Mac keeps working";

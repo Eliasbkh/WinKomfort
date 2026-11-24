@@ -51,7 +51,7 @@ import SwiftUI
                        fix: L("Andere App nutzt das Kürzel – unter Tastenkürzel ein anderes wählen", "Another app uses it – pick another under Shortcuts")))
         c.append(Check(id: "login", ok: SMAppServiceStatusIsEnabled(), text: L("Startet bei der Anmeldung", "Opens at login"),
                        fix: L("Unter Allgemein einschalten", "Turn on under General")))
-        if Awake.sleepDisabled, Awake.shared.mode != .lid {
+        if Awake.sleepDisabled, !Awake.shared.lidActive {
             c.append(Check(id: "lid", ok: false, text: L("Mac schläft zugeklappt nicht ein", "Mac doesn't sleep with the lid closed"),
                            fix: L("Im Terminal: sudo pmset -a disablesleep 0", "In Terminal: sudo pmset -a disablesleep 0")))
         }

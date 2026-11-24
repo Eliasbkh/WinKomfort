@@ -3898,7 +3898,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 @MainActor final class Awake: ObservableObject {
     static let shared = Awake()
-    enum Mode: String { case display = "Bildschirm bleibt an", system = "Mac bleibt wach, Bildschirm darf aus", lid = "Auch zugeklappt weiterarbeiten" }
+    enum Mode: String { case display = "Bildschirm bleibt an", system = "Bildschirm aus, Mac arbeitet weiter" }
     @Published private(set) var mode: Mode?
     @Published private(set) var until: Date?
     private var assertion: IOPMAssertionID = 0
@@ -3930,27 +3930,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         p.standardError = FileHandle.nullDevice; p.standardOutput = FileHandle.nullDevice
         p.terminationHandler = { p in
             let ok = p.terminationStatus == 0
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { Awake.shared.lidStarted(ok, request, file, minutes) } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { Awake.shared.lidStarted(ok, request, file) } }
         }
-        do { try p.run() } catch { Toast.show(L("Nicht eingeschaltet", "Not turned on"), symbol: "lock") }
+        do { try p.run() } catch { Toast.show(L("Wach – aber nur aufgeklappt", "Awake – but only with the lid open"), symbol: "lock.open") }
     }
-    private func lidStarted(_ ok: Bool, _ request: Int, _ file: URL, _ minutes: Int?) {
+    private func lidStarted(_ ok: Bool, _ request: Int, _ file: URL) {
         guard ok, request == lidRequest, Self.sleepDisabled else {
             FileManager.default.createFile(atPath: file.path, contents: nil) // falls es doch läuft: sofort zurücknehmen
-            if request == lidRequest { Toast.show(L("Nicht eingeschaltet", "Not turned on"), symbol: "lock") }
+            if request == lidRequest { Toast.show(L("Wach – aber nur aufgeklappt", "Awake – but only with the lid open"), symbol: "lock.open") }
             return
         }
         lidStop = file
-        begin(.lid, minutes)
-        // Endet von selbst bei fast leerem Akku – dann auch hier ausschalten
-        lidWatch = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in MainActor.assumeIsolated { if !Awake.sleepDisabled { Awake.shared.stop() } } }
+        // Endet von selbst bei fast leerem Akku
+        lidWatch = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in MainActor.assumeIsolated { if !Awake.sleepDisabled { Awake.shared.lidEnded() } } }
         lidWatch?.tolerance = 10
         Toast.show(L("Du kannst zuklappen – der Mac arbeitet weiter", "You can close the lid – the Mac keeps working"), symbol: "laptopcomputer")
     }
 
+    private func lidEnded() {
+        lidStop = nil
+        lidWatch?.invalidate()
+        lidWatch = nil
+    }
+    var lidActive: Bool { lidStop != nil }
+
     func start(_ m: Mode, minutes: Int?) {
         stop()
-        if m == .lid { startLid(minutes) } else { begin(m, minutes) }
+        begin(m, minutes)
+        if m == .system { startLid(minutes) } // ohne Passwort bleibt er nur aufgeklappt wach
     }
 
     private func begin(_ m: Mode, _ minutes: Int?) {
@@ -3990,7 +3997,7 @@ struct MenuContent: View {
         Menu("Wach bleiben") {
             Text(awake.status)
             Divider()
-            ForEach([Awake.Mode.display, .system, .lid], id: \.self) { m in
+            ForEach([Awake.Mode.display, .system], id: \.self) { m in
                 Section(tr(m.rawValue)) {
                     ForEach(Awake.durations, id: \.0) { d in
                         Button(tr(d.0)) { awake.start(m, minutes: d.1) }
@@ -4258,7 +4265,7 @@ struct GeneralTab: View {
             }
             Section {
                 LabeledContent("Status", value: awake.status)
-                ForEach([Awake.Mode.display, .system, .lid], id: \.self) { m in
+                ForEach([Awake.Mode.display, .system], id: \.self) { m in
                     LabeledContent(tr(m.rawValue)) {
                         Menu("Starten") {
                             ForEach(Awake.durations, id: \.0) { d in Button(tr(d.0)) { awake.start(m, minutes: d.1) } }
@@ -4273,8 +4280,8 @@ struct GeneralTab: View {
                     if awake.mode != nil { Button("Beenden") { awake.stop() } }
                 }
             } header: { Text("Wach bleiben") } footer: {
-                Text(L("Zugeklappt fragt macOS nach deinem Passwort. Endet von selbst nach der Zeit, bei 20 % Akku oder wenn WinKomfort beendet wird. Nicht in der Tasche benutzen: Der Mac kann heiß werden.",
-                       "With the lid closed, macOS asks for your password. Ends by itself after the time, at 20% battery or when WinKomfort quits. Don't use it in a bag: the Mac can get hot."))
+                Text(L("„Bildschirm aus“ läuft auch zugeklappt weiter, dafür fragt macOS nach deinem Passwort. Zugeklappt endet es von selbst nach der Zeit, bei 20 % Akku oder wenn WinKomfort beendet wird. Nicht in der Tasche benutzen: Der Mac kann heiß werden.",
+                       "“Display off” also keeps working with the lid closed; macOS asks for your password for that. With the lid closed it ends by itself after the time, at 20% battery or when WinKomfort quits. Don't use it in a bag: the Mac can get hot."))
             }
             Section {
                 Toggle("Zwischenablage-Verlauf (\(HotAction.clipboard.current?.display ?? tr("Kürzel aus")))", isOn: $clipHistory)
