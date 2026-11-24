@@ -2272,6 +2272,11 @@ enum HotAction: String, CaseIterable, Identifiable {
 enum HotKey {
     private static var refs: [UInt32: EventHotKeyRef] = [:]
     private(set) static var failed: Set<HotAction> = []
+    private(set) static var failedLaunch: Set<UUID> = []
+    static let launchBase: UInt32 = 1000 // eigene Kürzel
+    static var launchKeys: [UInt32: LaunchKey] {
+        MainActor.assumeIsolated { Dictionary(uniqueKeysWithValues: Launcher.shared.keys.enumerated().map { (launchBase + UInt32($0.offset), $0.element) }) }
+    }
     static let switchBack: UInt32 = 11 // dasselbe Kürzel mit ⇧: rückwärts blättern
 
     static func register() {
@@ -2288,7 +2293,8 @@ enum HotKey {
                               MemoryLayout<EventHotKeyID>.size, nil, &hk)
             let id = hk.id
             DispatchQueue.main.async { MainActor.assumeIsolated {
-                if id == HotKey.switchBack { WindowSwitcher.shared.step(-1) } else { HotAction.allCases.first { $0.id == id }?.perform() }
+                if id == HotKey.switchBack { WindowSwitcher.shared.step(-1) } else if id >= HotKey.launchBase { HotKey.launchKeys[id].map { Launcher.shared.perform($0) } }
+                else { HotAction.allCases.first { $0.id == id }?.perform() }
             } }
             return noErr
         }, 1, &spec, nil, nil)
@@ -2303,6 +2309,12 @@ enum HotKey {
             if RegisterEventHotKey(UInt32(s.code), UInt32(s.mods), EventHotKeyID(signature: OSType(0x574B4654), id: a.id),
                                    GetApplicationEventTarget(), 0, &ref) == noErr, let ref { refs[a.id] = ref } else { failed.insert(a) }
         }
+        for (id, k) in launchKeys {
+            guard let s = k.shortcut else { continue }
+            var ref: EventHotKeyRef?
+            if RegisterEventHotKey(UInt32(s.code), UInt32(s.mods), EventHotKeyID(signature: OSType(0x574B4654), id: id),
+                                   GetApplicationEventTarget(), 0, &ref) == noErr, let ref { refs[id] = ref } else { failedLaunch.insert(k.id) }
+        }
         if let s = HotAction.switcher.current, s.mods & shiftKey == 0 {
             var ref: EventHotKeyRef?
             if RegisterEventHotKey(UInt32(s.code), UInt32(s.mods | shiftKey), EventHotKeyID(signature: OSType(0x574B4654), id: switchBack),
@@ -2315,6 +2327,7 @@ enum HotKey {
         refs.values.forEach { UnregisterEventHotKey($0) }
         refs = [:]
         failed = []
+        failedLaunch = []
     }
 }
 
@@ -2322,12 +2335,15 @@ enum HotKey {
 @MainActor final class ShortcutRecorder: ObservableObject {
     static let shared = ShortcutRecorder()
     @Published private(set) var recording: HotAction?
+    @Published private(set) var recordingLaunch: UUID?
+    var active: Bool { recording != nil || recordingLaunch != nil }
     @Published var message = ""
     private var monitor: Any?
 
-    func start(_ a: HotAction) {
-        stop()
-        recording = a
+    func start(_ a: HotAction) { stop(); recording = a; listen() }
+    func start(launch id: UUID) { stop(); recordingLaunch = id; listen() }
+
+    private func listen() {
         message = ""
         HotKey.unregisterAll()
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
@@ -2339,15 +2355,18 @@ enum HotKey {
     func stop() {
         if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
         recording = nil
+        recordingLaunch = nil
         HotKey.registerAll()
     }
 
     private func handle(_ e: NSEvent) {
-        guard let a = recording else { return }
+        guard active else { return }
+        let a = recording, launch = recordingLaunch
+        let set = { (s: Shortcut?) in if let a { a.current = s } else if let launch { Launcher.shared.setShortcut(launch, s) } }
         let f = e.modifierFlags
         if f.intersection([.command, .control, .option]).isEmpty {
             if e.keyCode == 53 { stop(); return }                                   // Esc: abbrechen
-            if e.keyCode == 51 || e.keyCode == 117 { a.current = nil; stop(); return } // ⌫: Kürzel aus
+            if e.keyCode == 51 || e.keyCode == 117 { set(nil); stop(); return } // ⌫: Kürzel aus
         }
         var mods = 0
         if f.contains(.command) { mods |= cmdKey }
@@ -2359,9 +2378,12 @@ enum HotKey {
         if let other = HotAction.allCases.first(where: { $0 != a && $0.current?.code == s.code && $0.current?.mods == s.mods }) {
             NSSound.beep(); message = tr("Schon vergeben an „%@“.", tr(other.title)); return
         }
-        a.current = s
+        if let other = Launcher.shared.keys.first(where: { $0.id != launch && $0.shortcut?.code == s.code && $0.shortcut?.mods == s.mods }) {
+            NSSound.beep(); message = tr("Schon vergeben an „%@“.", Launcher.shared.title(other)); return
+        }
+        set(s)
         stop()
-        if HotKey.failed.contains(a) { message = tr("%@ ist schon von macOS oder einer anderen App belegt.", s.display) }
+        if a.map(HotKey.failed.contains) == true || launch.map(HotKey.failedLaunch.contains) == true { message = tr("%@ ist schon von macOS oder einer anderen App belegt.", s.display) }
     }
 }
 
@@ -2369,6 +2391,7 @@ struct ShortcutsTab: View {
     @ObservedObject var r = ShortcutRecorder.shared
     var body: some View {
         Form {
+            LauncherSection()
             Section {
                 ForEach(HotAction.allCases) { a in
                     LabeledContent(tr(a.title)) {
@@ -2399,7 +2422,7 @@ struct ShortcutsTab: View {
             }
         }
         .formStyle(.grouped)
-        .onDisappear { if r.recording != nil { r.stop() } }
+        .onDisappear { if r.active { r.stop() } }
     }
 }
 

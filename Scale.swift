@@ -1,13 +1,14 @@
 // Trackpad-Waage: liest den Druck des Force-Touch-Trackpads (privates MultitouchSupport, nur solange das Fenster offen ist).
-// Das Trackpad misst nur bei Berührung – deshalb muss ein Finger leicht aufliegen; sein Druck wird auf null gesetzt.
+// Das Trackpad misst nur bei Berührung – deshalb liegt ein Finger leicht auf; sein Druck wird automatisch abgezogen.
 import AppKit
 import SwiftUI
 
 @MainActor final class TrackpadScale: ObservableObject {
     static let shared = TrackpadScale()
     @Published private(set) var grams: Double?
-    @Published private(set) var stable = false
+    @Published private(set) var state = State.empty
     @Published private(set) var available = true
+    enum State { case empty, taring, measuring, steady, held }
     @Published var known = ""
     @Published var note = ""
     private var logic = ScaleLogic()
@@ -27,7 +28,7 @@ import SwiftUI
             for i in 0..<Int(count) {
                 let t = data + i * 96
                 let state = t.load(fromByteOffset: 20, as: Int32.self)
-                guard state == 3 || state == 4 else { continue }
+                guard (3...5).contains(state) else { continue } // auch leitende Gegenstände, nicht nur Finger
                 sum = (sum ?? 0) + Double(t.load(fromByteOffset: 52, as: Float.self))
             }
         }
@@ -40,7 +41,8 @@ import SwiftUI
         logic.add(raw)
         let g = logic.grams.map { $0.rounded() }
         if g != grams { grams = g }
-        if logic.stable != stable { stable = logic.stable }
+        let now: State = !logic.touching ? (logic.held == nil ? .empty : .held) : logic.tare == nil ? .taring : logic.steady ? .steady : .measuring
+        if now != state { state = now }
     }
 
     func start() {
@@ -48,7 +50,7 @@ import SwiftUI
         logic = ScaleLogic()
         let f = UserDefaults.standard.double(forKey: "scaleFactor")
         logic.factor = f > 0 && f.isFinite ? f : 1
-        grams = nil; note = ""
+        grams = nil; state = .empty; note = ""
         guard let dev = Self.fn("MTDeviceCreateDefault", (@convention(c) () -> UnsafeMutableRawPointer?).self)?(),
               let force = Self.fn("MTDeviceSupportsForce", (@convention(c) (UnsafeMutableRawPointer) -> Bool).self), force(dev),
               let register = Self.fn("MTRegisterContactFrameCallback", DevFn.self),
@@ -76,7 +78,7 @@ import SwiftUI
             UserDefaults.standard.set(logic.factor, forKey: "scaleFactor")
             note = L("Abgeglichen.", "Calibrated.")
         } else {
-            note = L("Erst Null setzen, Gewicht auflegen und Gramm eintragen.", "Set zero, add the weight and enter its grams first.")
+            note = L("Finger und Gewicht auflegen, Gramm eintragen, dann abgleichen.", "Rest finger and weight, enter the grams, then calibrate.")
         }
     }
     func resetCalibration() {
@@ -92,38 +94,104 @@ import SwiftUI
     TrackpadScale.shared.start()
 }
 
+// Küchenwaage: Teller (sinkt mit dem Gewicht), Zifferblatt mit Zeiger, Digitalanzeige
 struct ScaleView: View {
     @ObservedObject var s = TrackpadScale.shared
-    var body: some View {
-        VStack(spacing: 16) {
-            if s.available {
-                Text(s.grams.map { "\(Int($0)) g" } ?? "– g")
-                    .font(.system(size: 64, weight: .semibold, design: .rounded)).monospacedDigit()
-                    .foregroundStyle(s.grams == nil ? .secondary : .primary)
-                    .accessibilityLabel(s.grams.map { L("\(Int($0)) Gramm", "\(Int($0)) grams") } ?? L("Kein Messwert", "No reading"))
-                Label(s.grams == nil ? L("Finger leicht auflegen", "Rest a finger lightly") : s.stable ? L("Ruhig", "Steady") : L("Misst …", "Measuring…"),
-                      systemImage: s.grams == nil ? "hand.point.up.left" : s.stable ? "checkmark.circle" : "waveform")
-                    .foregroundStyle(.secondary)
-                Button(L("Null setzen (Leertaste)", "Set zero (Space)")) { s.zero() }
-                    .keyboardShortcut(.space, modifiers: []).disabled(s.grams == nil)
-                Text(L("1. Finger leicht auflegen und liegen lassen.\n2. Leertaste drücken.\n3. Gegenstand dazulegen, ohne den Finger zu bewegen.",
-                       "1. Rest a finger lightly and keep it there.\n2. Press Space.\n3. Add the object without moving your finger."))
-                    .font(.callout).fixedSize(horizontal: false, vertical: true)
-                Divider()
-                HStack {
-                    TextField(L("Bekanntes Gewicht", "Known weight"), text: $s.known).frame(width: 140).textFieldStyle(.roundedBorder)
-                    Text("g")
-                    Button(L("Abgleichen", "Calibrate")) { s.calibrate() }
-                    Button(L("Zurücksetzen", "Reset")) { s.resetCalibration() }
-                }
-                Text(s.note.isEmpty ? L("Nur ein Schätzwert. Leichte, flache Dinge auflegen, nichts Hartes, Nasses oder Schweres.",
-                                        "Estimate only. Use light, flat objects, nothing hard, wet or heavy.") : s.note)
-                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            } else {
-                Image(systemName: "exclamationmark.triangle").font(.largeTitle).foregroundStyle(.secondary).accessibilityHidden(true)
-                Text(L("Kein Force-Touch-Trackpad gefunden.", "No Force Touch trackpad found.")).font(.headline)
-            }
+    @Environment(\.accessibilityReduceMotion) private var calm
+    private var g: Double { s.grams ?? 0 }
+    private var range: Double { ScaleLogic.range(g) }
+
+    private var hint: (String, String) {
+        switch s.state {
+        case .empty: (L("Finger leicht aufs Trackpad legen", "Rest a finger lightly on the trackpad"), "hand.point.up.left")
+        case .taring: (L("Stillhalten – Finger wird abgezogen …", "Hold still – subtracting your finger…"), "hourglass")
+        case .measuring: (L("Misst …", "Measuring…"), "waveform")
+        case .steady: g < 1 ? (L("Bereit – Gegenstand dazulegen", "Ready – add the object"), "arrow.down.to.line") : (L("Ruhig", "Steady"), "checkmark.circle.fill")
+        case .held: (L("Letzter Wert", "Last reading"), "pin.fill")
         }
-        .padding(24).frame(width: 420)
+    }
+
+    var body: some View {
+        if s.available {
+            VStack(spacing: 14) {
+                scale
+                Label(hint.0, systemImage: hint.1).font(.callout).foregroundStyle(.secondary).frame(height: 20)
+                Button(L("Null setzen (Leertaste)", "Set zero (Space)")) { s.zero() }
+                    .keyboardShortcut(.space, modifiers: []).disabled(s.state == .empty || s.state == .held)
+                DisclosureGroup(L("Genauer machen", "Improve accuracy")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            TextField(L("Bekanntes Gewicht", "Known weight"), text: $s.known).textFieldStyle(.roundedBorder)
+                            Text("g")
+                            Button(L("Abgleichen", "Calibrate")) { s.calibrate() }
+                            Button(L("Zurücksetzen", "Reset")) { s.resetCalibration() }
+                        }
+                        if !s.note.isEmpty { Text(s.note).font(.caption) }
+                        Text(L("Schätzwert: Das Trackpad misst nur, solange ein Finger oder etwas Leitendes es berührt. Nichts Schweres, Hartes oder Nasses auflegen.",
+                               "Estimate: the trackpad only measures while a finger or something conductive touches it. Nothing heavy, hard or wet."))
+                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.top, 6)
+                }
+            }
+            .padding(24).frame(width: 400)
+        } else {
+            ContentUnavailableView(L("Kein Force-Touch-Trackpad gefunden.", "No Force Touch trackpad found."), systemImage: "scalemass")
+                .frame(width: 400, height: 260)
+        }
+    }
+
+    private var scale: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                Capsule().fill(LinearGradient(colors: [Color(white: 0.93), Color(white: 0.68)], startPoint: .top, endPoint: .bottom))
+                    .frame(width: 250, height: 16)
+                    .shadow(color: .black.opacity(0.25), radius: 3, y: 2)
+                Rectangle().fill(Color(white: 0.55)).frame(width: 46, height: 22)
+            }
+            .offset(y: min(g / range, 1) * 10)
+            .animation(calm ? nil : .spring(response: 0.3, dampingFraction: 0.7), value: g)
+            .zIndex(0)
+            VStack(spacing: 10) {
+                dial
+                Text(s.grams.map { "\(Int($0)) g" } ?? "– – –")
+                    .font(.system(size: 34, weight: .semibold, design: .monospaced)).monospacedDigit()
+                    .foregroundStyle(Color(red: 0.10, green: 0.16, blue: 0.12))
+                    .frame(width: 190, height: 52)
+                    .background(Color(red: 0.76, green: 0.83, blue: 0.74), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.black.opacity(0.25)))
+            }
+            .padding(.vertical, 18).frame(width: 300)
+            .background(Color(red: 0.17, green: 0.33, blue: 0.38), in: UnevenRoundedRectangle(topLeadingRadius: 26, bottomLeadingRadius: 40, bottomTrailingRadius: 40, topTrailingRadius: 26))
+            .zIndex(1)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(L("Waage", "Scale"))
+        .accessibilityValue(s.grams.map { L("\(Int($0)) Gramm", "\(Int($0)) grams") } ?? L("Kein Messwert", "No reading"))
+    }
+
+    private var dial: some View {
+        ZStack {
+            Circle().fill(Color(red: 0.96, green: 0.94, blue: 0.89))
+            Canvas { c, size in
+                let m = CGPoint(x: size.width / 2, y: size.height / 2), r = size.width / 2
+                for i in 0...50 {
+                    let a = Angle.degrees(-225 + Double(i) * 5.4).radians, big = i % 10 == 0
+                    var p = Path()
+                    p.move(to: CGPoint(x: m.x + cos(a) * (r - 8), y: m.y + sin(a) * (r - 8)))
+                    p.addLine(to: CGPoint(x: m.x + cos(a) * (r - (big ? 20 : 13)), y: m.y + sin(a) * (r - (big ? 20 : 13))))
+                    c.stroke(p, with: .color(Color(white: big ? 0.15 : 0.45)), lineWidth: big ? 2 : 1)
+                    if big {
+                        c.draw(Text("\(Int(range * Double(i) / 50))").font(.system(size: 11, weight: .medium)).foregroundStyle(Color(white: 0.2)),
+                               at: CGPoint(x: m.x + cos(a) * (r - 35), y: m.y + sin(a) * (r - 35)))
+                    }
+                }
+            }
+            Capsule().fill(Color(red: 0.85, green: 0.40, blue: 0.12)).frame(width: 4, height: 54).offset(y: -19)
+                .rotationEffect(.degrees(-135 + min(g / range, 1) * 270))
+                .animation(calm ? nil : .spring(response: 0.35, dampingFraction: 0.6), value: g / range)
+            Circle().fill(Color(white: 0.2)).frame(width: 16, height: 16)
+        }
+        .frame(width: 180, height: 180)
     }
 }

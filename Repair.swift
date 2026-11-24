@@ -19,7 +19,7 @@ import SwiftUI
 
     // Alles still neu starten – jeder Dienst prüft selbst, ob er eingeschaltet ist
     static func run(quiet: Bool) {
-        if ShortcutRecorder.shared.recording == nil { HotKey.registerAll() } // nicht mitten in die Kürzel-Aufnahme
+        if !ShortcutRecorder.shared.active { HotKey.registerAll() } // nicht mitten in die Kürzel-Aufnahme
         if UserDefaults.standard.bool(forKey: "startMenu") { StartKey.stop(); StartKey.start() }
         FinderCut.stop(); FinderCut.start()
         if let drag = features.first(where: { $0.id == "drag" }), isOn(drag) { TapDragFix.stop(); TapDragFix.start() }
