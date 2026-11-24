@@ -16,12 +16,11 @@ import IOKit.pwr_mgt
     private var gamePID: pid_t?
     private var turnedOnDND = false
     private var lastOtherApp: NSRunningApplication? // zuletzt vorne, ohne WinKomfort (für „Jetzt einschalten“ aus den Einstellungen)
-    private var manual = false
 
     private let d = UserDefaults.standard
     var auto: Bool { d.object(forKey: "gameAuto") as? Bool ?? true }
     var throttle: Bool { d.object(forKey: "gameThrottle") as? Bool ?? true }
-    var dnd: Bool { d.object(forKey: "gameDND") as? Bool ?? true }
+    var dnd: Bool { d.object(forKey: "gameDND") as? Bool ?? false } // aus: das Umschalten öffnet kurz das Kontrollzentrum
     var hideDock: Bool { d.object(forKey: "gameDock") as? Bool ?? false }
     var extraGames: [String] { d.stringArray(forKey: "gameApps") ?? [] }
 
@@ -49,7 +48,7 @@ import IOKit.pwr_mgt
         })
         tokens.append(nc.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { n in
             let app = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-            MainActor.assumeIsolated { if app?.processIdentifier == GameMode.shared.gamePID, !GameMode.shared.manual { GameMode.shared.stop() } }
+            MainActor.assumeIsolated { if let app, app.processIdentifier == GameMode.shared.gamePID { GameMode.shared.stop() } }
         })
         // Nach einem Absturz von WinKomfort nichts gedrosselt lassen (Selbstreparatur)
         restoreAfterCrash()
@@ -69,13 +68,17 @@ import IOKit.pwr_mgt
     }
 
     private func frontChanged(_ app: NSRunningApplication?) {
-        guard auto, let app, !active, Self.isGame(app) else { return }
+        guard let app else { return }
+        if active { // nur bremsen, solange das Spiel vorne ist – sonst wäre die App langsam, zu der du gerade wechselst
+            if app.processIdentifier == gamePID { throttleOthers() } else { unthrottle() }
+            return
+        }
+        guard auto, Self.isGame(app) else { return }
         start(game: app)
     }
 
     func toggle() {
         if active { stop() } else {
-            manual = true
             let front = NSWorkspace.shared.frontmostApplication
             start(game: front?.processIdentifier == getpid() ? lastOtherApp : front)
         }
@@ -86,14 +89,7 @@ import IOKit.pwr_mgt
         active = true
         game = app?.localizedName
         gamePID = app?.processIdentifier
-        if throttle {
-            for a in NSWorkspace.shared.runningApplications where a.processIdentifier != gamePID && a.processIdentifier != getpid() {
-                guard let id = a.bundleIdentifier, !Self.keep.contains(id), !id.hasPrefix("com.apple.") || a.activationPolicy == .regular else { continue }
-                // Hintergrund-Priorität: weniger CPU, Festplatte und Netz – die App läuft weiter
-                if setpriority(PRIO_DARWIN_PROCESS, id_t(a.processIdentifier), PRIO_DARWIN_BG) == 0 { throttled.insert(a.processIdentifier) }
-            }
-            d.set(throttled.map(Int.init), forKey: "gameThrottledPIDs")
-        }
+        throttleOthers()
         let reason = "WinKomfort Game Mode" as CFString
         IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), reason, &assertion)
         // Nur zurücknehmen, was Game Mode selbst eingeschaltet hat (gemerkt auch über einen Absturz hinweg)
@@ -110,13 +106,27 @@ import IOKit.pwr_mgt
         Toast.show(L("Game Mode an", "Game Mode on") + (game.map { " – \($0)" } ?? ""), symbol: "gamecontroller.fill")
     }
 
-    func stop(quiet: Bool = false) {
-        guard active else { return }
-        active = false
-        manual = false
+    private func throttleOthers() {
+        guard throttled.isEmpty else { return }
+        if throttle {
+            for a in NSWorkspace.shared.runningApplications where a.processIdentifier != gamePID && a.processIdentifier != getpid() {
+                guard let id = a.bundleIdentifier, !Self.keep.contains(id), !id.hasPrefix("com.apple.") || a.activationPolicy == .regular else { continue }
+                // Hintergrund-Priorität: weniger CPU, Festplatte und Netz – die App läuft weiter
+                if setpriority(PRIO_DARWIN_PROCESS, id_t(a.processIdentifier), PRIO_DARWIN_BG) == 0 { throttled.insert(a.processIdentifier) }
+            }
+            d.set(throttled.map(Int.init), forKey: "gameThrottledPIDs")
+        }
+    }
+    private func unthrottle() {
         for p in throttled { setpriority(PRIO_DARWIN_PROCESS, id_t(p), 0) }
         throttled = []
         d.removeObject(forKey: "gameThrottledPIDs")
+    }
+
+    func stop(quiet: Bool = false) {
+        guard active else { return }
+        active = false
+        unthrottle()
         if assertion != 0 { IOPMAssertionRelease(assertion); assertion = 0 }
         undoSystemChanges()
         if !quiet { Toast.show(L("Game Mode aus", "Game Mode off"), symbol: "gamecontroller") }
@@ -145,7 +155,7 @@ struct GameModeTab: View {
     @ObservedObject var gm = GameMode.shared
     @AppStorage("gameAuto") private var auto = true
     @AppStorage("gameThrottle") private var throttle = true
-    @AppStorage("gameDND") private var dnd = true
+    @AppStorage("gameDND") private var dnd = false
     @AppStorage("gameDock") private var hideDock = false
     @AppStorage("gameAppsText") private var gameAppsRaw = ""
 
@@ -180,7 +190,7 @@ struct GameModeTab: View {
                 }
                 Toggle(isOn: $dnd) {
                     Text(L("Nicht stören", "Do Not Disturb"))
-                    Text(L("Keine Mitteilungen während des Spielens.", "No notifications while playing."))
+                    Text(L("Keine Mitteilungen während des Spielens. Dafür öffnet sich kurz das Kontrollzentrum.", "No notifications while playing. Control Center opens briefly for this."))
                 }
                 Toggle(isOn: $hideDock) {
                     Text(L("Dock ausblenden", "Hide the Dock"))

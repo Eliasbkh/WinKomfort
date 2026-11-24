@@ -137,5 +137,21 @@ for (q, want) in [("halt den mac zwei minuten wach", "2"), ("eine halbe stunde",
     sc("Zeit „\(q)“", TimeParse.minutes(in: q).map(String.init) ?? "nil", want)
 }
 
+// Trackpad-Waage
+var scale = ScaleLogic()
+sc("Waage ohne Berührung", "\(scale.grams == nil)", "true")
+for _ in 0..<15 { scale.add(30) }
+scale.add(500) // Ausreißer
+sc("Waage: Ausreißer zählt nicht", "\(scale.grams ?? -1)", "30.0")
+scale.zero()
+sc("Waage: Null gesetzt", "\(scale.grams ?? -1)", "0.0")
+sc("Waage: Abgleich ohne Gewicht abgelehnt", "\(scale.calibrate(to: 100))", "false")
+for _ in 0..<15 { scale.add(80) }
+sc("Waage: Differenz", "\(scale.grams ?? -1) \(scale.stable)", "50.0 true")
+sc("Waage: Abgleich", "\(scale.calibrate(to: 100)) \(scale.grams ?? -1)", "true 100.0")
+sc("Waage: negatives Gewicht abgelehnt", "\(scale.calibrate(to: -5))", "false")
+scale.add(nil)
+sc("Waage: Finger weg", "\(scale.grams == nil)", "true")
+
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }

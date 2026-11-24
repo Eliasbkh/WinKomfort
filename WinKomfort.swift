@@ -417,6 +417,9 @@ enum TapDragFix {
     private static var dragging = false         // vom Bewegungs-Zuhörer gelesen; ein Bool, kurzes Nachhinken ist harmlos
     private static var moveTap: CFMachPort?
 
+    // Der Maus-Filter läuft nur während des Ziehens – sonst gehen Mausbewegungen gar nicht durch WinKomfort
+    private static func filter(_ on: Bool) { if let t = moveTap { CGEvent.tapEnable(tap: t, enable: on) } }
+
     private static func click(_ type: CGEventType) {
         let pos = CGEvent(source: nil)?.location ?? .zero
         CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: pos, mouseButton: .left)?.post(tap: .cghidEventTap)
@@ -436,8 +439,8 @@ enum TapDragFix {
             }
         }
         switch TapDragFix.logic.frame(touching: touching, time: time) {
-        case .press: TapDragFix.dragging = true; TapDragFix.click(.leftMouseDown)
-        case .release: TapDragFix.dragging = false; TapDragFix.click(.leftMouseUp)
+        case .press: TapDragFix.dragging = true; TapDragFix.filter(true); TapDragFix.click(.leftMouseDown)
+        case .release: TapDragFix.dragging = false; TapDragFix.click(.leftMouseUp); TapDragFix.filter(false)
         case .none: break
         }
         return 0
@@ -461,7 +464,7 @@ enum TapDragFix {
             moveTap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
                                         eventsOfInterest: CGEventMask(1 << CGEventType.mouseMoved.rawValue), callback: { _, type, event, _ in
                 if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                    if let t = TapDragFix.moveTap { CGEvent.tapEnable(tap: t, enable: true) }
+                    if let t = TapDragFix.moveTap, TapDragFix.dragging { CGEvent.tapEnable(tap: t, enable: true) }
                 } else if type == .mouseMoved, TapDragFix.dragging {
                     event.type = .leftMouseDragged
                 }
@@ -469,7 +472,7 @@ enum TapDragFix {
             }, userInfo: nil)
             if let moveTap {
                 CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, moveTap, 0), .commonModes)
-                CGEvent.tapEnable(tap: moveTap, enable: true)
+                CGEvent.tapEnable(tap: moveTap, enable: false)
             }
         }
     }
@@ -764,6 +767,9 @@ enum UIAuto {
     static func elements(_ ax: AXUIElement, windowsOnly: Bool = true) -> [AXUIElement] {
         var out: [AXUIElement] = []
         func walk(_ e: AXUIElement, _ d: Int) {
+            // Eigene Elemente (z. B. unser Menüleisten-Symbol) nie abfragen: das wartet auf den Hauptthread und hängt WinKomfort auf
+            var pid: pid_t = 0
+            if AXUIElementGetPid(e, &pid) == .success, pid == getpid() { return }
             out.append(e)
             if d < 14 { for k in attr(e, kAXChildrenAttribute) as? [AXUIElement] ?? [] { walk(k, d + 1) } }
         }
@@ -1313,13 +1319,16 @@ func fixedHost<V: View>(_ view: V) -> NSHostingView<V> {
         let p = panel ?? {
             let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             p.isOpaque = false; p.backgroundColor = .clear; p.level = .statusBar; p.ignoresMouseEvents = true
+            p.hidesOnDeactivate = false
             p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             panel = p
             return p
         }()
-        let view = fixedHost(Label(text, systemImage: symbol).font(.headline).padding(.horizontal, 18).padding(.vertical, 12)
+        let view = fixedHost(HStack(spacing: 8) { Image(systemName: symbol); Text(text).lineLimit(1) }.font(.headline).fixedSize().padding(.horizontal, 18).padding(.vertical, 12)
             .background(.regularMaterial, in: Capsule()))
+        view.sizingOptions = [.intrinsicContentSize] // ohne das meldet SwiftUI nur die Mindestgröße (Symbol ohne Text)
         let size = view.fittingSize
+        view.sizingOptions = []
         p.contentView = view
         let screen = NSScreen.main!.visibleFrame
         p.setFrame(NSRect(x: screen.midX - size.width / 2, y: screen.minY + screen.height * 0.18, width: size.width, height: size.height), display: true)
@@ -1518,12 +1527,18 @@ final class PinnedWindow: NSObject, SCStreamOutput, SCStreamDelegate {
         overlay.backgroundColor = .clear
         overlay.hasShadow = true
         overlay.level = .floating
+        overlay.hidesOnDeactivate = false // sonst verschwindet die Kopie beim App-Wechsel
         overlay.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         let view = ClickView()
         view.wantsLayer = true
         view.layer?.addSublayer(surface)
         surface.contentsGravity = .resize
-        view.onClick = { [weak self] in self?.focusReal() }
+        // Keine weichen Übergänge: sonst flackert jedes neue Bild und die Kopie „schwimmt“ beim Verschieben
+        surface.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        // Doppelklick statt Klick: ein versehentlicher Klick soll nicht in einen anderen Space springen
+        view.onDoubleClick = { [weak self] in self?.focusReal() }
+        view.onRightClick = { [weak self] in MainActor.assumeIsolated { if let self { Pins.shared.remove(self) } } }
+        view.toolTip = L("Doppelklick: Original nach vorne · Rechtsklick: lösen", "Double-click: bring original forward · Right-click: unpin")
         overlay.contentView = view
     }
 
@@ -1537,21 +1552,27 @@ final class PinnedWindow: NSObject, SCStreamOutput, SCStreamDelegate {
         return NSRect(x: p.x, y: primaryHeight - p.y - s.height, width: s.width, height: s.height)
     }
 
-    // Sobald das echte Fenster zugeht: Kopie und Aufnahme sofort beenden
-    private func watchClose() {
+    // Schließen, Verschieben, Größe, Minimieren und Fensterwechsel innerhalb der App verfolgen
+    private func watchWindow() {
         var obs: AXObserver?
-        guard AXObserverCreate(pid, { _, _, _, ctx in
+        guard AXObserverCreate(pid, { _, _, note, ctx in
             guard let ctx else { return }
             let pin = Unmanaged<PinnedWindow>.fromOpaque(ctx).takeUnretainedValue()
-            DispatchQueue.main.async { MainActor.assumeIsolated { Pins.shared.remove(pin) } }
+            let closed = note as String == kAXUIElementDestroyedNotification
+            DispatchQueue.main.async { MainActor.assumeIsolated { closed ? Pins.shared.remove(pin) : pin.update() } }
         }, &obs) == .success, let obs else { return }
-        AXObserverAddNotification(obs, ax, kAXUIElementDestroyedNotification as CFString, Unmanaged.passUnretained(self).toOpaque())
-        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(obs), .defaultMode)
+        let me = Unmanaged.passUnretained(self).toOpaque()
+        for n in Self.windowNotes { AXObserverAddNotification(obs, ax, n as CFString, me) }
+        for n in Self.appNotes { AXObserverAddNotification(obs, axApp, n as CFString, me) }
+        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(obs), .commonModes)
         closeObserver = obs
     }
+    private static let windowNotes = [kAXUIElementDestroyedNotification, kAXMovedNotification, kAXResizedNotification,
+                                      kAXWindowMiniaturizedNotification, kAXWindowDeminiaturizedNotification]
+    private static let appNotes = [kAXFocusedWindowChangedNotification, kAXApplicationHiddenNotification, kAXApplicationShownNotification]
+    private lazy var axApp = AXUIElementCreateApplication(pid)
 
     func start() async throws {
-        watchClose()
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
         guard let w = content.windows.first(where: { $0.windowID == windowID }) else { throw CocoaError(.featureUnsupported) }
         let stream = SCStream(filter: SCContentFilter(desktopIndependentWindow: w), configuration: config(for: w.frame.size), delegate: self)
@@ -1559,6 +1580,7 @@ final class PinnedWindow: NSObject, SCStreamOutput, SCStreamDelegate {
         try await stream.startCapture()
         self.stream = stream
         size = w.frame.size
+        watchWindow()
     }
 
     private func config(for s: CGSize) -> SCStreamConfiguration {
@@ -1568,6 +1590,8 @@ final class PinnedWindow: NSObject, SCStreamOutput, SCStreamDelegate {
         c.height = Int(s.height * scale)
         c.minimumFrameInterval = CMTime(value: 1, timescale: 15) // 15 Bilder/s reichen und sparen Strom
         c.showsCursor = false
+        c.ignoreShadowsSingleWindow = true // sonst ist der Schatten mit im Bild und alles verschoben
+        c.backgroundColor = .clear
         c.queueDepth = 3
         return c
     }
@@ -1579,7 +1603,9 @@ final class PinnedWindow: NSObject, SCStreamOutput, SCStreamDelegate {
               let raw = info[.status] as? Int, SCFrameStatus(rawValue: raw) == .complete,
               let px = buffer.imageBuffer, let io = CVPixelBufferGetIOSurface(px)?.takeUnretainedValue() else { return }
         surface.contents = io
+        if !hasImage { hasImage = true; update(); overlay.invalidateShadow() } // erst mit dem ersten Bild zeigen
     }
+    private var hasImage = false
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         DispatchQueue.main.async { MainActor.assumeIsolated { Pins.shared.remove(self) } } // Fenster geschlossen o. ä.
@@ -1597,7 +1623,13 @@ final class PinnedWindow: NSObject, SCStreamOutput, SCStreamDelegate {
             size = f.size
             stream.updateConfiguration(config(for: f.size)) { _ in }
         }
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier == pid { overlay.orderOut(nil) } else { overlay.orderFrontRegardless() }
+        // Nur verstecken, wenn genau dieses Fenster vorne ist (nicht irgendein anderes derselben App) oder es weggelegt wurde
+        var front: CGWindowID = 0
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == pid, let w = UIAuto.attr(axApp, kAXFocusedWindowAttribute) {
+            _ = _AXUIElementGetWindow(w as! AXUIElement, &front)
+        }
+        let away = UIAuto.attr(ax, kAXMinimizedAttribute) as? Bool == true || UIAuto.attr(axApp, kAXHiddenAttribute) as? Bool == true
+        if front == windowID || away || !hasImage { overlay.orderOut(nil) } else if !overlay.isVisible { overlay.orderFrontRegardless(); overlay.invalidateShadow() }
     }
 
     func focusReal() {
@@ -1612,7 +1644,8 @@ final class PinnedWindow: NSObject, SCStreamOutput, SCStreamDelegate {
         stream?.stopCapture { _ in }
         stream = nil
         if let o = closeObserver {
-            AXObserverRemoveNotification(o, ax, kAXUIElementDestroyedNotification as CFString)
+            for n in Self.windowNotes { AXObserverRemoveNotification(o, ax, n as CFString) }
+            for n in Self.appNotes { AXObserverRemoveNotification(o, axApp, n as CFString) }
             CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(o), .defaultMode)
             closeObserver = nil
         }
@@ -1621,14 +1654,17 @@ final class PinnedWindow: NSObject, SCStreamOutput, SCStreamDelegate {
 }
 
 final class ClickView: NSView {
-    var onClick: (() -> Void)?
-    override func mouseDown(with event: NSEvent) { onClick?() }
+    var onDoubleClick: (() -> Void)?
+    var onRightClick: (() -> Void)?
+    override func mouseDown(with event: NSEvent) { if event.clickCount == 2 { onDoubleClick?() } }
+    override func rightMouseUp(with event: NSEvent) { onRightClick?() }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 @MainActor final class Pins: ObservableObject {
     static let shared = Pins()
     @Published private(set) var pinned: [PinnedWindow] = []
+    private var starting: Set<CGWindowID> = []
     private var token: NSObjectProtocol?
     private var quitToken: NSObjectProtocol?
 
@@ -1647,6 +1683,7 @@ final class ClickView: NSView {
             Toast.show(tr("%@ gelöst", p.name), symbol: "pin.slash")
             return
         }
+        guard !starting.contains(id) else { return } // zweimal schnell gedrückt
         guard CGPreflightScreenCaptureAccess() else {
             CGRequestScreenCaptureAccess() // fragt einmal nach „Bildschirmaufnahme“
             Toast.show("Bitte „Bildschirmaufnahme“ für WinKomfort erlauben", symbol: "lock")
@@ -1654,13 +1691,17 @@ final class ClickView: NSView {
         }
         let title = (UIAuto.attr(ax, kAXTitleAttribute) as? String).flatMap { $0.isEmpty ? nil : $0 } ?? app.localizedName ?? "Fenster"
         let p = PinnedWindow(windowID: id, pid: app.processIdentifier, ax: ax, name: title)
+        starting.insert(id)
         Task { @MainActor in
+            defer { starting.remove(id) }
             do {
                 try await p.start()
                 pinned.append(p)
                 observe()
+                p.update()
                 Toast.show(tr("%@ angeheftet", title), symbol: "pin.fill")
             } catch {
+                p.stop()
                 Toast.show("Anheften nicht möglich", symbol: "pin.slash")
             }
         }
@@ -3775,6 +3816,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ n: Notification) {
+        // Antwortet eine andere App nicht, höchstens 1 s warten (sonst 6 s – so lange stünde WinKomfort still)
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1)
         let d = UserDefaults.standard
         d.register(defaults: ["autoUpdate": true, "startMenu": true])
         if !d.bool(forKey: "didSetup") {
@@ -3877,6 +3920,7 @@ struct MenuContent: View {
         Button("Explorer …") { openExplorer() }
         Button("Schnellnotiz") { QuickNote.shared.toggle() }
         if !Pins.shared.pinned.isEmpty { Button("Alle angehefteten Fenster lösen") { Pins.shared.unpinAll() } }
+        Button(L("Trackpad-Waage …", "Trackpad scale…")) { openScale() }
         Button("Task-Manager …") { openTaskManager() }
             .keyboardShortcut(.escape, modifiers: [.control, .shift])
         Button("Autostarts …") { openAutostarts() }
