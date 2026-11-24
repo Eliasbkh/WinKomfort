@@ -218,7 +218,7 @@ struct AskView: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "sparkles").font(.title2).foregroundStyle(.tint).accessibilityHidden(true)
-            TextField(L("Was soll passieren? z. B. „Game Mode an“, „Mac 1 Stunde wach“", "What should happen? e.g. “Game Mode on”, “keep Mac awake 1 hour”"), text: $model.text)
+            TextField(L("Was soll passieren? z. B. „Game Mode an“", "What should happen? e.g. “Game Mode on”"), text: $model.text)
                 .textFieldStyle(.plain).font(.title3)
                 .focused($focused)
                 .onSubmit { AskPanel.submit() }
