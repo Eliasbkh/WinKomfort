@@ -9,6 +9,7 @@ enum Assistant {
     // Befehlsliste für das Sprachmodell – kurz halten, damit es schnell und eindeutig bleibt
     private static let instructions = """
     Übersetze den Wunsch in GENAU EINEN Befehl und antworte nur mit dem Befehl, ohne Erklärung.
+    Zahlen immer als Ziffern (zwei Stunden → 120, eine halbe Stunde → 30).
     Befehle:
     explorer(PFAD) – Ordner öffnen. PFAD z. B. ~/Downloads, ~/Documents, ~/Desktop, ~/Pictures, ~
     gamemode(on) | gamemode(off)
@@ -27,6 +28,9 @@ enum Assistant {
     Beispiele: "spielmodus an" → gamemode(on) · "halt den mac 2 stunden wach" → awake(120) · "zeig downloads" → explorer(~/Downloads)
     · "fenster nach links" → snap(left) · "lauter" → volume(70) · "öffne safari" → open(Safari)
     """
+
+    // Einmal pro Start prüfen – die Suche fragt bei jedem Tastendruck
+    static let availableCached = available
 
     static var available: Bool {
         if #available(macOS 26.0, *) { return SystemLanguageModel.default.isAvailable }
@@ -58,7 +62,7 @@ enum Assistant {
             if on != GameMode.shared.active { GameMode.shared.toggle() }
             return on ? L("Game Mode an", "Game Mode on") : L("Game Mode aus", "Game Mode off")
         case "awake":
-            let m = Int(arg.filter(\.isNumber)) ?? 60
+            let m = minutesOverride ?? Int(arg.filter(\.isNumber)) ?? 60
             if m == 0 { Awake.shared.stop(); return L("Wach bleiben beendet", "Stay awake ended") }
             Awake.shared.start(.display, minutes: m)
             return L("Mac bleibt \(m) Minuten wach", "Mac stays awake for \(m) minutes")
@@ -109,8 +113,8 @@ enum Assistant {
     // winkomfort://gamemode/on · winkomfort://awake/60 · winkomfort://explorer/Downloads · winkomfort://onenote/notebook
     // Links können auch von Webseiten kommen – deshalb nur harmlose Befehle mit geprüften Werten (keine Apps, keine freien Texte, keine KI)
     private static let linkArgs: [String: Set<String>] = [
-        "gamemode": ["on", "off"], "onenote": ["page", "section", "notebook"], "snap": ["left", "right", "max", "restore"],
-        "dark": ["on", "off"], "screenoff": [""], "tasks": [""], "clipboard": [""], "settings": [""],
+        "gamemode": ["on", "off"], "snap": ["left", "right", "max", "restore"],
+        "dark": ["on", "off"], "tasks": [""], "clipboard": [""], "settings": [""],
     ]
     @MainActor static func handle(_ url: URL) {
         guard url.scheme == "winkomfort", let host = url.host?.lowercased() else { return }
@@ -129,13 +133,39 @@ enum Assistant {
         Toast.show(run("\(host)(\(a))"), symbol: "wand.and.stars")
     }
 
+    // Zeitangaben selbst lesen – das kleine Sprachmodell verrechnet sich bei Zahlwörtern
+    @MainActor private static var minutesOverride: Int?
+    static func minutes(in text: String) -> Int? {
+        let words = ["eine": 1, "einen": 1, "ein": 1, "one": 1, "a": 1, "an": 1, "zwei": 2, "two": 2, "drei": 3, "three": 3, "vier": 4, "four": 4,
+                     "fünf": 5, "five": 5, "sechs": 6, "six": 6, "zehn": 10, "ten": 10, "zwanzig": 20, "twenty": 20, "dreißig": 30, "thirty": 30]
+        let t = text.lowercased()
+        if t.contains("halbe stunde") || t.contains("half an hour") || t.contains("half hour") { return 30 }
+        let re = try! NSRegularExpression(pattern: #"(\d+(?:[.,]\d+)?|[a-zäöüß]+)\s*(minuten|minute|min|stunden|stunde|std|h|hours|hour|minutes)\b"#)
+        guard let m = re.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)),
+              let nr = Range(m.range(at: 1), in: t), let ur = Range(m.range(at: 2), in: t) else { return nil }
+        let n = Double(t[nr].replacingOccurrences(of: ",", with: ".")) ?? words[String(t[nr])].map(Double.init)
+        guard let n else { return nil }
+        let unit = t[ur]
+        return Int((unit.hasPrefix("st") || unit.hasPrefix("h") ? n * 60 : n).rounded())
+    }
+
+    // Modell vorladen, sobald jemand tippt – der erste Aufruf nach dem Start dauert sonst lange
+    static func prewarm() {
+        guard #available(macOS 26.0, *), SystemLanguageModel.default.isAvailable else { return }
+        LanguageModelSession(instructions: instructions).prewarm()
+    }
+
     @MainActor static func ask(_ text: String) {
+        minutesOverride = minutes(in: text)
         Toast.show(L("Denke nach …", "Thinking…"), symbol: "sparkles")
         Task { @MainActor in
-            guard let cmd = await command(for: text) else {
+            let cmd = await command(for: text)
+            wkLog("KI: „\(text)“ → \(cmd ?? "nicht verfügbar")")
+            guard let cmd else {
                 Toast.show(L("Apple Intelligence ist nicht verfügbar", "Apple Intelligence isn't available"), symbol: "exclamationmark.triangle"); return
             }
             Toast.show(run(cmd), symbol: "sparkles")
+            minutesOverride = nil
         }
     }
 }
@@ -155,6 +185,7 @@ final class AskModel: ObservableObject { @Published var text = ""; @Published va
                          "AI commands need Apple Intelligence (System Settings › Apple Intelligence & Siri)"), symbol: "sparkles"); return
         }
         model.text = ""
+        Assistant.prewarm()
         model.token += 1 // Fokus bei jedem Öffnen ins Feld
         let p = panel ?? {
             let p = KeyPanel(contentRect: NSRect(x: 0, y: 0, width: 520, height: 64), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)

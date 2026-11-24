@@ -423,6 +423,7 @@ enum PDFQuality: String, CaseIterable, Identifiable {
     func webView(_ w: WKWebView, didFinish n: WKNavigation!) { loaded?.resume(); loaded = nil }
     func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: Error) { loaded?.resume(); loaded = nil }
     func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: Error) { loaded?.resume(); loaded = nil }
+    func webViewWebContentProcessDidTerminate(_ w: WKWebView) { loaded?.resume(); loaded = nil }
 
     private func image(_ path: String) -> CGImage? {
         if let i = images[path] { return i }
@@ -444,7 +445,14 @@ enum PDFQuality: String, CaseIterable, Identifiable {
         let margin: CGFloat = 28, scale: CGFloat = 0.75 // 96 px = 72 pt, wie beim Drucken
         for (i, p) in pages.enumerated() {
             if i % 25 == 0 && i > 0 { Toast.show(L("OneNote: Seite \(i) von \(pages.count) …", "OneNote: page \(i) of \(pages.count)…"), symbol: "doc.richtext") }
-            await withCheckedContinuation { c in loaded = c; web.loadFileURL(p, allowingReadAccessTo: root) }
+            await withCheckedContinuation { c in
+                loaded = c
+                web.loadFileURL(p, allowingReadAccessTo: root)
+                // Zeitlimit: eine hängende Seite darf nie alle weiteren Exporte blockieren
+                DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
+                    MainActor.assumeIsolated { if let l = self?.loaded { self?.loaded = nil; wkLog("OneNote: Seite hängt, übersprungen: \(p.lastPathComponent)"); l.resume() } }
+                }
+            }
             // Größe messen (Elemente sind absolut positioniert), Bilder merken und für WebKit ausblenden
             let info = try? await web.callAsyncJavaScript("""
                 await Promise.all([...document.images].map(i => i.decode().catch(() => {})));

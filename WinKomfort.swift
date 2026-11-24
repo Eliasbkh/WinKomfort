@@ -1015,7 +1015,7 @@ struct NotificationsTab: View {
 // Sparsam: kein eigenes Indizieren; die Dateisuche läuft nur, während das Fenster offen ist, und stoppt nach dem ersten Ergebnis-Schwung.
 
 struct SearchHit: Identifiable {
-    enum Kind { case calc, app, file, web }
+    enum Kind { case calc, app, file, web, ai }
     let kind: Kind
     let title: String
     let subtitle: String
@@ -1069,8 +1069,14 @@ struct SearchHit: Identifiable {
             h.append(SearchHit(kind: .calc, title: "= " + Calc.format(v), subtitle: tr("Enter kopiert das Ergebnis"), path: nil))
         }
         if !q.isEmpty {
-            h += StartModel.shared.match(q).prefix(6).map { SearchHit(kind: .app, title: $0.name, subtitle: "App", path: $0.path) }
+            let apps = StartModel.shared.match(q).prefix(6).map { SearchHit(kind: .app, title: $0.name, subtitle: "App", path: $0.path) }
+            // Ganze Sätze („halt den Mac wach“) → KI-Befehl; ganz oben, wenn keine App passt
+            let ai = q.split(separator: " ").count >= 2 && Assistant.availableCached
+                ? SearchHit(kind: .ai, title: tr("Mit KI ausführen: „%@“", q), subtitle: tr("Apple Intelligence – direkt auf dem Mac"), path: nil) : nil
+            if let ai, apps.isEmpty { h.append(ai) }
+            h += apps
             h += files
+            if let ai, !apps.isEmpty { h.append(ai) }
             h.append(SearchHit(kind: .web, title: tr("Im Web suchen: „%@“", q), subtitle: tr("Öffnet deinen Browser"), path: nil))
         }
         hits = h
@@ -1087,6 +1093,8 @@ struct SearchHit: Identifiable {
         case .calc:
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(String(hit.title.dropFirst(2)), forType: .string)
+        case .ai:
+            Assistant.ask(query)
         case .web:
             var c = URLComponents(string: "https://www.google.com/search")!
             c.queryItems = [URLQueryItem(name: "q", value: query)]
@@ -1108,6 +1116,7 @@ struct SearchHit: Identifiable {
         case .app, .file: return StartModel.shared.icon(hit.path!)
         case .calc: return NSImage(systemSymbolName: "equal.circle.fill", accessibilityDescription: tr("Rechner"))!
         case .web: return NSImage(systemSymbolName: "globe", accessibilityDescription: "Web")!
+        case .ai: return NSImage(systemSymbolName: "sparkles", accessibilityDescription: "AI")!
         }
     }
 }

@@ -14,8 +14,8 @@ import IOKit.pwr_mgt
     private var assertion: IOPMAssertionID = 0
     private var tokens: [NSObjectProtocol] = []
     private var gamePID: pid_t?
-    private var dndBefore: Bool?
-    private var dockWasHidden: Bool?
+    private var turnedOnDND = false
+    private var lastOtherApp: NSRunningApplication? // zuletzt vorne, ohne WinKomfort (für „Jetzt einschalten“ aus den Einstellungen)
     private var manual = false
 
     private let d = UserDefaults.standard
@@ -38,7 +38,14 @@ import IOKit.pwr_mgt
         let nc = NSWorkspace.shared.notificationCenter
         tokens.append(nc.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { n in
             let app = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-            MainActor.assumeIsolated { GameMode.shared.frontChanged(app) }
+            MainActor.assumeIsolated {
+                if app?.processIdentifier != getpid() { GameMode.shared.lastOtherApp = app }
+                GameMode.shared.frontChanged(app)
+            }
+        })
+        // Beim Beenden von WinKomfort alles zurück (nicht erst beim nächsten Start)
+        tokens.append(NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { GameMode.shared.stop(quiet: true) }
         })
         tokens.append(nc.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { n in
             let app = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
@@ -64,7 +71,8 @@ import IOKit.pwr_mgt
     func toggle() {
         if active { stop() } else {
             manual = true
-            start(game: NSWorkspace.shared.frontmostApplication)
+            let front = NSWorkspace.shared.frontmostApplication
+            start(game: front?.processIdentifier == getpid() ? lastOtherApp : front)
         }
     }
 
@@ -83,19 +91,21 @@ import IOKit.pwr_mgt
         }
         let reason = "WinKomfort Game Mode" as CFString
         IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), reason, &assertion)
-        if dnd {
-            dndBefore = Notifs.shared.dnd
-            if Notifs.shared.dnd != true { Notifs.shared.setDND(true) }
+        // Nur zurücknehmen, was Game Mode selbst eingeschaltet hat (gemerkt auch über einen Absturz hinweg)
+        turnedOnDND = false
+        if dnd, Notifs.shared.dnd == false || Notifs.shared.dnd == nil {
+            Notifs.shared.setDND(true)
+            turnedOnDND = true
         }
-        if hideDock {
-            let hidden = defaults("read", Pref(domain: "com.apple.dock", key: "autohide", on: [])) == "1"
-            dockWasHidden = hidden
-            if !hidden { sh(["/usr/bin/defaults", "write", "com.apple.dock", "autohide", "-bool", "true"]); sh(["/usr/bin/killall", "Dock"]) }
+        d.set(turnedOnDND, forKey: "gameTurnedOnDND")
+        if hideDock, defaults("read", Pref(domain: "com.apple.dock", key: "autohide", on: [])) != "1" {
+            sh(["/usr/bin/defaults", "write", "com.apple.dock", "autohide", "-bool", "true"]); sh(["/usr/bin/killall", "Dock"])
+            d.set(true, forKey: "gameHidDock")
         }
         Toast.show(L("Game Mode an", "Game Mode on") + (game.map { " – \($0)" } ?? ""), symbol: "gamecontroller.fill")
     }
 
-    func stop() {
+    func stop(quiet: Bool = false) {
         guard active else { return }
         active = false
         manual = false
@@ -103,18 +113,26 @@ import IOKit.pwr_mgt
         throttled = []
         d.removeObject(forKey: "gameThrottledPIDs")
         if assertion != 0 { IOPMAssertionRelease(assertion); assertion = 0 }
-        if dnd, dndBefore != true { Notifs.shared.setDND(false) }
-        dndBefore = nil
-        if let was = dockWasHidden, !was { sh(["/usr/bin/defaults", "write", "com.apple.dock", "autohide", "-bool", "false"]); sh(["/usr/bin/killall", "Dock"]) }
-        dockWasHidden = nil
-        Toast.show(L("Game Mode aus", "Game Mode off"), symbol: "gamecontroller")
+        undoSystemChanges()
+        if !quiet { Toast.show(L("Game Mode aus", "Game Mode off"), symbol: "gamecontroller") }
         game = nil
         gamePID = nil
+    }
+
+    private func undoSystemChanges() {
+        if turnedOnDND || d.bool(forKey: "gameTurnedOnDND") { Notifs.shared.setDND(false) }
+        turnedOnDND = false
+        d.removeObject(forKey: "gameTurnedOnDND")
+        if d.bool(forKey: "gameHidDock") {
+            sh(["/usr/bin/defaults", "write", "com.apple.dock", "autohide", "-bool", "false"]); sh(["/usr/bin/killall", "Dock"])
+            d.removeObject(forKey: "gameHidDock")
+        }
     }
 
     private func restoreAfterCrash() {
         for p in d.array(forKey: "gameThrottledPIDs") as? [Int] ?? [] { setpriority(PRIO_DARWIN_PROCESS, id_t(p), 0) }
         d.removeObject(forKey: "gameThrottledPIDs")
+        if d.object(forKey: "gameTurnedOnDND") != nil || d.bool(forKey: "gameHidDock") { undoSystemChanges() }
     }
 }
 

@@ -7,7 +7,7 @@ import Darwin
     static let shared = SystemMonitor()
     private var item: NSStatusItem?
     private var timer: Timer?
-    private var last: (user: UInt64, sys: UInt64, idle: UInt64, nice: UInt64)?
+    private var last: (user: UInt32, sys: UInt32, idle: UInt32, nice: UInt32)?
     static var enabled: Bool { UserDefaults.standard.bool(forKey: "sysMonitor") }
 
     func update() { SystemMonitor.enabled ? start() : stop() }
@@ -45,10 +45,11 @@ import Darwin
         var count = mach_msg_type_number_t(MemoryLayout<host_cpu_load_info>.size / MemoryLayout<integer_t>.size)
         let r = withUnsafeMutablePointer(to: &info) { $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO, $0, &count) } }
         guard r == KERN_SUCCESS else { return nil }
-        let now = (UInt64(info.cpu_ticks.0), UInt64(info.cpu_ticks.1), UInt64(info.cpu_ticks.2), UInt64(info.cpu_ticks.3)) // user, system, idle, nice
+        let now = (UInt32(info.cpu_ticks.0), UInt32(info.cpu_ticks.1), UInt32(info.cpu_ticks.2), UInt32(info.cpu_ticks.3)) // user, system, idle, nice
         defer { last = (now.0, now.1, now.2, now.3) }
         guard let l = last else { return nil }
-        let busy = Double((now.0 - l.user) + (now.1 - l.sys) + (now.3 - l.nice)), idle = Double(now.2 - l.idle)
+        // &- : die Zähler laufen nach Wochen über – ohne Absturz weiterrechnen
+        let busy = Double(now.0 &- l.user) + Double(now.1 &- l.sys) + Double(now.3 &- l.nice), idle = Double(now.2 &- l.idle)
         return busy + idle > 0 ? Int((busy / (busy + idle) * 100).rounded()) : 0
     }
 

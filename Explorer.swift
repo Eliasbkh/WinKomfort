@@ -212,7 +212,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
         let urls = selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
         NSWorkspace.shared.recycle(urls) { [weak self] _, err in
-            if let err { MainActor.assumeIsolated { self?.fail(err) } }
+            if let err { DispatchQueue.main.async { self?.fail(err) } }
         }
     }
     func copy(cut: Bool) {
@@ -385,10 +385,12 @@ final class ExplorerWindow: NSWindow {
     w.setFrameAutosaveName("WinKomfortExplorer")
     if !w.setFrameUsingName("WinKomfortExplorer") || w.frame.width < 700 { w.setContentSize(NSSize(width: 980, height: 620)); w.center() }
     if parent == nil, let last = explorerWindows.last { w.setFrameTopLeftPoint(NSPoint(x: last.frame.minX + 26, y: last.frame.maxY - 26)) }
-    NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
+    var token: NSObjectProtocol?
+    token = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
         MainActor.assumeIsolated {
             model.stop()
             explorerWindows.removeAll { $0 === w }
+            if let token { NotificationCenter.default.removeObserver(token) } // sonst bleiben Fenster und Modell im Speicher
         }
     }
     explorerWindows.append(w)
@@ -930,6 +932,8 @@ struct ExplorerTab: View {
             }
         }
         .formStyle(.grouped)
+        .onDisappear { previewModel.stop() } // Ordnerbeobachtung der Vorschau freigeben
+        .onAppear { previewModel.reload() }
     }
 }
 
