@@ -23,6 +23,7 @@ Windows-Komfort für macOS als Menüleisten-App – jede Funktion einzeln schalt
 - **Systemanzeige**: CPU und RAM in der Menüleiste (Klick = Task-Manager)
 - **Schreibtisch & Dock**: Ecke unten rechts zeigt den Schreibtisch, Symbole/Widgets ausblenden, Laufwerke auf dem Schreibtisch, Dock ohne „Zuletzt benutzt“ und ohne Hüpfen
 - **Englisch**: automatisch nach Systemsprache, umschaltbar unter Allgemein
+- **Selbstreparatur**: nach dem Aufwachen startet WinKomfort Kürzel und Dienste still neu; Selbsttest mit „Reparieren“ unter Allgemein, Protokoll in ~/Library/Logs/WinKomfort.log
 - **Explorer** (⌃⌥E): eigener Dateimanager in drei Stilen – GNOME, KDE Dolphin, Windows 11 – mit Live-Vorschau in den Einstellungen und Quick Look (Leertaste)
 - **Fenster einrasten per Tastatur** (⌃⌥←/→/↑/↓): linke/rechte Hälfte, maximieren, zurück bzw. minimieren
 - **Fenster anheften** (⌃⌘P): Fenster bleibt immer im Vordergrund (Live-Kopie, braucht einmal „Bildschirmaufnahme“)

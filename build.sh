@@ -7,7 +7,7 @@ APP=build/WinKomfort.app
 rm -rf build && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Icon/WinKomfort.icns "$APP/Contents/Resources/" # Quelle: Icon/icon.svg
 cp -R de.lproj en.lproj "$APP/Contents/Resources/" # Übersetzungen (Schlüssel = deutscher Text)
-swiftc -O -swift-version 5 -parse-as-library WinKomfort.swift Explorer.swift OneNoteCloud.swift OneNoteOrder.swift GameMode.swift Assistant.swift MouseScroll.swift SystemMonitor.swift TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift -o "$APP/Contents/MacOS/WinKomfort"
+swiftc -O -swift-version 5 -parse-as-library WinKomfort.swift Explorer.swift OneNoteCloud.swift OneNoteOrder.swift GameMode.swift Assistant.swift MouseScroll.swift SystemMonitor.swift Repair.swift TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift -o "$APP/Contents/MacOS/WinKomfort"
 # OneNote-Umwandler (Rust, Open Source aus Joplin – siehe onenote/LICENSE)
 (cd onenote && PATH="$HOME/.cargo/bin:$PATH" cargo build --release -q -p onenote-html)
 cp onenote/target/release/onenote-html "$APP/Contents/MacOS/"

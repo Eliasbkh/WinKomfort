@@ -3712,6 +3712,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !d.bool(forKey: "welcomeShown") { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MainActor.assumeIsolated { openWelcome() } } }
         DockReveal.start()
         GameMode.shared.setup()
+        Repair.setup()
         MouseScroll.update()
         SystemMonitor.shared.update()
         Task { await Updater.shared.loop() }
@@ -4052,6 +4053,7 @@ struct GeneralTab: View {
                        "Downloads the original sections with your Microsoft sign-in (once) and builds the PDF in the background – you can keep using OneNote. “Small” keeps images at about 120 dpi: readable, much smaller."))
                     .foregroundStyle(.secondary)
             }
+            RepairSection()
             Section {
                 Button("Einführung erneut zeigen …") { openWelcome() }
             }
