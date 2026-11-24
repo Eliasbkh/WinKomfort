@@ -341,9 +341,12 @@ final class ExplorerWindow: NSWindow {
     w.minSize = NSSize(width: 620, height: 380)
     w.model = model
     model.window = w
-    w.contentViewController = NSHostingController(rootView: ExplorerView(model: model, style: style))
+    let host = NSHostingController(rootView: ExplorerView(model: model, style: style))
+    host.sizingOptions = [] // sonst schrumpft SwiftUI das Fenster auf die Mindestgröße
+    w.contentViewController = host
+    w.setContentSize(NSSize(width: 980, height: 620))
     w.setFrameAutosaveName("WinKomfortExplorer")
-    if !w.setFrameUsingName("WinKomfortExplorer") { w.center() }
+    if !w.setFrameUsingName("WinKomfortExplorer") || w.frame.width < 700 { w.setContentSize(NSSize(width: 980, height: 620)); w.center() }
     if let last = explorerWindows.last { w.setFrameTopLeftPoint(NSPoint(x: last.frame.minX + 26, y: last.frame.maxY - 26)) }
     NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
         MainActor.assumeIsolated {
@@ -354,6 +357,8 @@ final class ExplorerWindow: NSWindow {
     explorerWindows.append(w)
     NSApp.activate(ignoringOtherApps: true)
     w.makeKeyAndOrderFront(nil)
+    // Nicht im Suchfeld starten – sonst greifen ↩, Leertaste, ⌫ erst nach einem Klick
+    DispatchQueue.main.async { w.makeFirstResponder(nil) }
 }
 
 // MARK: - Symbole und Vorschaubilder (nur sichtbare, mit Zwischenspeicher)
