@@ -58,7 +58,12 @@ import IOKit.pwr_mgt
     static func isGame(_ app: NSRunningApplication) -> Bool {
         guard let id = app.bundleIdentifier, !keep.contains(id) else { return false }
         if GameMode.shared.extraGames.contains(id) { return true }
-        guard let url = app.bundleURL, let info = Bundle(url: url)?.infoDictionary else { return false }
+        guard let url = app.bundleURL else { return false }
+        // Spiele aus Steam, Epic, GOG, CrossOver/Whisky haben oft keine Kategorie – am Speicherort erkennen
+        let path = url.path.lowercased()
+        if ["/steamapps/common/", "/epic games/", "/gog games/", "/gog galaxy/games/", "/crossover/", "/whisky/"].contains(where: path.contains) { return true }
+        guard let info = Bundle(url: url)?.infoDictionary else { return false }
+        if info["GCSupportsControllerUserInteraction"] as? Bool == true || info["LSSupportsGameMode"] as? Bool == true { return true }
         let cat = (info["LSApplicationCategoryType"] as? String ?? "").lowercased()
         return cat.contains("games")
     }
