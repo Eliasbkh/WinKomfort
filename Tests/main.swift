@@ -142,31 +142,6 @@ for (q, want) in [("halt den mac zwei minuten wach", "2"), ("eine halbe stunde",
     sc("Zeit „\(q)“", TimeParse.minutes(in: q).map(String.init) ?? "nil", want)
 }
 
-// Trackpad-Waage
-var scale = ScaleLogic()
-sc("Waage ohne Berührung", "\(scale.grams == nil) \(scale.touching)", "true false")
-for _ in 0..<30 { scale.add(30) }
-sc("Waage: Finger noch nicht abgezogen", "\(scale.grams == nil)", "true")
-for _ in 0..<30 { scale.add(30) }
-sc("Waage: Finger automatisch abgezogen", "\(scale.grams ?? -1)", "0.0")
-scale.add(500) // Ausreißer
-sc("Waage: Ausreißer zählt nicht", "\(scale.grams ?? -1)", "0.0")
-sc("Waage: Abgleich ohne Gewicht abgelehnt", "\(scale.calibrate(to: 100))", "false")
-for _ in 0..<15 { scale.add(80) }
-sc("Waage: nur der Gegenstand", "\(scale.grams ?? -1) \(scale.steady)", "50.0 true")
-sc("Waage: negatives Gewicht abgelehnt", "\(scale.calibrate(to: -5))", "false")
-sc("Waage: Abgleich", "\(scale.calibrate(to: 100)) \(scale.grams ?? -1)", "true 100.0")
-scale.add(80); scale.add(nil)
-sc("Waage: Wert bleibt nach dem Abheben", "\(scale.grams ?? -1)", "100.0")
-scale.add(20)
-sc("Waage: neue Berührung beginnt neu", "\(scale.grams == nil)", "true")
-sc("Waage: Skala", "\(ScaleLogic.range(90)) \(ScaleLogic.range(101)) \(ScaleLogic.range(9999))", "100.0 250.0 4000.0")
-
-var bare = ScaleLogic()
-bare.finger = false
-for _ in 0..<100 { bare.add(42) }
-sc("Waage ohne Finger zieht nichts ab", "\(bare.grams ?? -1)", "42.0")
-
 // Eigene Kürzel: Webadressen
 for (q, want) in [("github.com", "https://github.com"), (" https://a.de/x ", "https://a.de/x"), ("mailto:a@b.de", "mailto:a@b.de"), ("localhost:3000", "https://localhost:3000"), ("", "nil"), ("zwei worte", "nil")] {
     sc("Adresse „\(q)“", LaunchLogic.url(q)?.absoluteString ?? "nil", want)

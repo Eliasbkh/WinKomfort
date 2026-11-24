@@ -170,7 +170,7 @@ struct LauncherSection: View {
 // Aktionen, für die macOS kein oder nur ein festes Kürzel hat
 enum SystemAction: String, CaseIterable {
     case fullscreen, minimize, closeWindow, hide, hideOthers, quit, missionControl, appWindows, showDesktop
-    case lock, displayOff, screenshotArea, screenshotFull, dark, mute, volumeUp, volumeDown, playPause, nextTrack, previousTrack, scale
+    case lock, displayOff, screenshotArea, screenshotFull, dark, mute, volumeUp, volumeDown, playPause, nextTrack, previousTrack
 
     var title: String {
         switch self {
@@ -194,7 +194,6 @@ enum SystemAction: String, CaseIterable {
         case .playPause: L("Wiedergabe/Pause", "Play/pause")
         case .nextTrack: L("Nächster Titel", "Next track")
         case .previousTrack: L("Vorheriger Titel", "Previous track")
-        case .scale: L("Trackpad-Waage", "Trackpad scale")
         }
     }
     var symbol: String {
@@ -216,7 +215,6 @@ enum SystemAction: String, CaseIterable {
         case .playPause: "playpause"
         case .nextTrack: "forward"
         case .previousTrack: "backward"
-        case .scale: "scalemass"
         }
     }
 
@@ -253,7 +251,6 @@ enum SystemAction: String, CaseIterable {
         case .playPause: return Self.media(16)
         case .nextTrack: return Self.media(17)
         case .previousTrack: return Self.media(18)
-        case .scale: openScale(); return true
         }
     }
     private static func window() -> AXUIElement? {

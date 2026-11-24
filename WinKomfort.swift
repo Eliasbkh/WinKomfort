@@ -3956,7 +3956,6 @@ struct MenuContent: View {
         Button("Explorer …") { openExplorer() }
         Button("Schnellnotiz") { QuickNote.shared.toggle() }
         if !Pins.shared.pinned.isEmpty { Button("Alle angehefteten Fenster lösen") { Pins.shared.unpinAll() } }
-        Button(L("Trackpad-Waage …", "Trackpad scale…")) { openScale() }
         Button("Task-Manager …") { openTaskManager() }
             .keyboardShortcut(.escape, modifiers: [.control, .shift])
         Button("Autostarts …") { openAutostarts() }
