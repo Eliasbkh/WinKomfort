@@ -6,8 +6,9 @@ V="${1:-1.0.0}"
 APP=build/WinKomfort.app
 rm -rf build && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Icon/WinKomfort.icns "$APP/Contents/Resources/" # Quelle: Icon/icon.svg
+python3 web/build.py "$APP/Contents/Resources/remote.html" # Handy-Oberfläche
 cp -R de.lproj en.lproj "$APP/Contents/Resources/" # Übersetzungen (Schlüssel = deutscher Text)
-swiftc -O -swift-version 5 -parse-as-library WinKomfort.swift Explorer.swift OneNoteCloud.swift OneNoteOrder.swift GameMode.swift Assistant.swift MouseScroll.swift SystemMonitor.swift Repair.swift DockSettings.swift Snippets.swift TimeParse.swift FolderSize.swift Launcher.swift LaunchLogic.swift LidScript.swift TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift -o "$APP/Contents/MacOS/WinKomfort"
+swiftc -O -swift-version 5 -parse-as-library WinKomfort.swift Explorer.swift OneNoteCloud.swift OneNoteOrder.swift GameMode.swift Assistant.swift MouseScroll.swift SystemMonitor.swift Repair.swift DockSettings.swift Snippets.swift TimeParse.swift FolderSize.swift Launcher.swift LaunchLogic.swift LidScript.swift RemoteCrypto.swift Remote.swift BudsProtocol.swift Buds.swift FolderHandler.swift PhoneTab.swift TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift -o "$APP/Contents/MacOS/WinKomfort"
 # OneNote-Umwandler (Rust, Open Source aus Joplin – siehe onenote/LICENSE)
 (cd onenote && PATH="$HOME/.cargo/bin:$PATH" cargo build --release -q -p onenote-html)
 cp onenote/target/release/onenote-html "$APP/Contents/MacOS/"
@@ -30,6 +31,12 @@ cat > "$APP/Contents/Info.plist" <<EOF
     <key>CFBundleURLName</key><string>de.winkomfort.app</string>
     <key>CFBundleURLSchemes</key><array><string>winkomfort</string></array>
   </dict></array>
+  <key>CFBundleDocumentTypes</key><array><dict>
+    <key>CFBundleTypeName</key><string>Ordner</string><key>CFBundleTypeRole</key><string>Viewer</string>
+    <key>LSHandlerRank</key><string>Alternate</string><key>LSItemContentTypes</key><array><string>public.folder</string></array>
+  </dict></array>
+  <key>NSBluetoothAlwaysUsageDescription</key><string>WinKomfort zeigt den Akku deiner Galaxy Buds und schaltet die Geräuschsteuerung um.</string>
+  <key>NSLocalNetworkUsageDescription</key><string>Damit dein Handy den Mac im selben WLAN fernbedienen kann.</string>
   <key>NSAppleEventsUsageDescription</key><string>WinKomfort bittet den Finder, Apps beim Aufräumen in den Papierkorb zu legen und wiederherzustellen.</string>
 </dict></plist>
 EOF

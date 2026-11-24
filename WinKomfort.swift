@@ -2192,11 +2192,11 @@ struct TaskView: View {
 
 // Globale Tastenkürzel – selbst festlegbar unter Einstellungen → Tastenkürzel
 enum HotAction: String, CaseIterable, Identifiable {
-    case search, switcher, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, newFile, tasks, onenote, explorer, gameMode, ask
+    case search, switcher, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, newFile, tasks, onenote, explorer, gameMode, ask, remote
     var id: UInt32 {
         switch self {
         case .tasks: 1; case .search: 2; case .note: 3; case .pin: 4; case .clipboard: 5
-        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9; case .switcher: 10; case .newFile: 12; case .onenote: 13; case .explorer: 14; case .gameMode: 15; case .ask: 16
+        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9; case .switcher: 10; case .newFile: 12; case .onenote: 13; case .explorer: 14; case .gameMode: 15; case .ask: 16; case .remote: 17
         }
     }
     var title: String {
@@ -2211,6 +2211,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .onenote: "OneNote: Seite, Abschnitt oder Notizbuch als PDF"
         case .explorer: "Explorer öffnen"
         case .gameMode: "Game Mode ein/aus"
+        case .remote: "Handy-Fernbedienung"
         case .ask: "KI-Befehl (Apple Intelligence)"
         case .snapLeft: "Fenster: linke Hälfte"
         case .snapRight: "Fenster: rechte Hälfte"
@@ -2230,6 +2231,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .onenote: Shortcut(code: kVK_ANSI_P, mods: controlKey | optionKey, key: "P")
         case .explorer: Shortcut(code: kVK_ANSI_E, mods: controlKey | optionKey, key: "E")
         case .gameMode: Shortcut(code: kVK_ANSI_G, mods: controlKey | optionKey, key: "G")
+        case .remote: Shortcut(code: kVK_ANSI_R, mods: controlKey | optionKey, key: "R")
         case .ask: Shortcut(code: kVK_ANSI_K, mods: controlKey | optionKey, key: "K")
         case .snapLeft: Shortcut(code: kVK_LeftArrow, mods: controlKey | optionKey)
         case .snapRight: Shortcut(code: kVK_RightArrow, mods: controlKey | optionKey)
@@ -2264,6 +2266,7 @@ enum HotAction: String, CaseIterable, Identifiable {
                 openExplorer(URL(fileURLWithPath: dir))
             } else { openExplorer() }
         case .gameMode: GameMode.shared.toggle()
+        case .remote: openRemote()
         case .ask: AskPanel.toggle()
         case .snapLeft: Snap.run(.left)
         case .snapRight: Snap.run(.right)
@@ -2578,7 +2581,7 @@ enum OneNotePDF {
                             switch r {
                             case .success(let url):
                                 Toast.show(L("PDF gespeichert: \(url.lastPathComponent)", "PDF saved: \(url.lastPathComponent)"), symbol: "checkmark.circle")
-                                NSWorkspace.shared.activateFileViewerSelecting([url])
+                                FolderHandler.revealInFinder([url])
                             case .failure(let e): Toast.show(e.text, symbol: "exclamationmark.triangle")
                             }
                         }
@@ -2593,7 +2596,7 @@ enum OneNotePDF {
                     switch result {
                     case .success(let url):
                         Toast.show(L("PDF gespeichert: \(url.lastPathComponent)", "PDF saved: \(url.lastPathComponent)"), symbol: "checkmark.circle")
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                        FolderHandler.revealInFinder([url])
                     case .failure(let e): Toast.show(e.text, symbol: "exclamationmark.triangle")
                     }
                 }
@@ -3848,7 +3851,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // winkomfort://… aus Kurzbefehlen/Siri oder dem Browser
     func application(_ application: NSApplication, open urls: [URL]) {
-        MainActor.assumeIsolated { urls.forEach(Assistant.handle) }
+        MainActor.assumeIsolated {
+            urls.filter { !$0.isFileURL }.forEach(Assistant.handle)
+            let files = urls.filter(\.isFileURL)
+            if !files.isEmpty { FolderHandler.open(files) }
+        }
     }
 
     func applicationDidFinishLaunching(_ n: Notification) {
@@ -3885,6 +3892,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SearchPanel.prepare()
         if !d.bool(forKey: "welcomeShown") { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MainActor.assumeIsolated { openWelcome() } } }
         DockReveal.start()
+        FolderHandler.setup()
+        BudsMic.update()
         GameMode.shared.setup()
         Repair.setup()
         MouseScroll.update()
@@ -4013,6 +4022,8 @@ struct MenuContent: View {
         Button("Explorer …") { openExplorer() }
         Button("Schnellnotiz") { QuickNote.shared.toggle() }
         if !Pins.shared.pinned.isEmpty { Button("Alle angehefteten Fenster lösen") { Pins.shared.unpinAll() } }
+        Button(L("Handy-Fernbedienung …", "Phone remote…")) { openRemote() }
+        if Buds.enabled { BudsMenu() }
         Button("Task-Manager …") { openTaskManager() }
             .keyboardShortcut(.escape, modifiers: [.control, .shift])
         Button("Autostarts …") { openAutostarts() }
@@ -4028,7 +4039,7 @@ struct MenuContent: View {
 // Einstellungsfenster wie bei Systemapps: AppKit-Tabs im Toolbar-Stil, Inhalt in SwiftUI
 // Seiten wie in den Systemeinstellungen: farbige Symbolkachel, Titel, Suchbegriffe
 enum Pane: String, CaseIterable, Identifiable {
-    case general, input, shortcuts, windows, desktop, finder, explorer, gamemode, screenshots, notifications, menubar, animations, autostarts, cleanup
+    case general, input, shortcuts, windows, desktop, finder, explorer, phone, gamemode, screenshots, notifications, menubar, animations, autostarts, cleanup
     var id: String { rawValue }
 
     var title: String {
@@ -4039,6 +4050,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .windows: "Fenster"
         case .finder: "Finder"
         case .explorer: "Explorer"
+        case .phone: "Handy & Buds"
         case .gamemode: "Game Mode"
         case .desktop: "Schreibtisch & Dock"
         case .screenshots: "Screenshots"
@@ -4057,6 +4069,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .windows: "macwindow"
         case .finder: "folder.fill"
         case .explorer: "folder.badge.gearshape"
+        case .phone: "iphone.gen3"
         case .gamemode: "gamecontroller.fill"
         case .desktop: "menubar.dock.rectangle"
         case .screenshots: "camera.viewfinder"
@@ -4076,6 +4089,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .windows: .indigo
         case .finder: .cyan
         case .explorer: .teal
+        case .phone: .green
         case .gamemode: .red
         case .desktop: .blue
         case .screenshots: .gray
@@ -4106,6 +4120,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .desktop: t += ["Dock Position Größe Vergrößerung Taskleiste Ecke Schreibtisch Symbole Widgets Laufwerke"]
         case .input: t += ["Startmenü Control Suche Tastenkürzel Trackpad Ziehen Maus Scrollen Scrollrichtung Mausrad Tempo CPU RAM Speicher Auslastung Menüleiste"]
         case .windows: t += ["Schließen beendet die App"]
+        case .phone: t += ["Samsung Galaxy Buds Handy Fernbedienung Bildschirm Mikrofon Phone Remote Display Microphone"]
         case .gamemode: t += ["Spiele Spielen Gaming Leistung Drosseln Nicht stören"]
         case .explorer: t += ["Dateimanager GNOME Nautilus Dolphin KDE Linux Windows 11 Quick Look Vorschau Stil"]
         case .notifications: t += ["Nicht stören Fokus Alle Mitteilungen"]
@@ -4163,6 +4178,7 @@ struct SettingsRoot: View {
                 case .autostarts: AutostartView()
                 case .cleanup: CleanupView()
                 case .explorer: ExplorerTab()
+                case .phone: PhoneTab()
                 case .gamemode: GameModeTab()
                 case let p: FeatureTab(store: Store.shared, group: p.group ?? groups[0])
                 }

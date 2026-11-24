@@ -413,7 +413,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
     func openWith(_ app: URL) {
         NSWorkspace.shared.open(selectedItems.map(\.url), withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
     }
-    func showInFinder() { NSWorkspace.shared.activateFileViewerSelecting(selectedItems.isEmpty ? [url] : selectedItems.map(\.url)) }
+    func showInFinder() { FolderHandler.revealInFinder(selectedItems.isEmpty ? [url] : selectedItems.map(\.url)) }
     func openTerminal() {
         if let term = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
             NSWorkspace.shared.open([url], withApplicationAt: term, configuration: NSWorkspace.OpenConfiguration())
@@ -508,7 +508,7 @@ final class ExplorerWindow: NSWindow {
     }
 }
 
-@MainActor private var explorerWindows: [ExplorerWindow] = []
+@MainActor var explorerWindows: [ExplorerWindow] = []
 
 @MainActor func openExplorer(_ url: URL? = nil, tabOf parent: NSWindow? = nil, query: String? = nil, split: Bool = false) {
     let style = ExplorerStyle.current
@@ -1076,6 +1076,7 @@ struct RenameSheet: View {
 // MARK: - Einstellungen: Stil wählen mit Live-Vorschau (echter Benutzerordner, nur ansehen)
 
 struct ExplorerTab: View {
+    @AppStorage("explorerDefault") private var explorerDefault = false // zeichnet den Schalter neu
     @AppStorage("explorerStyle") private var style = ExplorerStyle.gnome.rawValue
     @AppStorage("explorerQuickLook") private var quickLook = true
     @StateObject private var previewModel = ExplorerModel(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0], style: .gnome)
@@ -1095,6 +1096,10 @@ struct ExplorerTab: View {
                 Toggle(isOn: $quickLook) {
                     Text(L("Leertaste zeigt Vorschau (Quick Look)", "Space shows Quick Look"))
                     Text(L("Wie im Finder: Datei markieren, Leertaste drücken.", "Like Finder: select a file, press Space."))
+                }
+                Toggle(isOn: Binding(get: { explorerDefault }, set: { FolderHandler.set($0) })) {
+                    Text(L("„Im Finder zeigen“ öffnet den Explorer", "“Show in Finder” opens Explorer"))
+                    Text(L("Gilt für andere Apps. Doppelklicks auf Ordner bleiben im Finder – das gibt macOS vor.", "Applies to other apps. Double-clicking folders stays in Finder – macOS requires that."))
                 }
                 LabeledContent(L("Explorer öffnen", "Open Explorer")) {
                     HStack {

@@ -147,5 +147,31 @@ for (q, want) in [("github.com", "https://github.com"), (" https://a.de/x ", "ht
     sc("Adresse „\(q)“", LaunchLogic.url(q)?.absoluteString ?? "nil", want)
 }
 
+// Fernbedienung: Verschlüsselung (RFC 8439 2.4.2) und Kanal
+let ck = (0..<32).map { UInt8($0) }
+let ct = RemoteCrypto.chacha(Array("Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.".utf8), key: ck, nonce: [0, 0, 0, 0, 0, 0, 0, 0x4a, 0, 0, 0, 0], counter: 1)
+sc("ChaCha20 RFC 8439", ct.prefix(8).map { String($0, radix: 16) }.joined(separator: " "), "6e 2e 35 9a 25 68 f9 80")
+var tx = RemoteChannel(key: ck, label: "c2s", salt: [1, 2, 3]), rx = RemoteChannel(key: ck, label: "c2s", salt: [1, 2, 3]), other = RemoteChannel(key: ck, label: "c2s", salt: [9])
+let sealed = tx.seal(Array("hallo".utf8))
+sc("Andere Sitzung abgelehnt", "\(other.open(sealed) == nil)", "true")
+var forged = sealed; forged[9] ^= 1
+sc("Fälschung abgelehnt", "\(rx.open(forged) == nil)", "true")
+sc("Nachricht kommt an", String(decoding: rx.open(sealed) ?? [], as: UTF8.self), "hallo")
+sc("Wiederholung abgelehnt", "\(rx.open(sealed) == nil)", "true")
+
+// Galaxy Buds (echte Nachrichten von Buds4 Pro)
+func hex(_ s: String) -> [UInt8] { s.split(separator: " ").map { UInt8($0, radix: 16)! } }
+let budsRaw = hex("fd 41 00 61 04 0d 64 64 01 01 11 00 00 01 ff 22 02 00 67 01 67 01 01 00 04 ee 00 04 04 10 00 00 01 00 11 02 00 01 00 00 00 0e 00 01 00 00 00 00 00 00 00 01 07 01 00 00 01 01 01 04 00 00 00 00 00 01 ea 96 dd")
+var bb: [UInt8] = [0x00, 0xfd] + budsRaw + hex("fd 06 c0 64 04 01 07 35 0c dd fd 06")
+let bm = BudsProtocol.take(&bb)
+sc("Buds: Nachrichten trotz Müll und Rest", "\(bm.map(\.id)) \(bb.count)", "[97, 100] 2")
+var bs = BudsStatus()
+bm.forEach { BudsProtocol.apply($0.id, $0.data, to: &bs) }
+sc("Buds: Akku und Modus", "\(bs.left ?? -1) \(bs.right ?? -1) \(bs.box ?? -1) \(bs.mode ?? -1)", "100 100 -1 2")
+var own = BudsProtocol.message(0x78, [1])
+sc("Buds: eigene Nachricht lesbar", "\(BudsProtocol.take(&own).map(\.id))", "[120]")
+var bad = budsRaw; bad[6] = 1
+sc("Buds: beschädigt verworfen", "\(BudsProtocol.take(&bad).count)", "0")
+
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }
