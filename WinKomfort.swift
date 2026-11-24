@@ -1337,8 +1337,29 @@ func fixedHost<V: View>(_ view: V) -> NSHostingView<V> {
 @MainActor final class QuickNote: ObservableObject {
     static let shared = QuickNote()
     func append(_ t: String) { text = text.isEmpty ? t : text + "\n" + t }
-    @Published var text = UserDefaults.standard.string(forKey: "quickNote") ?? "" {
-        didSet { UserDefaults.standard.set(text, forKey: "quickNote") }
+    // Mehrere Notizen als Tabs; die alte Einzelnotiz („quickNote“) wird zum ersten Tab
+    @Published var notes: [String] = UserDefaults.standard.stringArray(forKey: "quickNotes")
+        ?? [UserDefaults.standard.string(forKey: "quickNote") ?? ""] {
+        didSet { UserDefaults.standard.set(notes, forKey: "quickNotes") }
+    }
+    @Published var current = min(UserDefaults.standard.integer(forKey: "quickNoteTab"), (UserDefaults.standard.stringArray(forKey: "quickNotes")?.count ?? 1) - 1) {
+        didSet { UserDefaults.standard.set(current, forKey: "quickNoteTab") }
+    }
+    var text: String {
+        get { notes[current] }
+        set { notes[current] = newValue }
+    }
+    func newTab() { notes.append(""); current = notes.count - 1; focusEditor() }
+    func closeTab(_ i: Int) {
+        guard notes.indices.contains(i) else { return }
+        if notes.count == 1 { notes[0] = ""; return }
+        notes.remove(at: i)
+        if current >= i, current > 0 { current -= 1 }
+    }
+    // Tab-Titel: erste Zeile mit Text, sonst „Neue Notiz“
+    func title(_ i: Int) -> String {
+        let line = notes[i].split(whereSeparator: \.isNewline).first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+        return line.isEmpty ? L("Neue Notiz", "New note") : String(line.prefix(18))
     }
     private var panel: KeyPanel?
 
@@ -1357,14 +1378,21 @@ func fixedHost<V: View>(_ view: V) -> NSHostingView<V> {
             NSApp.activate(ignoringOtherApps: true)
             p.makeKeyAndOrderFront(nil)
         }
-        // Fokus sofort ins Textfeld, damit man direkt lostippen kann
-        p.contentView?.layoutSubtreeIfNeeded()
-        func editor(_ v: NSView) -> NSTextView? {
-            if let t = v as? NSTextView, t.isEditable { return t }
-            for s in v.subviews { if let e = editor(s) { return e } }
-            return nil
+        focusEditor()
+    }
+
+    // Fokus ins Textfeld, damit man direkt lostippen kann
+    func focusEditor() {
+        guard let p = panel else { return }
+        DispatchQueue.main.async {
+            p.contentView?.layoutSubtreeIfNeeded()
+            func editor(_ v: NSView) -> NSTextView? {
+                if let t = v as? NSTextView, t.isEditable { return t }
+                for s in v.subviews { if let e = editor(s) { return e } }
+                return nil
+            }
+            if let content = p.contentView, let e = editor(content) { p.makeFirstResponder(e) }
         }
-        if let content = p.contentView, let e = editor(content) { p.makeFirstResponder(e) }
     }
 
     private func make() -> KeyPanel {
@@ -1389,9 +1417,25 @@ struct QuickNoteView: View {
     @ObservedObject var n = QuickNote.shared
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Label("Notiz", systemImage: "note.text").font(.headline)
-                Spacer()
+            HStack(spacing: 6) {
+                // Tabs oben; ⌘T neuer Tab, ⌘W Tab schließen
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 4) {
+                            ForEach(n.notes.indices, id: \.self) { i in
+                                NoteTab(title: n.title(i), selected: i == n.current, closable: n.notes.count > 1,
+                                        select: { n.current = i; n.focusEditor() }, close: { askClose(i) })
+                                    .id(i)
+                            }
+                        }
+                    }
+                    .onChange(of: n.current) { _, i in withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(i) } }
+                }
+                Button { n.newTab() } label: { Image(systemName: "plus") }
+                    .keyboardShortcut("t", modifiers: .command)
+                    .help(L("Neuer Tab (⌘T)", "New tab (⌘T)")).accessibilityLabel(L("Neuer Tab", "New tab"))
+                Button { askClose(n.current) } label: { EmptyView() }
+                    .keyboardShortcut("w", modifiers: .command).frame(width: 0).opacity(0).accessibilityHidden(true)
                 Button { n.text = "" } label: { Image(systemName: "trash") }
                     .help("Notiz leeren").accessibilityLabel("Notiz leeren").disabled(n.text.isEmpty)
                 Button { n.hide() } label: { Image(systemName: "xmark") }
@@ -1408,6 +1452,42 @@ struct QuickNoteView: View {
         }
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.primary.opacity(0.1)))
+    }
+
+    // Leere Tabs gehen sofort zu, Tabs mit Text erst nach Rückfrage (sonst wäre die Notiz weg)
+    private func askClose(_ i: Int) {
+        guard n.notes.indices.contains(i) else { return }
+        if n.notes[i].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { n.closeTab(i); return }
+        let a = NSAlert()
+        a.messageText = L("„\(n.title(i))“ schließen?", "Close “\(n.title(i))”?")
+        a.informativeText = L("Der Text dieser Notiz wird gelöscht.", "The text of this note will be deleted.")
+        a.addButton(withTitle: L("Schließen", "Close"))
+        a.addButton(withTitle: L("Abbrechen", "Cancel"))
+        if a.runModal() == .alertFirstButtonReturn { n.closeTab(i) }
+    }
+}
+
+struct NoteTab: View {
+    let title: String, selected: Bool, closable: Bool
+    let select: () -> Void, close: () -> Void
+    @StateObject private var hover = TextBox<Bool>()
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(title).lineLimit(1).font(.callout.weight(selected ? .semibold : .regular))
+            if closable && (selected || hover.value == true) {
+                Button(action: close) { Image(systemName: "xmark").font(.caption2.weight(.bold)).foregroundStyle(.secondary) }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(L("Tab schließen", "Close tab"))
+            }
+        }
+        .padding(.horizontal, 8).padding(.vertical, 4)
+        .background(selected ? AnyShapeStyle(.primary.opacity(0.12)) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 6))
+        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .onTapGesture(perform: select)
+        .onHover { hover.value = $0 }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction(named: L("Öffnen", "Open"), select)
     }
 }
 
