@@ -237,3 +237,66 @@ struct AskView: View {
         .onChange(of: model.token) { _, _ in focused = true }
     }
 }
+
+// MARK: - Siri & Kurzbefehle: fertige, signierte Kurzbefehle (Aktion „URL öffnen“ → winkomfort://…).
+// Nach dem Hinzufügen versteht Siri den Namen: „Hey Siri, Game Mode an“.
+enum SiriShortcuts {
+    struct Item: Identifiable { let id: String; let name: String; let url: String; let symbol: String }
+    static var items: [Item] {
+        [
+            Item(id: "gmon", name: L("Game Mode an", "Game Mode on"), url: "winkomfort://gamemode/on", symbol: "gamecontroller.fill"),
+            Item(id: "gmoff", name: L("Game Mode aus", "Game Mode off"), url: "winkomfort://gamemode/off", symbol: "gamecontroller"),
+            Item(id: "awake", name: L("Mac wach halten", "Keep Mac awake"), url: "winkomfort://awake/60", symbol: "cup.and.saucer.fill"),
+            Item(id: "awakeoff", name: L("Mac darf schlafen", "Mac may sleep"), url: "winkomfort://awake/0", symbol: "moon.zzz"),
+            Item(id: "downloads", name: L("Downloads zeigen", "Show Downloads"), url: "winkomfort://explorer/Downloads", symbol: "arrow.down.circle"),
+            Item(id: "tasks", name: L("Task-Manager öffnen", "Open Task Manager"), url: "winkomfort://tasks", symbol: "list.bullet.rectangle"),
+        ]
+    }
+
+    // Kurzbefehl-Datei bauen, mit macOS signieren und zum Hinzufügen öffnen
+    @MainActor static func add(_ item: Item) {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("WinKomfort-Shortcuts", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let raw = dir.appendingPathComponent("\(item.id)-raw.shortcut"), signed = dir.appendingPathComponent("\(item.name).shortcut")
+        let wf: [String: Any] = [
+            "WFWorkflowClientVersion": "2605.0.5", "WFWorkflowMinimumClientVersion": 900, "WFWorkflowMinimumClientVersionString": "900",
+            "WFWorkflowIcon": ["WFWorkflowIconStartColor": 4282601983, "WFWorkflowIconGlyphNumber": 59511],
+            "WFWorkflowImportQuestions": [], "WFWorkflowTypes": [], "WFWorkflowInputContentItemClasses": [],
+            "WFWorkflowActions": [["WFWorkflowActionIdentifier": "is.workflow.actions.openurl",
+                                   "WFWorkflowActionParameters": ["WFInput": ["Value": ["string": item.url, "attachmentsByRange": [String: Any]()],
+                                                                              "WFSerializationType": "WFTextTokenString"]]]],
+        ]
+        guard let data = try? PropertyListSerialization.data(fromPropertyList: wf, format: .binary, options: 0), (try? data.write(to: raw)) != nil else { return }
+        Toast.show(L("Kurzbefehl wird vorbereitet …", "Preparing shortcut…"), symbol: "wand.and.stars")
+        DispatchQueue.global(qos: .userInitiated).async {
+            try? FileManager.default.removeItem(at: signed)
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
+            p.arguments = ["sign", "--mode", "anyone", "--input", raw.path, "--output", signed.path]
+            p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+            try? p.run(); p.waitUntilExit()
+            DispatchQueue.main.async {
+                if p.terminationStatus == 0 { NSWorkspace.shared.open(signed) } // Kurzbefehle fragt „Hinzufügen?“
+                else { MainActor.assumeIsolated { Toast.show(L("Kurzbefehl konnte nicht erstellt werden", "Couldn't create the shortcut"), symbol: "exclamationmark.triangle") } }
+            }
+        }
+    }
+}
+
+struct SiriSection: View {
+    var body: some View {
+        Section {
+            ForEach(SiriShortcuts.items) { item in
+                HStack {
+                    Label(item.name, systemImage: item.symbol)
+                    Spacer()
+                    Button(L("Hinzufügen", "Add")) { SiriShortcuts.add(item) }
+                        .accessibilityLabel(L("\(item.name) zu Kurzbefehlen hinzufügen", "Add \(item.name) to Shortcuts"))
+                }
+            }
+        } header: { Text(L("Siri & Kurzbefehle", "Siri & Shortcuts")) } footer: {
+            Text(L("Nach dem Hinzufügen reicht „Hey Siri, Game Mode an“. Für alles andere: ⌃⌥K und einfach sagen, was passieren soll.",
+                   "After adding, just say “Hey Siri, Game Mode on”. For anything else: ⌃⌥K and type what should happen."))
+        }
+    }
+}

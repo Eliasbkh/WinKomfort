@@ -4058,6 +4058,7 @@ struct GeneralTab: View {
                        "Downloads the original sections with your Microsoft sign-in (once) and builds the PDF in the background – you can keep using OneNote. “Small” keeps images at about 120 dpi: readable, much smaller."))
                     .foregroundStyle(.secondary)
             }
+            SiriSection()
             RepairSection()
             Section {
                 Button("Einführung erneut zeigen …") { openWelcome() }
