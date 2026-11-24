@@ -32,7 +32,9 @@ enum OneNoteCloud {
         let titles = scope == .page ? ["Copy Link to Page", "Link zur Seite kopieren"] : ["Copy Link to Section", "Link zum Abschnitt kopieren"]
         // OneNote reagiert direkt nach dem Start manchmal nicht auf den ersten Menü-Klick → bis zu 3 Versuche
         var link: String?
+        wkLog("OneNote: Link holen (\(scope))")
         for attempt in 0..<3 where link == nil { if attempt > 0 { usleep(700_000) }; link = copyLink(titles) }
+        wkLog("OneNote: Link \(link == nil ? "fehlt" : "da")")
         guard let link, let line = link.split(whereSeparator: \.isNewline).first(where: { $0.hasPrefix("onenote:") }) else { return nil }
         var s = String(line.dropFirst("onenote:".count))
         var pageID: String?
@@ -44,7 +46,7 @@ enum OneNoteCloud {
         let path = u.path // schon dekodiert
         let parts = path.split(separator: "/")
         guard parts.count > 2, ["sites", "teams", "personal"].contains(parts[0]), path.lowercased().hasSuffix(".one") else { return nil }
-        return Target(host: "\(scheme)://\(host)", site: "/\(parts[0])/\(parts[1])", section: path, pageID: pageID, order: sidebarOrder())
+        return Target(host: "\(scheme)://\(host)", site: "/\(parts[0])/\(parts[1])", section: path, pageID: pageID, order: scope == .notebook ? sidebarOrder() : []) // Reihenfolge nur fürs Notizbuch nötig
     }
 
     // Namen in der Abschnittsliste von OneNote (nur lesen)
