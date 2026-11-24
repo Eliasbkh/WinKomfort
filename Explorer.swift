@@ -108,6 +108,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
         guard u.standardizedFileURL != url.standardizedFileURL else { return }
         if record { back.append(url); forward = [] }
         url = u
+        window?.title = title // Name im Tab und im Fenster-Menü
         selection = []
         query = ""
         reload()
@@ -319,7 +320,8 @@ final class ExplorerWindow: NSWindow {
         case (30, .command), (124, .command): m.goForward()
         case (47, [.command, .shift]): m.showHidden.toggle()
         case (3, .command): m.searchFocus += 1
-        case (15, .command): m.reload()
+        case (15, .command), (96, []): m.reload() // ⌘R / F5
+        case (17, .command): openExplorer(m.url, tabOf: self) // ⌘T: neuer Tab im selben Ordner
         default: return false
         }
         return true
@@ -328,7 +330,7 @@ final class ExplorerWindow: NSWindow {
 
 @MainActor private var explorerWindows: [ExplorerWindow] = []
 
-@MainActor func openExplorer(_ url: URL? = nil) {
+@MainActor func openExplorer(_ url: URL? = nil, tabOf parent: NSWindow? = nil) {
     let style = ExplorerStyle.current
     let start = url ?? FileManager.default.homeDirectoryForCurrentUser
     let model = ExplorerModel(start, style: style)
@@ -339,15 +341,18 @@ final class ExplorerWindow: NSWindow {
     w.titleVisibility = .hidden
     w.isReleasedWhenClosed = false
     w.minSize = NSSize(width: 620, height: 380)
+    w.tabbingIdentifier = "WinKomfortExplorer" // macOS-Tabs: ⌘T, Tabs ziehen, ⌘⇧\\ Übersicht
+    w.tabbingMode = .automatic // neue Fenster wie in macOS eingestellt; ⌘T immer als Tab
     w.model = model
     model.window = w
+    w.title = model.title
     let host = NSHostingController(rootView: ExplorerView(model: model, style: style))
     host.sizingOptions = [] // sonst schrumpft SwiftUI das Fenster auf die Mindestgröße
     w.contentViewController = host
     w.setContentSize(NSSize(width: 980, height: 620))
     w.setFrameAutosaveName("WinKomfortExplorer")
     if !w.setFrameUsingName("WinKomfortExplorer") || w.frame.width < 700 { w.setContentSize(NSSize(width: 980, height: 620)); w.center() }
-    if let last = explorerWindows.last { w.setFrameTopLeftPoint(NSPoint(x: last.frame.minX + 26, y: last.frame.maxY - 26)) }
+    if parent == nil, let last = explorerWindows.last { w.setFrameTopLeftPoint(NSPoint(x: last.frame.minX + 26, y: last.frame.maxY - 26)) }
     NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
         MainActor.assumeIsolated {
             model.stop()
@@ -356,6 +361,7 @@ final class ExplorerWindow: NSWindow {
     }
     explorerWindows.append(w)
     NSApp.activate(ignoringOtherApps: true)
+    if let parent { parent.addTabbedWindow(w, ordered: .above) }
     w.makeKeyAndOrderFront(nil)
     // Nicht im Suchfeld starten – sonst greifen ↩, Leertaste, ⌫ erst nach einem Klick
     DispatchQueue.main.async { w.makeFirstResponder(nil) }
