@@ -411,6 +411,15 @@ final class ExplorerWindow: NSWindow {
            MainActor.assumeIsolated({ handle(e, m) }) { return }
         super.sendEvent(e)
     }
+    // Zwei Explorer nebeneinander auf dem Bildschirm dieses Fensters (je eine Hälfte)
+    @MainActor func splitView() {
+        guard let screen = screen ?? NSScreen.main, let m = model else { return }
+        let v = screen.visibleFrame, half = (v.width / 2).rounded()
+        setFrame(NSRect(x: v.minX, y: v.minY, width: half, height: v.height), display: true, animate: true)
+        openExplorer(m.url)
+        explorerWindows.last?.setFrame(NSRect(x: v.minX + half, y: v.minY, width: v.width - half, height: v.height), display: true, animate: true)
+    }
+
     @MainActor private func handle(_ e: NSEvent, _ m: ExplorerModel) -> Bool {
         let f = e.modifierFlags.intersection([.command, .shift, .option, .control])
         switch (Int(e.keyCode), f) {
@@ -432,6 +441,7 @@ final class ExplorerWindow: NSWindow {
         case (3, .command): m.searchFocus += 1
         case (15, .command), (96, []): m.reload() // ⌘R / F5
         case (17, .command): openExplorer(m.url, tabOf: self) // ⌘T: neuer Tab im selben Ordner
+        case (99, []): splitView() // F3 wie in Dolphin: zweite Ansicht daneben
         default: return false
         }
         return true
@@ -737,6 +747,7 @@ struct ExplorerView: View {
             Divider()
             if style != .windows { sortMenu }
             Toggle(L("Versteckte Dateien zeigen", "Show hidden files"), isOn: $model.showHidden)
+            Button(L("Ansicht teilen (F3)", "Split view (F3)")) { model.window?.splitView() }
             Divider()
             Button(L("Im Terminal öffnen", "Open in Terminal")) { model.openTerminal() }
             Button(L("Im Finder zeigen", "Show in Finder")) { model.showInFinder() }
@@ -1018,8 +1029,8 @@ struct ExplorerTab: View {
                     }
                 }
             } footer: {
-                Text(L("Tasten: ↩ öffnen · ⌫ zurück · F2 umbenennen · ⌘⌫ Papierkorb · ⌘C/⌘X/⌘V · ⌘⇧N neuer Ordner · ⌘F suchen · ⌘⇧. versteckte Dateien",
-                       "Keys: ↩ open · ⌫ back · F2 rename · ⌘⌫ trash · ⌘C/⌘X/⌘V · ⌘⇧N new folder · ⌘F search · ⌘⇧. hidden files"))
+                Text(L("Tasten: ↩ öffnen · ⌫ zurück · F2 umbenennen · F3 Ansicht teilen · F5 aktualisieren · ⌘T neuer Tab · ⌘⌫ Papierkorb · ⌘C/⌘X/⌘V · ⌘⇧N neuer Ordner · ⌘F suchen · ⌘⇧. versteckte Dateien",
+                       "Keys: ↩ open · ⌫ back · F2 rename · F3 split view · F5 refresh · ⌘T new tab · ⌘⌫ trash · ⌘C/⌘X/⌘V · ⌘⇧N new folder · ⌘F search · ⌘⇧. hidden files"))
             }
         }
         .formStyle(.grouped)
