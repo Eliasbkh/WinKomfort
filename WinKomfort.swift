@@ -1826,6 +1826,8 @@ struct WelcomeView: View {
         ("magnifyingglass", .gray, "Suche", tr("Apps, Dateien und Rechnen – mit %@.", HotAction.search.current?.display ?? tr("eigenem Kürzel"))),
         ("macwindow", .indigo, "Fenster wie bei Windows", "Einrasten, anheften, Schließen beendet die App."),
         ("dock.rectangle", .teal, "Dock wie die Taskleiste", "Kommt zuverlässig – auch über Vollbild-Apps."),
+        ("folder.fill", .cyan, "Explorer", "Dateimanager im Stil von GNOME, Dolphin oder Windows 11 – mit ⌃⌥E."),
+        ("sparkles", .purple, "KI-Befehle & Game Mode", "Einfach schreiben, was passieren soll (⌃⌥K). Spiele laufen ungestört."),
     ]
     var body: some View {
         VStack(spacing: 0) {
