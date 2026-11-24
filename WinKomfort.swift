@@ -2130,7 +2130,12 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .switcher: WindowSwitcher.shared.step(1)
         case .newFile: newTextFile()
         case .onenote: OneNotePDF.showMenu()
-        case .explorer: openExplorer()
+        case .explorer:
+            // Finder vorne → Explorer im selben Ordner öffnen
+            if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder",
+               let dir = NSAppleScript(source: "tell application \"Finder\" to return POSIX path of (insertion location as alias)")?.executeAndReturnError(nil).stringValue {
+                openExplorer(URL(fileURLWithPath: dir))
+            } else { openExplorer() }
         case .gameMode: GameMode.shared.toggle()
         case .ask: AskPanel.toggle()
         case .snapLeft: Snap.run(.left)

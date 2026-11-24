@@ -440,7 +440,7 @@ final class ExplorerWindow: NSWindow {
 
 @MainActor private var explorerWindows: [ExplorerWindow] = []
 
-@MainActor func openExplorer(_ url: URL? = nil, tabOf parent: NSWindow? = nil) {
+@MainActor func openExplorer(_ url: URL? = nil, tabOf parent: NSWindow? = nil, query: String? = nil) {
     let style = ExplorerStyle.current
     let start = url ?? FileManager.default.homeDirectoryForCurrentUser
     let model = ExplorerModel(start, style: style)
@@ -455,6 +455,7 @@ final class ExplorerWindow: NSWindow {
     w.tabbingMode = .automatic // neue Fenster wie in macOS eingestellt; ⌘T immer als Tab
     w.model = model
     model.window = w
+    if let query, !query.isEmpty { model.searching = true; model.query = query } // z. B. von der KI: „finde meine Bewerbung“
     w.title = model.title
     let host = NSHostingController(rootView: ExplorerView(model: model, style: style))
     host.sizingOptions = [] // sonst schrumpft SwiftUI das Fenster auf die Mindestgröße

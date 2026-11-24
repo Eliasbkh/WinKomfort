@@ -12,6 +12,7 @@ enum Assistant {
     Zahlen immer als Ziffern (zwei Stunden → 120, eine halbe Stunde → 30).
     Befehle:
     explorer(PFAD) – Ordner öffnen. PFAD z. B. ~/Downloads, ~/Documents, ~/Desktop, ~/Pictures, ~
+    find(SUCHWORT) – Datei suchen, nur das wichtigste Wort, z. B. "finde meine bewerbung" → find(bewerbung)
     gamemode(on) | gamemode(off)
     awake(MINUTEN) – Mac wach halten, z. B. awake(60); awake(0) beendet
     onenote(page) | onenote(section) | onenote(notebook) – OneNote als PDF
@@ -58,6 +59,10 @@ enum Assistant {
             let path = arg.isEmpty ? "~" : (arg as NSString).expandingTildeInPath
             openExplorer(URL(fileURLWithPath: path))
             return L("Explorer geöffnet", "Explorer opened")
+        case "find":
+            let word = arg.trimmingCharacters(in: CharacterSet(charactersIn: "\"'“”„ "))
+            openExplorer(FileManager.default.homeDirectoryForCurrentUser, query: word)
+            return L("Suche nach „\(word)“", "Searching for “\(word)”")
         case "gamemode":
             if on != GameMode.shared.active { GameMode.shared.toggle() }
             return on ? L("Game Mode an", "Game Mode on") : L("Game Mode aus", "Game Mode off")
