@@ -167,7 +167,7 @@ enum OneNoteCloud {
             }()
             wkLog("OneNote: Bilder verkleinert nach \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
             let out = uniqueDownload(name)
-            try await PageRenderer().render(pages, root: work.resolvingSymlinksInPath(), to: out)
+            try await PageRenderer.render(pages, root: work.resolvingSymlinksInPath(), to: out)
             return .success(out)
         } catch let e as Failure {
             wkLog("OneNote: Fehler \(e.text)")
@@ -454,7 +454,42 @@ enum PDFQuality: String, CaseIterable, Identifiable {
         return i
     }
 
-    func render(_ pages: [URL], root: URL, to out: URL) async throws {
+    // Drei Teile gleichzeitig rendern (WebKit wartet viel auf seinen eigenen Prozess) und dann verlustfrei zusammensetzen
+    static func render(_ pages: [URL], root: URL, to out: URL) async throws {
+        let n = pages.count < 30 ? 1 : 3
+        let size = (pages.count + n - 1) / n
+        let chunks = stride(from: 0, to: pages.count, by: size).map { Array(pages[$0..<min($0 + size, pages.count)]) }
+        var parts = [Data?](repeating: nil, count: chunks.count)
+        try await withThrowingTaskGroup(of: (Int, Data).self) { group in
+            for (i, c) in chunks.enumerated() {
+                group.addTask { @MainActor in (i, try await PageRenderer().renderChunk(c, root: root, offset: i * size, total: pages.count)) }
+            }
+            for try await (i, d) in group { parts[i] = d }
+        }
+        if parts.count == 1, let d = parts[0] {
+            guard (try? d.write(to: out)) != nil else { throw OneNoteCloud.Failure(text: L("PDF konnte nicht gespeichert werden", "Couldn't save the PDF")) }
+            return
+        }
+        let data = NSMutableData()
+        var box = CGRect(x: 0, y: 0, width: 595, height: 842)
+        guard let consumer = CGDataConsumer(data: data as CFMutableData), let pdf = CGContext(consumer: consumer, mediaBox: &box, nil) else {
+            throw OneNoteCloud.Failure(text: L("PDF konnte nicht angelegt werden", "Couldn't create the PDF"))
+        }
+        for d in parts.compactMap({ $0 }) {
+            guard let provider = CGDataProvider(data: d as CFData), let doc = CGPDFDocument(provider) else { continue }
+            for i in 1...max(doc.numberOfPages, 1) where doc.numberOfPages > 0 {
+                guard let page = doc.page(at: i) else { continue }
+                var mb = page.getBoxRect(.mediaBox)
+                pdf.beginPDFPage([kCGPDFContextMediaBox as String: NSData(bytes: &mb, length: MemoryLayout<CGRect>.size)] as CFDictionary)
+                pdf.drawPDFPage(page)
+                pdf.endPDFPage()
+            }
+        }
+        pdf.closePDF()
+        guard data.write(to: out, atomically: true) else { throw OneNoteCloud.Failure(text: L("PDF konnte nicht gespeichert werden", "Couldn't save the PDF")) }
+    }
+
+    func renderChunk(_ pages: [URL], root: URL, offset: Int, total: Int) async throws -> Data {
         let data = NSMutableData()
         var box = CGRect(x: 0, y: 0, width: 595, height: 842)
         guard let consumer = CGDataConsumer(data: data as CFMutableData), let pdf = CGContext(consumer: consumer, mediaBox: &box, nil) else {
@@ -466,7 +501,7 @@ enum PDFQuality: String, CaseIterable, Identifiable {
         web.navigationDelegate = self
         let margin: CGFloat = 28, scale: CGFloat = 0.75 // 96 px = 72 pt, wie beim Drucken
         for (i, p) in pages.enumerated() {
-            if i % 25 == 0 && i > 0 { Toast.show(L("OneNote: Seite \(i) von \(pages.count) …", "OneNote: page \(i) of \(pages.count)…"), symbol: "doc.richtext") }
+            if offset == 0 && i % 10 == 0 && i > 0 { Toast.show(L("OneNote: Seite \(i * (total / max(pages.count, 1))) von \(total) …", "OneNote: page \(i * (total / max(pages.count, 1))) of \(total)…"), symbol: "doc.richtext") }
             await withCheckedContinuation { c in
                 loaded = c
                 web.loadFileURL(p, allowingReadAccessTo: root)
@@ -521,6 +556,6 @@ enum PDFQuality: String, CaseIterable, Identifiable {
             }
         }
         pdf.closePDF()
-        guard data.write(to: out, atomically: true) else { throw OneNoteCloud.Failure(text: L("PDF konnte nicht gespeichert werden", "Couldn't save the PDF")) }
+        return data as Data
     }
 }

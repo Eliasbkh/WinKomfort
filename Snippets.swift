@@ -87,7 +87,10 @@ enum Snippets {
         guard t.contains("{") else { return t }
         let now = Date()
         let date = now.formatted(date: .numeric, time: .omitted), time = now.formatted(date: .omitted, time: .shortened)
-        let clip = NSPasteboard.general.string(forType: .string) ?? ""
+        // Zwischenablage wird getippt, nicht eingefügt: keine Zeilenumbrüche/Steuerzeichen (sonst könnte ein Terminal
+        // Befehle ausführen), höchstens 1000 Zeichen
+        let raw = NSPasteboard.general.string(forType: .string) ?? ""
+        let clip = String(raw.unicodeScalars.map { CharacterSet.controlCharacters.contains($0) ? " " : Character($0) }.prefix(1000))
         return t.replacingOccurrences(of: "{datum}", with: date).replacingOccurrences(of: "{date}", with: date)
             .replacingOccurrences(of: "{uhrzeit}", with: time).replacingOccurrences(of: "{time}", with: time)
             .replacingOccurrences(of: "{zwischenablage}", with: clip).replacingOccurrences(of: "{clipboard}", with: clip)
