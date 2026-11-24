@@ -297,6 +297,18 @@ struct FileItem: Identifiable, Hashable, Sendable {
         }
     }
     func selectAll() { selection = Set(visible.map(\.url)) }
+    // Pfeiltasten im Raster: ←→ ein Feld, ↑↓ eine Reihe (Spaltenzahl aus Fensterbreite und Symbolgröße)
+    func moveSelection(_ dx: Int, _ dy: Int, width: CGFloat) {
+        let v = visible
+        guard !v.isEmpty else { return }
+        let cell = max(iconSize, 64) + 44
+        let cols = max(1, Int((width - 20) / cell))
+        let cur = v.lastIndex { selection.contains($0.url) } ?? -1
+        let next = cur < 0 ? 0 : min(max(cur + dx + dy * cols, 0), v.count - 1)
+        selection = [v[next].url]
+        scrollTarget = v[next].url
+    }
+    @Published var scrollTarget: URL?
 
     func newFolder() {
         guard !recents else { NSSound.beep(); return }
@@ -461,6 +473,9 @@ final class ExplorerWindow: NSWindow {
         explorerWindows.last?.setFrame(NSRect(x: v.minX + half, y: v.minY, width: v.width - half, height: v.height), display: true, animate: true)
     }
 
+    // Breite des Dateibereichs ungefähr: Fenster minus Seitenleiste (und Infoleiste bei Dolphin)
+    private var gridWidth: CGFloat { frame.width - (ExplorerStyle.current == .dolphin ? 400 : 200) }
+
     @MainActor private func handle(_ e: NSEvent, _ m: ExplorerModel) -> Bool {
         let f = e.modifierFlags.intersection([.command, .shift, .option, .control])
         switch (Int(e.keyCode), f) {
@@ -476,6 +491,10 @@ final class ExplorerWindow: NSWindow {
         case (45, [.command, .shift]): m.newFolder()
         case (126, .command): m.goUp()
         case (125, .command): m.openSelection()
+        case (123, []) where m.grid: m.moveSelection(-1, 0, width: gridWidth)
+        case (124, []) where m.grid: m.moveSelection(1, 0, width: gridWidth)
+        case (126, []) where m.grid: m.moveSelection(0, -1, width: gridWidth)
+        case (125, []) where m.grid: m.moveSelection(0, 1, width: gridWidth)
         case (33, .command), (123, .command): m.goBack()
         case (30, .command), (124, .command): m.goForward()
         case (47, [.command, .shift]): m.showHidden.toggle()
@@ -901,7 +920,7 @@ struct ExplorerView: View {
 
     private var gridView: some View {
         let size = style == .gnome ? max(model.iconSize, 64) : model.iconSize
-        return ScrollView {
+        return ScrollViewReader { proxy in ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: size + 40), spacing: 4)], spacing: 4) {
                 ForEach(model.visible) { item in
                     let sel = model.selection.contains(item.url)
@@ -925,9 +944,12 @@ struct ExplorerView: View {
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)
+                    .id(item.url)
                 }
             }
             .padding(10)
+        }
+        .onChange(of: model.scrollTarget) { _, t in if let t { proxy.scrollTo(t) } } // Pfeiltasten: Auswahl bleibt sichtbar
         }
         .contentShape(Rectangle())
         .onTapGesture { model.selection = [] }
