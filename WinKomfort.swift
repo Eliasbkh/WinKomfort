@@ -3997,6 +3997,7 @@ struct FeatureTab: View {
                     .accessibilityLabel("Control antippen öffnet das Startmenü")
                 }
                 if group == groups[0] { MouseSettings() }
+                if group == groups[4] { DockSettings() }
                 if group == groups[1] {
                     Toggle(isOn: store.closeQuits) { Text("Schließen beendet die App"); Text(tr(closeHint)) }
                         .accessibilityLabel("Schließen beendet die App")
