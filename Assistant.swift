@@ -1,6 +1,6 @@
 // KI-Befehle: normale Sätze („halt den Mac eine Stunde wach“) werden mit Apples Sprachmodell auf dem Gerät
 // (Apple Intelligence, offline, kostenlos) in genau einen WinKomfort-Befehl übersetzt und ausgeführt.
-// Dieselben Befehle gibt es als Links (winkomfort://gamemode/on …) – für Kurzbefehle und damit auch für Siri.
+// Ausgewählte, harmlose Befehle gibt es auch als Links (winkomfort://gamemode/on …) – für Kurzbefehle und damit auch für Siri.
 import AppKit
 import FoundationModels
 
@@ -105,16 +105,27 @@ enum Assistant {
         }
     }
 
-    // winkomfort://gamemode/on · winkomfort://awake/60 · winkomfort://explorer/~/Downloads · winkomfort://onenote/notebook
-    // winkomfort://ask?q=… (Satz über die KI)
+    // winkomfort://gamemode/on · winkomfort://awake/60 · winkomfort://explorer/Downloads · winkomfort://onenote/notebook
+    // Links können auch von Webseiten kommen – deshalb nur harmlose Befehle mit geprüften Werten (keine Apps, keine freien Texte, keine KI)
+    private static let linkArgs: [String: Set<String>] = [
+        "gamemode": ["on", "off"], "onenote": ["page", "section", "notebook"], "snap": ["left", "right", "max", "restore"],
+        "dark": ["on", "off"], "screenoff": [""], "tasks": [""], "clipboard": [""], "settings": [""],
+    ]
     @MainActor static func handle(_ url: URL) {
-        guard url.scheme == "winkomfort", let host = url.host else { return }
-        if host == "ask", let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "q" })?.value {
-            ask(q)
-            return
+        guard url.scheme == "winkomfort", let host = url.host?.lowercased() else { return }
+        let arg = (url.path.removingPercentEncoding ?? url.path).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let ok: Bool
+        switch host {
+        case "awake": ok = arg.allSatisfy(\.isNumber) && (Int(arg) ?? 9999) <= 600
+        case "volume": ok = arg.allSatisfy(\.isNumber) && (Int(arg) ?? 999) <= 100
+        case "explorer":
+            // nur Ordner innerhalb deines Benutzerordners, ohne „..“
+            ok = !arg.contains("..") && arg.range(of: #"^[\p{L}\p{N} _./-]*$"#, options: .regularExpression) != nil
+        default: ok = linkArgs[host]?.contains(arg.lowercased()) == true
         }
-        let arg = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        Toast.show(run("\(host)(\(arg.removingPercentEncoding ?? arg))"), symbol: "wand.and.stars")
+        guard ok else { Toast.show(L("Link-Befehl nicht erlaubt", "Link command not allowed"), symbol: "hand.raised"); return }
+        let a = host == "explorer" ? (arg.isEmpty ? "~" : "~/" + arg) : arg
+        Toast.show(run("\(host)(\(a))"), symbol: "wand.and.stars")
     }
 
     @MainActor static func ask(_ text: String) {

@@ -251,6 +251,39 @@ struct FileItem: Identifiable, Hashable, Sendable {
             if let failed { await MainActor.run { self.fail(failed) } }
         }
     }
+    func newTextFile() {
+        var target = url.appendingPathComponent(L("Neue Textdatei.txt", "New Text File.txt")), n = 2
+        while FileManager.default.fileExists(atPath: target.path) {
+            target = url.appendingPathComponent(L("Neue Textdatei \(n).txt", "New Text File \(n).txt")); n += 1
+        }
+        guard FileManager.default.createFile(atPath: target.path, contents: Data()) else { NSSound.beep(); return }
+        selection = [target]
+        renaming = FileItem(url: target, name: target.lastPathComponent, isDir: false, isPackage: false, size: 0, modified: nil, kind: "")
+    }
+    // Wie „Senden an › ZIP-komprimierter Ordner“ – im Hintergrund, Name wie die Datei bzw. „Archiv.zip“
+    func zip() {
+        let sel = selectedItems
+        guard !sel.isEmpty else { return }
+        let base = sel.count == 1 ? sel[0].url.deletingPathExtension().lastPathComponent : L("Archiv", "Archive")
+        var target = url.appendingPathComponent(base + ".zip"), n = 2
+        while FileManager.default.fileExists(atPath: target.path) { target = url.appendingPathComponent("\(base) \(n).zip"); n += 1 }
+        let names = sel.map { $0.url.lastPathComponent }, dir = url, out = target
+        Task.detached {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+            p.currentDirectoryURL = dir
+            p.arguments = ["-r", "-q", "-y", out.path] + names + ["-x", "*.DS_Store"]
+            try? p.run(); p.waitUntilExit()
+        }
+    }
+    func copyPath() {
+        let paths = (selectedItems.isEmpty ? [url] : selectedItems.map(\.url)).map(\.path).joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(paths, forType: .string)
+    }
+    func openWith(_ app: URL) {
+        NSWorkspace.shared.open(selectedItems.map(\.url), withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+    }
     func showInFinder() { NSWorkspace.shared.activateFileViewerSelecting(selectedItems.isEmpty ? [url] : selectedItems.map(\.url)) }
     func openTerminal() {
         if let term = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
@@ -549,6 +582,7 @@ struct ExplorerView: View {
             HStack(spacing: 2) {
                 Menu {
                     Button(L("Ordner", "Folder")) { model.newFolder() }
+                    Button(L("Textdatei", "Text file")) { model.newTextFile() }
                 } label: { Label(L("Neu", "New"), systemImage: "plus.circle") }
                 .menuStyle(.borderlessButton).fixedSize()
                 Divider().frame(height: 18).padding(.horizontal, 6)
@@ -618,6 +652,7 @@ struct ExplorerView: View {
     private var moreMenu: some View {
         Menu {
             Button(L("Neuer Ordner", "New folder")) { model.newFolder() }
+            Button(L("Neue Textdatei", "New text file")) { model.newTextFile() }
             Button(L("Einfügen", "Paste")) { model.paste() }
             Divider()
             if style != .windows { sortMenu }
@@ -765,11 +800,21 @@ struct ExplorerView: View {
 
     @ViewBuilder private func itemMenu(_ item: FileItem) -> some View {
         Button(L("Öffnen", "Open")) { if !model.selection.contains(item.url) { model.selection = [item.url] }; model.openSelection() }
+        if !item.opensAsFolder {
+            let apps = NSWorkspace.shared.urlsForApplications(toOpen: item.url).prefix(12)
+            Menu(L("Öffnen mit", "Open With")) {
+                ForEach(Array(apps), id: \.self) { app in
+                    Button(FileManager.default.displayName(atPath: app.path)) { ensure(item); model.openWith(app) }
+                }
+            }
+        }
         if !item.opensAsFolder { Button(L("Vorschau (Leertaste)", "Quick Look (Space)")) { model.selection = [item.url]; model.quickLook() } }
         Divider()
         Button(L("Ausschneiden", "Cut")) { ensure(item); model.copy(cut: true) }
         Button(L("Kopieren", "Copy")) { ensure(item); model.copy(cut: false) }
         Button(L("Umbenennen …", "Rename…")) { model.selection = [item.url]; model.startRename() }
+        Button(L("Als ZIP komprimieren", "Compress to ZIP")) { ensure(item); model.zip() }
+        Button(L("Pfad kopieren", "Copy Path")) { ensure(item); model.copyPath() }
         Divider()
         Button(L("Im Finder zeigen", "Show in Finder")) { ensure(item); model.showInFinder() }
         Button(L("In den Papierkorb", "Move to Trash"), role: .destructive) { ensure(item); model.trash() }
