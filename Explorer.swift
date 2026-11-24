@@ -55,7 +55,12 @@ struct FileItem: Identifiable, Hashable, Sendable {
     @Published private(set) var items: [FileItem] = []
     @Published var selection: Set<URL> = []
     @Published var grid: Bool
-    @Published var query = ""
+    @Published var query = "" { didSet { if query != oldValue { scheduleDeepSearch() } } }
+    @Published private(set) var deepHits: [FileItem] = [] // Treffer in Unterordnern (macOS-Suchindex)
+    @Published private(set) var recents = false             // Seitenleiste „Zuletzt benutzt“
+    private var mdq: NSMetadataQuery?
+    private var mdqToken: NSObjectProtocol?
+    private var deepTask: DispatchWorkItem?
     @Published var showHidden = UserDefaults.standard.bool(forKey: "explorerHidden") {
         didSet { UserDefaults.standard.set(showHidden, forKey: "explorerHidden"); reload() }
     }
@@ -79,8 +84,13 @@ struct FileItem: Identifiable, Hashable, Sendable {
     }
 
     var visible: [FileItem] {
+        if recents { return items } // schon nach Datum sortiert
         let q = query.trimmingCharacters(in: .whitespaces)
-        let list = q.isEmpty ? items : items.filter { $0.name.localizedCaseInsensitiveContains(q) }
+        var list = q.isEmpty ? items : items.filter { $0.name.localizedCaseInsensitiveContains(q) }
+        if !q.isEmpty {
+            let here = Set(list.map(\.url))
+            list += deepHits.filter { !here.contains($0.url) }
+        }
         // Ordner immer zuerst, wie in allen drei Vorbildern
         let sorted = list.sorted(using: sortOrder)
         return sorted.filter(\.opensAsFolder) + sorted.filter { !$0.opensAsFolder }
@@ -90,6 +100,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
 
     // Pfad als Knöpfe; der Benutzerordner ist der Anfang (wie bei GNOME/Dolphin)
     var crumbs: [URL] {
+        if recents { return [] }
         var out: [URL] = [], u = url.standardizedFileURL
         let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
         while true {
@@ -103,6 +114,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
     }
 
     func open(_ u: URL, record: Bool = true) {
+        if recents { recents = false; stopQuery(); url = u; reload(); window?.title = title; return }
         guard u.standardizedFileURL != url.standardizedFileURL else { return }
         if record { back.append(url); forward = [] }
         url = u
@@ -165,7 +177,73 @@ struct FileItem: Identifiable, Hashable, Sendable {
         reloadPending = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in MainActor.assumeIsolated { self?.reloadPending = false; self?.reload() } }
     }
-    func stop() { watcher?.cancel(); watcher = nil }
+    func stop() { watcher?.cancel(); watcher = nil; stopQuery() }
+
+    // MARK: Suche in Unterordnern und „Zuletzt benutzt“ – über den Suchindex von macOS, nichts wird selbst durchsucht
+
+    private func stopQuery() {
+        mdq?.stop(); mdq = nil
+        if let t = mdqToken { NotificationCenter.default.removeObserver(t) }
+        mdqToken = nil
+    }
+    private func runQuery(_ predicate: NSPredicate, scope: [Any], sort: [NSSortDescriptor] = [], limit: Int, done: @escaping ([FileItem]) -> Void) {
+        stopQuery()
+        let q = NSMetadataQuery()
+        q.predicate = predicate
+        q.searchScopes = scope
+        q.sortDescriptors = sort
+        mdqToken = NotificationCenter.default.addObserver(forName: .NSMetadataQueryDidFinishGathering, object: q, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                q.disableUpdates()
+                let urls = (0..<min(q.resultCount, limit)).compactMap { (q.result(at: $0) as? NSMetadataItem)?.value(forAttribute: NSMetadataItemPathKey) as? String }.map(URL.init(fileURLWithPath:))
+                q.stop()
+                Task.detached(priority: .userInitiated) {
+                    let found = ExplorerModel.describe(urls)
+                    await MainActor.run { done(found) }
+                }
+                self?.mdq = nil
+            }
+        }
+        mdq = q
+        q.start()
+    }
+    nonisolated static func describe(_ urls: [URL]) -> [FileItem] {
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey, .fileSizeKey, .contentModificationDateKey, .localizedTypeDescriptionKey, .localizedNameKey]
+        return urls.compactMap { u in
+            guard let v = try? u.resourceValues(forKeys: keys) else { return nil }
+            return FileItem(url: u, name: v.localizedName ?? u.lastPathComponent, isDir: v.isDirectory ?? false, isPackage: v.isPackage ?? false,
+                            size: (v.isDirectory ?? false) ? nil : v.fileSize.map(Int64.init), modified: v.contentModificationDate, kind: v.localizedTypeDescription ?? "")
+        }
+    }
+    private func scheduleDeepSearch() {
+        deepTask?.cancel()
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard q.count >= 2, !recents else { deepHits = []; return }
+        let scope = url
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                self?.runQuery(NSPredicate(format: "%K CONTAINS[cd] %@", NSMetadataItemFSNameKey, q), scope: [scope], limit: 200) { [weak self] hits in
+                    guard let self, self.query.trimmingCharacters(in: .whitespaces) == q else { return }
+                    self.deepHits = hits
+                }
+            }
+        }
+        deepTask = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work) // erst suchen, wenn kurz nicht getippt wird
+    }
+    func openRecents() {
+        back.append(url); forward = []
+        recents = true
+        selection = []; query = ""; items = []
+        window?.title = L("Zuletzt benutzt", "Recents")
+        let since = Date().addingTimeInterval(-30 * 86400) as NSDate
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        runQuery(NSPredicate(format: "kMDItemLastUsedDate >= %@ AND kMDItemContentTypeTree != 'public.folder' AND kMDItemContentTypeTree != 'com.apple.application'", since),
+                 scope: [home], sort: [NSSortDescriptor(key: "kMDItemLastUsedDate", ascending: false)], limit: 150) { [weak self] found in
+            guard let self, self.recents else { return }
+            self.items = found
+        }
+    }
 
     // MARK: Aktionen
 
@@ -666,7 +744,12 @@ struct ExplorerView: View {
         .help(L("Mehr", "More")).accessibilityLabel(L("Mehr", "More"))
     }
 
-    private func crumbBar(pill: Bool) -> some View {
+    @ViewBuilder private func crumbBar(pill: Bool) -> some View {
+        if model.recents {
+            Label(L("Zuletzt benutzt", "Recents"), systemImage: "clock").fontWeight(.semibold).padding(.horizontal, 8)
+        } else { crumbs(pill: pill) }
+    }
+    private func crumbs(pill: Bool) -> some View {
         let crumbs = model.crumbs
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: pill ? 2 : 0) {
@@ -696,13 +779,20 @@ struct ExplorerView: View {
     private func sidebar(grouped: Bool) -> some View {
         let standard = Places.standard(), volumes = Places.volumes()
         return List {
-            Section(grouped ? L("Orte", "Places") : "") { ForEach(standard) { placeRow($0) } }
+            Section(grouped ? L("Orte", "Places") : "") {
+                Button { model.openRecents() } label: {
+                    Label(L("Zuletzt benutzt", "Recents"), systemImage: "clock").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(model.recents ? RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(0.18)) : nil)
+                ForEach(standard) { placeRow($0) }
+            }
             if !volumes.isEmpty { Section(L("Geräte", "Devices")) { ForEach(volumes) { placeRow($0) } } }
         }
         .listStyle(.sidebar).scrollContentBackground(.hidden)
     }
     private func placeRow(_ p: Place) -> some View {
-        let on = model.url.standardizedFileURL == p.url.standardizedFileURL
+        let on = !model.recents && model.url.standardizedFileURL == p.url.standardizedFileURL
         return Button { model.open(p.url) } label: {
             Label(p.title, systemImage: p.symbol).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }

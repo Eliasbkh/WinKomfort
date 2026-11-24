@@ -160,7 +160,7 @@ enum Assistant {
         Toast.show(L("Denke nach …", "Thinking…"), symbol: "sparkles")
         Task { @MainActor in
             let cmd = await command(for: text)
-            wkLog("KI: „\(text)“ → \(cmd ?? "nicht verfügbar")")
+            wkLog("KI → \(cmd.map { String($0.prefix { $0 != "(" }) } ?? "nicht verfügbar")") // nur der Befehlsname, nie dein Text
             guard let cmd else {
                 Toast.show(L("Apple Intelligence ist nicht verfügbar", "Apple Intelligence isn't available"), symbol: "exclamationmark.triangle"); return
             }
