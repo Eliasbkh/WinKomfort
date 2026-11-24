@@ -348,3 +348,26 @@
 "Automatisch (Systemsprache)" = "Automatic (system language)";
 "Gilt nach dem Neustart von WinKomfort." = "Takes effect after WinKomfort restarts.";
 "Neu starten" = "Restart";
+
+/* Neu: Game Mode, KI, Schreibtisch & Dock */
+"Game Mode ein/aus" = "Game Mode on/off";
+"KI-Befehl (Apple Intelligence)" = "AI command (Apple Intelligence)";
+"Game Mode" = "Game Mode";
+"Schreibtisch & Dock" = "Desktop & Dock";
+"Schreibtisch" = "Desktop";
+"Explorer" = "Explorer";
+"Ecke unten rechts zeigt den Schreibtisch" = "Bottom-right corner shows the desktop";
+"Wie der Knopf ganz rechts in der Windows-Taskleiste: Maus in die Ecke = alle Fenster beiseite." = "Like the button at the far right of the Windows taskbar: move the pointer into the corner to push all windows aside.";
+"Symbole auf dem Schreibtisch ausblenden" = "Hide desktop icons";
+"Aufgeräumter Schreibtisch – die Dateien bleiben im Ordner „Schreibtisch“ und im Explorer erreichbar." = "A tidy desktop – the files stay in the Desktop folder and in Explorer.";
+"Laufwerke und USB-Sticks auf dem Schreibtisch" = "Drives and USB sticks on the desktop";
+"Wie „Dieser PC“: angeschlossene Festplatten, USB-Sticks und Netzlaufwerke direkt sichtbar." = "Like “This PC”: connected disks, USB sticks and network drives right on the desktop.";
+"Widgets auf dem Schreibtisch ausblenden" = "Hide widgets on the desktop";
+"Die Widgets bleiben in der Mitteilungszentrale." = "Widgets stay in Notification Center.";
+"Keine „Zuletzt benutzt“-Apps im Dock" = "No recent apps in the Dock";
+"Das Dock zeigt nur deine angehefteten und laufenden Apps – wie die Windows-Taskleiste." = "The Dock shows only your pinned and running apps – like the Windows taskbar.";
+"Ausgeblendete Apps im Dock blass zeigen" = "Dim hidden apps in the Dock";
+"Mit ⌘H versteckte Apps erkennt man sofort." = "Apps hidden with ⌘H are easy to spot.";
+"Dock-Symbole hüpfen nicht" = "Dock icons don't bounce";
+"Kein Springen beim Start und bei Hinweisen." = "No bouncing on launch or for alerts.";
+"Spiele Spielen Gaming Leistung Drosseln Nicht stören" = "Games Gaming Performance Throttle Do Not Disturb";
