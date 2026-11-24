@@ -780,10 +780,17 @@ struct ExplorerView: View {
             if up { iconButton("arrow.up", L("Übergeordneter Ordner", "Up")) { model.goUp() } }
         }
     }
-    private var searchField: some View {
-        TextField(L("In „\(model.title)“ suchen", "Search \(model.title)"), text: $model.query)
-            .textFieldStyle(.roundedBorder).focused($searchFocused)
-            .onExitCommand { model.query = ""; model.searching = false }
+    @ViewBuilder private var searchField: some View {
+        let hint = L("In „\(model.title)“ suchen", "Search \(model.title)")
+        if preview { // echte Textfelder lassen sich nicht verkleinern und beschriften sich im Formular doppelt
+            Text(hint).lineLimit(1).foregroundStyle(.secondary).padding(.horizontal, 6)
+                .frame(maxWidth: .infinity, minHeight: 22, alignment: .leading)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+        } else {
+            TextField(hint, text: $model.query)
+                .textFieldStyle(.roundedBorder).focused($searchFocused)
+                .onExitCommand { model.query = ""; model.searching = false }
+        }
     }
     private var viewToggle: some View {
         iconButton(model.grid ? "list.bullet" : "square.grid.2x2", model.grid ? L("Listenansicht", "List view") : L("Rasteransicht", "Grid view")) {
@@ -1076,27 +1083,8 @@ struct ExplorerTab: View {
     var body: some View {
         Form {
             Section {
-                HStack(spacing: 12) {
-                    ForEach(ExplorerStyle.allCases) { s in
-                        Button { style = s.rawValue } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                ExplorerView(model: previewModel, style: s, preview: true)
-                                    .frame(width: 760, height: 470)
-                                    .scaleEffect(0.24, anchor: .topLeading)
-                                    .frame(width: 182, height: 113, alignment: .topLeading)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(style == s.rawValue ? Color.accentColor : .secondary.opacity(0.3), lineWidth: style == s.rawValue ? 3 : 1))
-                                    .allowsHitTesting(false)
-                                Text(s.title).font(.headline)
-                                Text(s.hint).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                            }
-                            .frame(width: 182, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(s.title)
-                        .accessibilityAddTraits(style == s.rawValue ? .isSelected : [])
-                    }
-                }
+                // Raster bricht um, statt über den Rand zu ragen
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 152), spacing: 12, alignment: .topLeading)], alignment: .leading, spacing: 12) { cards }
                 .padding(.vertical, 4)
             } header: {
                 Text(L("Stil", "Style"))
@@ -1122,6 +1110,28 @@ struct ExplorerTab: View {
         .formStyle(.grouped)
         .onDisappear { previewModel.stop() } // Ordnerbeobachtung der Vorschau freigeben
         .onAppear { previewModel.reload() }
+    }
+
+    private var cards: some View {
+        ForEach(ExplorerStyle.allCases) { s in
+            Button { style = s.rawValue } label: {
+                VStack(alignment: .leading, spacing: 6) {
+                    ExplorerView(model: previewModel, style: s, preview: true)
+                        .frame(width: 760, height: 470)
+                        .scaleEffect(0.2, anchor: .topLeading)
+                        .frame(width: 152, height: 94, alignment: .topLeading)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(style == s.rawValue ? Color.accentColor : .secondary.opacity(0.3), lineWidth: style == s.rawValue ? 3 : 1))
+                        .allowsHitTesting(false)
+                    Text(s.title).font(.headline)
+                    Text(s.hint).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(width: 152, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(s.title)
+            .accessibilityAddTraits(style == s.rawValue ? .isSelected : [])
+        }
     }
 }
 
