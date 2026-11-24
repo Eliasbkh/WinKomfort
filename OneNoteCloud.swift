@@ -110,7 +110,7 @@ enum OneNoteCloud {
             // Umwandeln (im Hintergrund, Abschnitte gleichzeitig). Die Notizbuch-Datei (.onetoc2) liest der Umwandler
             // nicht zuverlässig – deshalb jeder Abschnitt einzeln, Reihenfolge wie in der OneNote-Seitenleiste.
             let sections: [String] = scope == .notebook
-                ? sortSections(remote.map(\.path).filter { $0.hasSuffix(".one") }.map { String($0.dropFirst(root.count)) }, order: t.order)
+                ? OneNoteOrder.sort(remote.map(\.path).filter { $0.hasSuffix(".one") }.map { String($0.dropFirst(root.count)) }, order: t.order)
                 : [String(t.section.dropFirst(root.count))]
             let work = FileManager.default.temporaryDirectory.appendingPathComponent("WinKomfort-OneNote-\(UUID().uuidString.prefix(8))", isDirectory: true)
             defer { try? FileManager.default.removeItem(at: work) }
@@ -166,22 +166,6 @@ enum OneNoteCloud {
     }
 
     // MARK: Umwandeln mit dem mitgelieferten Programm
-
-    // Reihenfolge: wie in der Seitenleiste (Gruppe, dann Abschnitt); Unbekanntes alphabetisch dahinter
-    static func sortSections(_ rels: [String], order: [String]) -> [String] {
-        func rank(_ name: String) -> Int { order.firstIndex(of: name) ?? Int.max / 2 }
-        func key(_ rel: String) -> [Int] {
-            let parts = rel.split(separator: "/").map(String.init)
-            return parts.enumerated().map { i, p in rank(i == parts.count - 1 ? (p as NSString).deletingPathExtension : p) }
-        }
-        return rels.sorted { a, b in
-            let ka = key(a), kb = key(b)
-            // Abschnitte direkt im Notizbuch vor/zwischen Gruppen über ihren eigenen Rang einordnen
-            if ka.first != kb.first { return (ka.first ?? 0) < (kb.first ?? 0) }
-            if ka != kb { return ka.lexicographicallyPrecedes(kb) }
-            return a.localizedStandardCompare(b) == .orderedAscending
-        }
-    }
 
     static func convert(_ input: URL, into out: URL) async throws -> URL {
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)

@@ -1,4 +1,4 @@
-// Tests: swiftc TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift Tests/main.swift -o /tmp/wktest && /tmp/wktest
+// Tests: swiftc TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift OneNoteOrder.swift Tests/main.swift -o /tmp/wktest && /tmp/wktest
 typealias A = TapDragLogic.Action
 typealias P = TapDragLogic.Point
 
@@ -124,6 +124,13 @@ sc("Linke Hälfte", "\(SnapMath.target(.left, in: vis))", "\(CGRect(x: 0, y: 33,
 sc("Rechte Hälfte", "\(SnapMath.target(.right, in: vis))", "\(CGRect(x: 735, y: 33, width: 735, height: 853))")
 sc("Ungerade Breite: Hälften lückenlos", "\(SnapMath.target(.right, in: CGRect(x: 1470, y: -200, width: 1921, height: 1050)))", "\(CGRect(x: 2431, y: -200, width: 960, height: 1050))")
 sc("Maximieren", "\(SnapMath.target(.max, in: vis))", "\(vis)")
+
+// OneNote: Abschnitte wie in der Seitenleiste (Gruppen-Zeile, dann ihre Abschnitte), Unbekanntes hinten
+let side = ["Willkommen", "_Collaboration Space", "Nutzt es!", "_Inhaltsbibliothek", "Formelsammlung", "JavaKara", "Elias Burkhardt - TGI11", "Kursnotizen"]
+sc("OneNote-Reihenfolge", OneNoteOrder.sort(["_Inhaltsbibliothek/JavaKara.one", "Elias Burkhardt - TGI11/Kursnotizen.one", "Willkommen.one",
+    "_Inhaltsbibliothek/Formelsammlung.one", "_Collaboration Space/Nutzt es!.one", "_Inhaltsbibliothek/DBS.one"], order: side).joined(separator: ","),
+   "Willkommen.one,_Collaboration Space/Nutzt es!.one,_Inhaltsbibliothek/Formelsammlung.one,_Inhaltsbibliothek/JavaKara.one,_Inhaltsbibliothek/DBS.one,Elias Burkhardt - TGI11/Kursnotizen.one")
+sc("OneNote ohne Seitenleiste: alphabetisch", OneNoteOrder.sort(["b.one", "a.one", "Gruppe/c.one"], order: []).joined(separator: ","), "a.one,b.one,Gruppe/c.one")
 
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }
