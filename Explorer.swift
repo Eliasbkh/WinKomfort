@@ -7,11 +7,9 @@ import Quartz
 import QuickLookThumbnailing
 import UniformTypeIdentifiers
 
-// Sprache: Einstellung „language“ (de/en), sonst die Systemsprache
+// Sprache: dieselbe Wahl wie das App-Paket (Systemsprache oder Einstellung „Sprache“) – so passt alles zusammen
 func L(_ de: String, _ en: String) -> String {
-    let lang = UserDefaults.standard.string(forKey: "language") ?? "auto"
-    let english = lang == "auto" ? !(Locale.preferredLanguages.first ?? "de").hasPrefix("de") : lang == "en"
-    return english ? en : de
+    (Bundle.main.preferredLocalizations.first ?? "de").hasPrefix("de") ? de : en
 }
 
 enum ExplorerStyle: String, CaseIterable, Identifiable {
@@ -272,7 +270,8 @@ struct FileItem: Identifiable, Hashable, Sendable {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
             p.currentDirectoryURL = dir
-            p.arguments = ["-r", "-q", "-y", out.path] + names + ["-x", "*.DS_Store"]
+            // „./“ davor: Dateinamen, die mit „-“ beginnen, dürfen nicht als zip-Option gelten
+            p.arguments = ["-r", "-q", "-y", out.path] + names.map { "./" + $0 } + ["-x", "*.DS_Store"]
             try? p.run(); p.waitUntilExit()
         }
     }

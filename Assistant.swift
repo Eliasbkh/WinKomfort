@@ -3,6 +3,7 @@
 // Ausgewählte, harmlose Befehle gibt es auch als Links (winkomfort://gamemode/on …) – für Kurzbefehle und damit auch für Siri.
 import AppKit
 import FoundationModels
+import SwiftUI
 
 enum Assistant {
     // Befehlsliste für das Sprachmodell – kurz halten, damit es schnell und eindeutig bleibt

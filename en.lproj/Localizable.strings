@@ -1,0 +1,350 @@
+/* WinKomfort – English. Keys are the German texts from WinKomfort.swift. */
+
+/* Settings pages and groups */
+"Allgemein" = "General";
+"Eingabe" = "Input";
+"Fenster" = "Windows";
+"Tastenkürzel" = "Keyboard shortcuts";
+"Mitteilungen" = "Notifications";
+"Menüleiste" = "Menu bar";
+"Animationen" = "Animations";
+"Autostarts" = "Startup items";
+"Mac aufräumen" = "Clean up Mac";
+"Suchen" = "Search";
+
+/* Search keywords (settings sidebar search) */
+"Anmelden Start Updates Version Bedienungshilfen Wach bleiben Bildschirm Ruhezustand Zwischenablage Verlauf Kopieren Einfügen" = "Login start updates version accessibility stay awake display sleep clipboard history copy paste language";
+"Kürzel Tastatur Hotkey Startmenü" = "Shortcut keyboard hotkey start menu";
+"Startmenü Control Suche Tastenkürzel Trackpad Ziehen" = "Start menu control search keyboard shortcuts trackpad drag";
+"Dateimanager GNOME Nautilus Dolphin KDE Linux Windows 11 Quick Look Vorschau Stil" = "File manager GNOME Nautilus Dolphin KDE Linux Windows 11 Quick Look preview style";
+"Nicht stören Fokus Alle Mitteilungen" = "Do not disturb focus all notifications";
+"Symbole Notch Platz" = "Icons notch space";
+"Trichter Minimieren Skalieren Tempo Dock Mission Control Übersicht" = "Genie minimize scale speed Dock Mission Control Quick Look";
+"Anmeldeobjekte Hintergrund Login Starter" = "Login items background login launcher";
+"GarageBand iMovie Papierkorb löschen Speicher" = "GarageBand iMovie trash delete storage";
+
+/* Features: input */
+"2× tippen und halten zum Ziehen" = "Double-tap and hold to drag";
+"Wie bei Windows: Finger heben lässt sofort los." = "Like Windows: lifting your finger releases immediately.";
+"Scrollrichtung wie bei Windows" = "Windows scroll direction";
+"Finger nach unten = Seite nach unten." = "Finger down = page down.";
+"Tasten wiederholen beim Halten" = "Repeat keys when held";
+"Schnelle Wiederholung statt Akzent-Menü. Offene Apps nach ihrem Neustart." = "Fast key repeat instead of the accent menu. Open apps after they restart.";
+"F1–F12 als echte F-Tasten" = "Use F1–F12 as standard function keys";
+"F5, F2 & Co. wie bei Windows. Helligkeit/Lautstärke dann mit fn." = "F5, F2 and others work like on Windows. Use fn for brightness and volume.";
+"Tab springt durch alle Bedienelemente" = "Tab moves through all controls";
+"Auch Knöpfe in Dialogen per Tab und Leertaste bedienen." = "Use Tab and Space for buttons in dialogs, too.";
+
+/* Features: windows */
+"Minimieren ins App-Symbol" = "Minimize into app icon";
+"Wie die Taskleiste: Fenster verschwinden im Dock-Symbol der App statt rechts im Dock." = "Like the taskbar: windows go into the app’s Dock icon instead of the right side of the Dock.";
+"Menüleiste ausblenden" = "Hide menu bar";
+"Erscheint nur, wenn die Maus nach oben geht. Den Streifen neben der Notch gibt macOS für Fenster nicht frei." = "Appears only when the pointer moves to the top. macOS doesn’t free up the strip next to the notch for windows.";
+"Dock ausblenden – ohne Verzögerung" = "Hide Dock – without delay";
+"Mehr Platz; das Dock kommt sofort, auch über Vollbild-Apps, sobald die Maus unten ankommt." = "More space. The Dock appears instantly, even over full-screen apps, as soon as the pointer reaches the bottom.";
+"Fenster-Snapping mit Vorschau" = "Window snapping with preview";
+"An Rand oder nach oben ziehen → Vorschau → einrasten. Per Tastatur: fn ⌃ + Pfeiltasten." = "Drag to an edge or the top → preview → snap. With the keyboard: fn ⌃ + arrow keys.";
+"Klick auf Schreibtisch versteckt keine Fenster" = "Clicking the desktop doesn’t hide windows";
+"Fenster bleiben stehen, wenn du aus Versehen auf den Hintergrund klickst." = "Windows stay put when you accidentally click the wallpaper.";
+"Schreibtische nicht umsortieren" = "Don’t rearrange Spaces";
+"Deine Spaces bleiben in fester Reihenfolge." = "Your Spaces stay in a fixed order.";
+"Schließen beendet die App" = "Closing quits the app";
+"Wie bei Windows: Letztes Fenster zu = App beendet. Den Finder nur, wenn „Finder beenden erlauben“ an ist." = "Like Windows: closing the last window quits the app. Finder only if “Allow quitting Finder” is on.";
+"Control antippen öffnet das Startmenü" = "Tapping Control opens the Start menu";
+"Wie die Windows-Taste: Control kurz allein drücken – Apps suchen, Ein/Aus." = "Like the Windows key: briefly press Control on its own – search apps, power.";
+
+/* Features: Finder */
+"Finder wie Explorer" = "Finder like File Explorer";
+"Dateiendungen, Pfadleiste, Statusleiste, Ordner zuerst, Pfad im Titel." = "File extensions, path bar, status bar, folders first, path in title.";
+"⌘X schneidet Dateien aus" = "⌘X cuts files";
+"Wie im Explorer: ⌘X und dann ⌘V verschiebt die Dateien. Neue Textdatei im offenen Ordner: ⌃⌥⌘N." = "Like File Explorer: ⌘X then ⌘V moves the files. New text file in the open folder: ⌃⌥⌘N.";
+"Finder beenden erlauben" = "Allow quitting Finder";
+"Wie jede andere App: ⌘Q beendet den Finder. Ein Klick aufs Finder-Symbol im Dock öffnet ihn wieder." = "Like any other app: ⌘Q quits Finder. Click the Finder icon in the Dock to open it again.";
+"Suche im aktuellen Ordner + Listenansicht" = "Search current folder + list view";
+"Wie im Explorer: Suche startet im offenen Ordner, Dateien als Liste." = "Like File Explorer: search starts in the open folder, files shown as a list.";
+"Versteckte Dateien anzeigen" = "Show hidden files";
+"Schnell umschalten geht auch mit ⇧⌘. im Finder." = "Toggle quickly with ⇧⌘. in Finder.";
+"Kein .DS_Store-Müll auf USB & Netzwerk" = "No .DS_Store clutter on USB & network";
+"Keine versteckten Mac-Dateien auf USB-Sticks für Windows-PCs." = "No hidden Mac files on USB drives for Windows PCs.";
+"Speichern- und Drucken-Dialog immer groß" = "Always expand Save and Print dialogs";
+"Gleich mit Ordnerauswahl statt Mini-Dialog." = "Show folder selection right away instead of the mini dialog.";
+
+/* Features: screenshots */
+"Screenshots in die Zwischenablage" = "Screenshots to clipboard";
+"⇧⌘3, ⇧⌘4 und ⇧⌘5 kopieren direkt – einfach mit ⌘V einfügen." = "⇧⌘3, ⇧⌘4 and ⇧⌘5 copy directly – just paste with ⌘V.";
+"Fenster-Screenshots ohne Schatten" = "Window screenshots without shadow";
+"⇧⌘4, dann Leertaste: nur das Fenster, ohne breiten Rand." = "⇧⌘4, then Space: just the window, without a wide border.";
+
+/* Start menu */
+"Apps durchsuchen" = "Search apps";
+"Angeheftet" = "Pinned";
+"Ergebnisse" = "Results";
+"Keine App gefunden." = "No app found.";
+"Schnellnotiz" = "Quick Note";
+"WinKomfort-Einstellungen" = "WinKomfort Settings";
+"Systemeinstellungen" = "System Settings";
+"Ruhezustand" = "Sleep";
+"Neustart …" = "Restart…";
+"Ausschalten …" = "Shut Down…";
+"Abmelden …" = "Log Out…";
+"Ein/Aus" = "Power";
+"Startmenü" = "Start menu";
+
+/* Notifications */
+"Mitteilungs-Einstellungen konnten nicht gelesen werden." = "Couldn’t read notification settings.";
+"„%@“ ließ sich nicht umschalten." = "Couldn’t switch “%@”.";
+"Schalte %lld/%lld: %@ …" = "Switching %lld/%lld: %@…";
+"Nicht umgeschaltet: %@" = "Not switched: %@";
+"Kontrollzentrum nicht erreichbar." = "Control Center not reachable.";
+"„Nicht stören“ ließ sich nicht umschalten." = "Couldn’t switch “Do Not Disturb”.";
+"Nicht stören" = "Do Not Disturb";
+"Schaltet alle Mitteilungen stumm – wie im Kontrollzentrum." = "Silences all notifications – like in Control Center.";
+"Alle Mitteilungen" = "All notifications";
+"Aus schaltet alle Apps stumm und merkt sich, welche an waren – An stellt genau diese wieder her." = "Off silences all apps and remembers which were on – On restores exactly those.";
+"Lese Mitteilungs-Einstellungen …" = "Reading notification settings…";
+"Keine Apps gefunden." = "No apps found.";
+"Mitteilungen pro App" = "Notifications per app";
+"WinKomfort stellt das im Hintergrund in den Systemeinstellungen um – Apple bietet dafür keinen direkten Weg. Ein Schalter dauert 2–3 Sekunden." = "WinKomfort changes this in System Settings in the background – Apple offers no direct way. Each switch takes 2–3 seconds.";
+
+/* Menu bar */
+"Rechts neben der Notch ist wenig Platz – was nicht mehr passt, blendet macOS einfach aus. Schalte hier Symbole ab, die du nicht brauchst." = "There’s little room to the right of the notch – macOS simply hides whatever doesn’t fit. Turn off icons you don’t need here.";
+"Symbole von macOS" = "macOS icons";
+"Symbole von Apps" = "App icons";
+"Lese Menüleiste …" = "Reading menu bar…";
+"Batterie" = "Battery";
+"Schneller Benutzerwechsel" = "Fast User Switching";
+"Konnte die Einstellungen nicht lesen." = "Couldn’t read the settings.";
+"Konnte den Schalter nicht umstellen." = "Couldn’t change the switch.";
+
+/* Search */
+"Enter kopiert das Ergebnis" = "Return copies the result";
+"Im Web suchen: „%@“" = "Search the web: “%@”";
+"Öffnet deinen Browser" = "Opens your browser";
+"Rechner" = "Calculator";
+"Suchen – Apps, Dateien, Rechnen …" = "Search – apps, files, calculations…";
+"Suche" = "Search";
+
+/* Quick note */
+"Notiz" = "Note";
+"Notiz leeren" = "Clear note";
+"Ausblenden" = "Hide";
+"Notiz ausblenden" = "Hide note";
+"Notiztext" = "Note text";
+
+/* Pinning */
+"Kein Fenster zum Anheften" = "No window to pin";
+"Fenster nicht erkannt" = "Window not recognized";
+"%@ gelöst" = "%@ unpinned";
+"Bitte „Bildschirmaufnahme“ für WinKomfort erlauben" = "Please allow “Screen Recording” for WinKomfort";
+"%@ angeheftet" = "%@ pinned";
+"Anheften nicht möglich" = "Can’t pin this window";
+
+/* Animations */
+"Dock ein- und ausblenden" = "Show and hide Dock";
+"Wie schnell das Dock hereinfährt." = "How fast the Dock slides in.";
+"Öffnen und Schließen der Fensterübersicht." = "Opening and closing the window overview.";
+"Fenster und Dialoge" = "Windows and dialogs";
+"Größe ändern, Speichern-Dialoge einblenden. Gilt nach dem Neustart einer App." = "Resizing, showing Save dialogs. Applies after an app restarts.";
+"Übersicht (Leertaste im Finder)" = "Quick Look (Space in Finder)";
+"Aufzoomen der Dateivorschau." = "Zooming in the file preview.";
+"Trichter" = "Genie";
+"Skalieren (schnell)" = "Scale (fast)";
+"Einsaugen" = "Suck";
+"Minimieren-Effekt" = "Minimize effect";
+"Für den Trichter gibt es keine Tempo-Einstellung – „Skalieren“ ist deutlich schneller." = "Genie has no speed setting – “Scale” is much faster.";
+"Tempo" = "Speed";
+"%@ Sekunden" = "%@ seconds";
+"Fenster mit Animation öffnen" = "Animate opening windows";
+"Aus: Fenster erscheinen sofort. Gilt nach dem Neustart einer App." = "Off: windows appear instantly. Applies after an app restarts.";
+"Apps hüpfen beim Start im Dock" = "Bounce apps in the Dock when opening";
+"Alles auf macOS-Standard zurücksetzen" = "Reset all to macOS defaults";
+
+/* Welcome */
+"Control kurz antippen – Apps suchen, Ein/Aus." = "Briefly tap Control – search apps, power.";
+"Apps, Dateien und Rechnen – mit %@." = "Apps, files and calculations – with %@.";
+"eigenem Kürzel" = "your own shortcut";
+"Fenster wie bei Windows" = "Windows like on Windows";
+"Einrasten, anheften, Schließen beendet die App." = "Snap, pin, and closing quits the app.";
+"Dock wie die Taskleiste" = "Dock like the taskbar";
+"Kommt zuverlässig – auch über Vollbild-Apps." = "Shows up reliably – even over full-screen apps.";
+"Willkommen bei WinKomfort" = "Welcome to WinKomfort";
+"Windows-Komfort für deinen Mac – sparsam und direkt eingebaut." = "Windows comfort for your Mac – lightweight and built right in.";
+"Freigaben" = "Permissions";
+"Bedienungshilfen" = "Accessibility";
+"Für Startmenü, Ziehen und Fenster-Funktionen." = "For the Start menu, dragging and window features.";
+"Bildschirmaufnahme" = "Screen Recording";
+"Nur zum Anheften von Fenstern – kann auch später." = "Only for pinning windows – you can do this later.";
+"Los geht’s" = "Get Started";
+"Erlaubt" = "Allowed";
+"Erlauben …" = "Allow…";
+
+/* Task Manager */
+"Task-Manager" = "Task Manager";
+"Keine Stromfresser gefunden" = "No energy hogs found";
+"Gerade braucht keine Hintergrund-App mehr als 3 % CPU." = "No background app is using more than 3 % CPU right now.";
+"%lld Stromfresser beenden?" = "Quit %lld energy hogs?";
+"Sie werden normal beendet und starten beim nächsten Mal wieder, falls sie Autostart haben." = "They quit normally and start again next time if they launch automatically.";
+"Beenden" = "Quit";
+"Abbrechen" = "Cancel";
+"Anzeige" = "Show";
+"Hintergrund" = "Background";
+"Arbeitsspeicher" = "Memory";
+"Task beenden" = "End task";
+"Sofort beenden (erzwingen)" = "Force quit";
+"Keine fremden Hintergrund-Apps aktiv" = "No third-party background apps running";
+"Hintergrund-Apps" = "background apps";
+"%lld %@ · alle 2 s aktualisiert" = "%lld %@ · updated every 2 s";
+"Stromfresser beenden …" = "Quit energy hogs…";
+"Aktivitätsanzeige" = "Activity Monitor";
+"Sofort beenden" = "Force quit";
+
+/* Keyboard shortcuts */
+"Suche öffnen" = "Open search";
+"Schnellnotiz ein-/ausblenden" = "Show/hide Quick Note";
+"Fenster anheften / lösen" = "Pin / unpin window";
+"Zwischenablage-Verlauf" = "Clipboard history";
+"Fenster wechseln (⇧ dazu: rückwärts)" = "Switch windows (add ⇧: backwards)";
+"Neue Textdatei im Finder" = "New text file in Finder";
+"OneNote: Seite, Abschnitt oder Notizbuch als PDF" = "OneNote: page, section or notebook as PDF";
+"Explorer öffnen" = "Open Explorer";
+"Fenster: linke Hälfte" = "Window: left half";
+"Fenster: rechte Hälfte" = "Window: right half";
+"Fenster: maximieren" = "Window: maximize";
+"Fenster: vorherige Größe / minimieren" = "Window: previous size / minimize";
+"Bitte mit ⌘, ⌃ oder ⌥ kombinieren." = "Please combine with ⌘, ⌃ or ⌥.";
+"Schon vergeben an „%@“." = "Already used by “%@”.";
+"%@ ist schon von macOS oder einer anderen App belegt." = "%@ is already used by macOS or another app.";
+"Kürzel drücken …" = "Press shortcut…";
+"Aus" = "Off";
+"aus" = "off";
+"Klicken und neue Tastenkombination drücken" = "Click and press a new key combination";
+"Auf Standard (%@) zurücksetzen" = "Reset to default (%@)";
+"%@ auf Standard zurücksetzen" = "Reset %@ to default";
+"Klicken, dann die neue Kombination drücken. Esc bricht ab, ⌫ schaltet das Kürzel aus." = "Click, then press the new combination. Esc cancels, ⌫ turns the shortcut off.";
+"Control kurz antippen" = "Briefly tap Control";
+
+/* Finder cut / new file */
+"Ausgeschnitten – mit ⌘V verschieben" = "Cut – press ⌘V to move";
+"Im Finder benutzen" = "Use in Finder";
+"Bitte erlauben, dass WinKomfort den Finder steuert" = "Please allow WinKomfort to control Finder";
+"Neue Textdatei" = "New Text Document";
+"Hier darf keine Datei angelegt werden" = "Can’t create a file here";
+
+/* OneNote */
+"In OneNote benutzen" = "Use in OneNote";
+"PDF wird schon erstellt …" = "PDF is already being created…";
+"Diese Seite als PDF" = "This page as PDF";
+"Ganzen Abschnitt als PDF" = "Whole section as PDF";
+"Ganzes Notizbuch als PDF" = "Whole notebook as PDF";
+
+/* Window switcher / snapping */
+"Bitte „Bedienungshilfen“ für WinKomfort erlauben" = "Please allow “Accessibility” for WinKomfort";
+
+/* Clipboard */
+"Zwischenablage-Verlauf ist aus (Einstellungen › Allgemein)" = "Clipboard history is off (Settings › General)";
+"Bild" = "Image";
+"Einfügen, Taste %lld" = "Paste, key %lld";
+"Einfügen" = "Paste";
+"Zwischenablage" = "Clipboard";
+"Alle löschen" = "Clear all";
+"Noch nichts kopiert" = "Nothing copied yet";
+"Kopierte Texte und Bilder erscheinen hier." = "Copied text and images appear here.";
+"↑↓ wählen · ↩ einfügen · 1–9 direkt · ⌫ löschen · esc schließt" = "↑↓ select · ↩ paste · 1–9 direct · ⌫ delete · esc closes";
+
+/* Startup items */
+"Abgebrochen – %@ wurde nicht geändert." = "Cancelled – %@ wasn’t changed.";
+"%@ startet wieder automatisch." = "%@ will start automatically again.";
+"%@ startet nicht mehr automatisch." = "%@ will no longer start automatically.";
+"Keine fremden Autostarts gefunden." = "No third-party startup items found.";
+" · systemweit, fragt nach Passwort" = " · system-wide, asks for password";
+"Hintergrund-Starter von Apps" = "App background launchers";
+"Ausschalten verhindert den automatischen Start – nichts wird gelöscht, Einschalten macht es rückgängig. Apple-Dienste werden nicht angezeigt." = "Turning off prevents automatic start – nothing is deleted, turning on undoes it. Apple services aren’t shown.";
+"Apps beim Anmelden" = "Apps at login";
+"Keine." = "None.";
+"Lese Hintergrundaktivitäten …" = "Reading background activity…";
+"Hintergrundaktivitäten" = "Background activity";
+"Darf eine App im Hintergrund laufen (Updater, Sync …)?" = "May an app run in the background (updaters, sync…)?";
+"Warte auf Erlaubnis für „System Events“ …" = "Waiting for permission for “System Events”…";
+"Kein Zugriff auf „System Events“. Erlauben unter Datenschutz & Sicherheit → Automation." = "No access to “System Events”. Allow it in Privacy & Security → Automation.";
+
+/* Clean up */
+"GarageBand-Soundbibliothek" = "GarageBand sound library";
+"Apple Loops (GarageBand-Sounds)" = "Apple Loops (GarageBand sounds)";
+"%lld Objekt(e) in den Papierkorb legen?" = "Move %lld item(s) to the Trash?";
+"Alles wird protokolliert. Wiederherstellen geht, solange der Papierkorb nicht geleert ist – Apple-Apps gibt es außerdem kostenlos im App Store." = "Everything is logged. You can restore items as long as the Trash isn’t emptied – Apple apps are also free in the App Store.";
+"In den Papierkorb" = "Move to Trash";
+"%@ konnte nicht entfernt werden." = "Couldn’t remove %@.";
+"%@ ist wieder da." = "%@ is back.";
+"%@ ist nicht mehr im Papierkorb – im App Store kostenlos neu laden." = "%@ is no longer in the Trash – download it again for free from the App Store.";
+"%@ ist nicht mehr im Papierkorb. GarageBand lädt die Sounds beim nächsten Start selbst nach." = "%@ is no longer in the Trash. GarageBand downloads the sounds again the next time it opens.";
+"Entfernbare Standard-Apps" = "Removable built-in apps";
+"Nichts mehr zum Aufräumen gefunden." = "Nothing left to clean up.";
+"Ausgewählte in den Papierkorb …" = "Move selected to Trash…";
+"Entfernt – rückgängig machen" = "Removed – undo";
+"Noch nichts entfernt." = "Nothing removed yet.";
+"Wiederherstellen" = "Restore";
+"%@ · war in %@" = "%@ · was in %@";
+"System-Apps wie Schach, Aktien oder News liegen auf dem versiegelten Systemvolume. macOS lässt sie nur löschen, wenn man den Systemschutz (SIP) abschaltet – das macht WinKomfort bewusst nicht." = "System apps like Chess, Stocks or News are on the sealed system volume. macOS only lets you delete them if you turn off System Integrity Protection (SIP) – WinKomfort deliberately doesn’t do that.";
+
+/* Updates */
+"Noch nicht geprüft" = "Not checked yet";
+"Suche nach Updates …" = "Checking for updates…";
+"Du hast die neueste Version." = "You have the latest version.";
+"Kein Update nötig" = "No update needed";
+"Version %@ ist aktuell." = "Version %@ is up to date.";
+"Version %@ hat keine signierte Download-Datei." = "Version %@ has no signed download.";
+"Neue Version %@ verfügbar" = "New version %@ available";
+"Jetzt installieren" = "Install now";
+"Später" = "Later";
+"Version %@ verfügbar" = "Version %@ available";
+"Installiere Version %@ …" = "Installing version %@…";
+"Update-Prüfung fehlgeschlagen" = "Update check failed";
+"Update fehlgeschlagen" = "Update failed";
+"Die Signatur des Updates stimmt nicht – es wurde nicht installiert." = "The update’s signature doesn’t match – it wasn’t installed.";
+"Das Update enthält keine gültige WinKomfort-App." = "The update doesn’t contain a valid WinKomfort app.";
+"Das Update hat die falsche Version (%@) – es wurde nicht installiert." = "The update has the wrong version (%@) – it wasn’t installed.";
+"WinKomfort wurde aktualisiert" = "WinKomfort was updated";
+
+/* Stay awake */
+"Bildschirm bleibt an" = "Keep display on";
+"Mac bleibt wach, Bildschirm darf aus" = "Keep Mac awake, display may sleep";
+"30 Minuten" = "30 minutes";
+"1 Stunde" = "1 hour";
+"2 Stunden" = "2 hours";
+"5 Stunden" = "5 hours";
+"Unbegrenzt" = "Indefinitely";
+" – bis %@" = " – until %@";
+" – unbegrenzt" = " – indefinitely";
+"Wach bleiben" = "Stay awake";
+"Bildschirm jetzt aus – Mac arbeitet weiter" = "Turn off display now – Mac keeps working";
+"Wach bleiben beenden" = "Stop staying awake";
+"Starten" = "Start";
+"%@ starten" = "Start %@";
+
+/* Menu bar menu */
+"Suche …" = "Search…";
+"Explorer …" = "Explorer…";
+"Alle angehefteten Fenster lösen" = "Unpin all windows";
+"Task-Manager …" = "Task Manager…";
+"Autostarts …" = "Startup items…";
+"Mac aufräumen …" = "Clean up Mac…";
+"Einstellungen …" = "Settings…";
+"Nach Updates suchen …" = "Check for updates…";
+"WinKomfort beenden" = "Quit WinKomfort";
+
+/* General settings */
+"Beim Anmelden automatisch starten" = "Open at login";
+"Öffnen …" = "Open…";
+"Freigegeben ✓" = "Allowed ✓";
+"Nicht freigegeben – nötig für Startmenü, Ziehen und „Schließen beendet die App“" = "Not allowed – needed for the Start menu, dragging and “Closing quits the app”";
+"Zwischenablage-Verlauf (%@)" = "Clipboard history (%@)";
+"Kürzel aus" = "shortcut off";
+"Verlauf jetzt leeren" = "Clear history now";
+"Merkt sich die letzten 50 Texte und 10 Bilder – nur im Arbeitsspeicher, nach dem Neustart ist alles weg. Passwörter aus Passwort-Managern werden nie gespeichert." = "Remembers the last 50 texts and 10 images – in memory only, everything is gone after a restart. Passwords from password managers are never stored.";
+"Einführung erneut zeigen …" = "Show introduction again…";
+"Updates automatisch installieren" = "Install updates automatically";
+"Jetzt nach Updates suchen" = "Check for updates now";
+"Sprache" = "Language";
+"Automatisch (Systemsprache)" = "Automatic (system language)";
+"Gilt nach dem Neustart von WinKomfort." = "Takes effect after WinKomfort restarts.";
+"Neu starten" = "Restart";

@@ -6,7 +6,8 @@ V="${1:-1.0.0}"
 APP=build/WinKomfort.app
 rm -rf build && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Icon/WinKomfort.icns "$APP/Contents/Resources/" # Quelle: Icon/icon.svg
-swiftc -O -swift-version 5 -parse-as-library WinKomfort.swift Explorer.swift OneNoteCloud.swift TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift -o "$APP/Contents/MacOS/WinKomfort"
+cp -R de.lproj en.lproj "$APP/Contents/Resources/" # Übersetzungen (Schlüssel = deutscher Text)
+swiftc -O -swift-version 5 -parse-as-library WinKomfort.swift Explorer.swift OneNoteCloud.swift OneNoteOrder.swift GameMode.swift Assistant.swift MouseScroll.swift SystemMonitor.swift TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift -o "$APP/Contents/MacOS/WinKomfort"
 # OneNote-Umwandler (Rust, Open Source aus Joplin – siehe onenote/LICENSE)
 (cd onenote && PATH="$HOME/.cargo/bin:$PATH" cargo build --release -q -p onenote-html)
 cp onenote/target/release/onenote-html "$APP/Contents/MacOS/"
@@ -22,9 +23,13 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleVersion</key><string>$V</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>CFBundleDevelopmentRegion</key><string>de</string>
-  <key>CFBundleLocalizations</key><array><string>de</string></array>
+  <key>CFBundleLocalizations</key><array><string>de</string><string>en</string></array>
   <key>CFBundleIconFile</key><string>WinKomfort</string>
   <key>LSUIElement</key><true/>
+  <key>CFBundleURLTypes</key><array><dict>
+    <key>CFBundleURLName</key><string>de.winkomfort.app</string>
+    <key>CFBundleURLSchemes</key><array><string>winkomfort</string></array>
+  </dict></array>
   <key>NSAppleEventsUsageDescription</key><string>WinKomfort bittet den Finder, Apps beim Aufräumen in den Papierkorb zu legen und wiederherzustellen.</string>
 </dict></plist>
 EOF

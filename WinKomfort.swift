@@ -19,6 +19,12 @@ struct UpdateError: LocalizedError {
 }
 let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
 
+// Übersetzt Texte, die als String angezeigt werden (SwiftUI-Literale übersetzt SwiftUI selbst). Schlüssel = deutscher Text in en.lproj/Localizable.strings
+func tr(_ s: String, _ args: CVarArg...) -> String {
+    let t = Bundle.main.localizedString(forKey: s, value: nil, table: nil)
+    return args.isEmpty ? t : String(format: t, arguments: args)
+}
+
 // MARK: - Shell & defaults
 
 @discardableResult
@@ -64,10 +70,35 @@ struct Feature: Identifiable {
 
 let trackpads = ["com.apple.AppleMultitouchTrackpad", "com.apple.driver.AppleBluetoothMultitouch.trackpad"]
 let yes = ["-bool", "true"], no = ["-bool", "false"]
-let groups = ["Eingabe", "Fenster", "Finder", "Screenshots"]
-let groupIcons = ["hand.tap", "macwindow", "folder", "camera.viewfinder"]
+let groups = ["Eingabe", "Fenster", "Finder", "Screenshots", "Schreibtisch"]
+let groupIcons = ["hand.tap", "macwindow", "folder", "camera.viewfinder", "menubar.dock.rectangle"]
 
 let features: [Feature] = [
+    // Schreibtisch & Dock
+    Feature(id: "showdesk", group: groups[4], title: "Ecke unten rechts zeigt den Schreibtisch",
+            hint: "Wie der Knopf ganz rechts in der Windows-Taskleiste: Maus in die Ecke = alle Fenster beiseite.",
+            prefs: [Pref(domain: "com.apple.dock", key: "wvous-br-corner", on: ["-int", "4"], off: ["-int", "1"]),
+                    Pref(domain: "com.apple.dock", key: "wvous-br-modifier", on: ["-int", "0"], keep: true)], restart: ["Dock"]),
+    Feature(id: "deskicons", group: groups[4], title: "Symbole auf dem Schreibtisch ausblenden",
+            hint: "Aufgeräumter Schreibtisch – die Dateien bleiben im Ordner „Schreibtisch“ und im Explorer erreichbar.",
+            prefs: [Pref(domain: "com.apple.finder", key: "CreateDesktop", on: no)], restart: ["Finder"]),
+    Feature(id: "deskdrives", group: groups[4], title: "Laufwerke und USB-Sticks auf dem Schreibtisch",
+            hint: "Wie „Dieser PC“: angeschlossene Festplatten, USB-Sticks und Netzlaufwerke direkt sichtbar.",
+            prefs: [Pref(domain: "com.apple.finder", key: "ShowExternalHardDrivesOnDesktop", on: yes, off: no),
+                    Pref(domain: "com.apple.finder", key: "ShowRemovableMediaOnDesktop", on: yes, off: no),
+                    Pref(domain: "com.apple.finder", key: "ShowMountedServersOnDesktop", on: yes, off: no)], restart: ["Finder"]),
+    Feature(id: "deskwidgets", group: groups[4], title: "Widgets auf dem Schreibtisch ausblenden",
+            hint: "Die Widgets bleiben in der Mitteilungszentrale.",
+            prefs: [Pref(domain: "com.apple.WindowManager", key: "StandardHideWidgets", on: yes)]),
+    Feature(id: "dockrecents", group: groups[4], title: "Keine „Zuletzt benutzt“-Apps im Dock",
+            hint: "Das Dock zeigt nur deine angehefteten und laufenden Apps – wie die Windows-Taskleiste.",
+            prefs: [Pref(domain: "com.apple.dock", key: "show-recents", on: no)], restart: ["Dock"]),
+    Feature(id: "dockhidden", group: groups[4], title: "Ausgeblendete Apps im Dock blass zeigen",
+            hint: "Mit ⌘H versteckte Apps erkennt man sofort.",
+            prefs: [Pref(domain: "com.apple.dock", key: "showhidden", on: yes)], restart: ["Dock"]),
+    Feature(id: "dockbounce", group: groups[4], title: "Dock-Symbole hüpfen nicht",
+            hint: "Kein Springen beim Start und bei Hinweisen.",
+            prefs: [Pref(domain: "com.apple.dock", key: "no-bouncing", on: yes)], restart: ["Dock"]),
     // Trackpad & Tastatur
     Feature(id: "drag", group: groups[0], title: "2× tippen und halten zum Ziehen",
             hint: "Wie bei Windows: Finger heben lässt sofort los.",
@@ -667,7 +698,7 @@ struct StartView: View {
                 Text(NSFullUserName())
                 Spacer()
                 Button { StartMenu.hide(); QuickNote.shared.show() } label: { Image(systemName: "note.text") }
-                    .help("Schnellnotiz" + (HotAction.note.current.map { " (\($0.display))" } ?? "")).accessibilityLabel("Schnellnotiz")
+                    .help(tr("Schnellnotiz") + (HotAction.note.current.map { " (\($0.display))" } ?? "")).accessibilityLabel("Schnellnotiz")
                 Button { StartMenu.hide(); openTaskManager() } label: { Image(systemName: "list.bullet.rectangle") }
                     .help("Task-Manager").accessibilityLabel("Task-Manager")
                 Button { StartMenu.hide(); openSettingsWindow() } label: { Image(systemName: "macwindow.on.rectangle") }
@@ -848,7 +879,7 @@ struct NotifApp: Identifiable {
             let apps = Self.overview()?.map(\.1)
             Self.closeSettings(was)
             let dnd = Self.focus(want: nil)
-            return (apps, dnd, apps == nil ? "Mitteilungs-Einstellungen konnten nicht gelesen werden." : "")
+            return (apps, dnd, apps == nil ? tr("Mitteilungs-Einstellungen konnten nicht gelesen werden.") : "")
         }
     }
 
@@ -872,7 +903,7 @@ struct NotifApp: Identifiable {
             let was = !NSRunningApplication.runningApplications(withBundleIdentifier: Self.settings).isEmpty
             defer { Self.closeSettings(was) }
             let now = Self.switchOne(name, on)
-            return (Self.overview()?.map(\.1), nil, now == on ? "" : "„\(name)“ ließ sich nicht umschalten.")
+            return (Self.overview()?.map(\.1), nil, now == on ? "" : tr("„%@“ ließ sich nicht umschalten.", name))
         }
     }
 
@@ -888,18 +919,18 @@ struct NotifApp: Identifiable {
             defer { Self.closeSettings(was) }
             var failed: [String] = []
             for (i, name) in targets.enumerated() {
-                DispatchQueue.main.async { MainActor.assumeIsolated { Notifs.shared.message = "Schalte \(i + 1)/\(targets.count): \(name) …" } }
+                DispatchQueue.main.async { MainActor.assumeIsolated { Notifs.shared.message = tr("Schalte %lld/%lld: %@ …", i + 1, targets.count, name) } }
                 if Self.switchOne(name, on) != on { failed.append(name) }
             }
             if on && failed.isEmpty { DispatchQueue.main.async { UserDefaults.standard.removeObject(forKey: key) } }
-            return (Self.overview()?.map(\.1), nil, failed.isEmpty ? "" : "Nicht umgeschaltet: \(failed.joined(separator: ", "))")
+            return (Self.overview()?.map(\.1), nil, failed.isEmpty ? "" : tr("Nicht umgeschaltet: %@", failed.joined(separator: ", ")))
         }
     }
 
     func setDND(_ on: Bool) {
         run {
-            guard let now = Self.focus(want: on) else { return (nil, nil, "Kontrollzentrum nicht erreichbar.") }
-            return (nil, now, now == on ? "" : "„Nicht stören“ ließ sich nicht umschalten.")
+            guard let now = Self.focus(want: on) else { return (nil, nil, tr("Kontrollzentrum nicht erreichbar.")) }
+            return (nil, now, now == on ? "" : tr("„Nicht stören“ ließ sich nicht umschalten."))
         }
     }
 }
@@ -919,10 +950,10 @@ struct MenuBarTab: View {
                             .accessibilityLabel(item.name)
                             .disabled(m.busy)
                     }
-                    if m.items.isEmpty { Text(m.busy ? "Lese Menüleiste …" : m.message).foregroundStyle(.secondary) }
+                    if m.items.isEmpty { Text(m.busy ? tr("Lese Menüleiste …") : m.message).foregroundStyle(.secondary) }
                 } header: {
                     HStack {
-                        Text(group)
+                        Text(tr(group))
                         Spacer()
                         if m.busy && group == "Symbole von macOS" { ProgressView().controlSize(.small) }
                     }
@@ -971,7 +1002,7 @@ struct NotificationsTab: View {
                     if n.busy { ProgressView().controlSize(.small) }
                 }
             } footer: {
-                Text(n.message.isEmpty ? "WinKomfort stellt das im Hintergrund in den Systemeinstellungen um – Apple bietet dafür keinen direkten Weg. Ein Schalter dauert 2–3 Sekunden." : n.message)
+                Text(n.message.isEmpty ? tr("WinKomfort stellt das im Hintergrund in den Systemeinstellungen um – Apple bietet dafür keinen direkten Weg. Ein Schalter dauert 2–3 Sekunden.") : n.message)
                     .foregroundStyle(n.message.isEmpty || n.busy ? Color.secondary : Color.red)
             }
         }
@@ -1035,12 +1066,12 @@ struct SearchHit: Identifiable {
         let q = query.trimmingCharacters(in: .whitespaces)
         var h: [SearchHit] = []
         if let v = Calc.evaluate(q) {
-            h.append(SearchHit(kind: .calc, title: "= " + Calc.format(v), subtitle: "Enter kopiert das Ergebnis", path: nil))
+            h.append(SearchHit(kind: .calc, title: "= " + Calc.format(v), subtitle: tr("Enter kopiert das Ergebnis"), path: nil))
         }
         if !q.isEmpty {
             h += StartModel.shared.match(q).prefix(6).map { SearchHit(kind: .app, title: $0.name, subtitle: "App", path: $0.path) }
             h += files
-            h.append(SearchHit(kind: .web, title: "Im Web suchen: „\(q)“", subtitle: "Öffnet deinen Browser", path: nil))
+            h.append(SearchHit(kind: .web, title: tr("Im Web suchen: „%@“", q), subtitle: tr("Öffnet deinen Browser"), path: nil))
         }
         hits = h
         selected = min(selected, max(h.count - 1, 0))
@@ -1075,7 +1106,7 @@ struct SearchHit: Identifiable {
     func icon(_ hit: SearchHit) -> NSImage {
         switch hit.kind {
         case .app, .file: return StartModel.shared.icon(hit.path!)
-        case .calc: return NSImage(systemSymbolName: "equal.circle.fill", accessibilityDescription: "Rechner")!
+        case .calc: return NSImage(systemSymbolName: "equal.circle.fill", accessibilityDescription: tr("Rechner"))!
         case .web: return NSImage(systemSymbolName: "globe", accessibilityDescription: "Web")!
         }
     }
@@ -1178,11 +1209,11 @@ struct SearchField: NSViewRepresentable {
         f.drawsBackground = false
         f.focusRingType = .none
         f.font = .systemFont(ofSize: 22)
-        f.placeholderString = "Suchen – Apps, Dateien, Rechnen …"
+        f.placeholderString = tr("Suchen – Apps, Dateien, Rechnen …")
         f.cell?.isScrollable = true
         f.cell?.wraps = false
         f.delegate = context.coordinator
-        f.setAccessibilityLabel("Suche")
+        f.setAccessibilityLabel(tr("Suche"))
         SearchField.current = f
         return f
     }
@@ -1269,6 +1300,7 @@ func fixedHost<V: View>(_ view: V) -> NSHostingView<V> {
     private static var panel: NSPanel?
     private static var hideTask: DispatchWorkItem?
     static func show(_ text: String, symbol: String) {
+        let text = tr(text)
         let p = panel ?? {
             let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             p.isOpaque = false; p.backgroundColor = .clear; p.level = .statusBar; p.ignoresMouseEvents = true
@@ -1295,6 +1327,7 @@ func fixedHost<V: View>(_ view: V) -> NSHostingView<V> {
 
 @MainActor final class QuickNote: ObservableObject {
     static let shared = QuickNote()
+    func append(_ t: String) { text = text.isEmpty ? t : text + "\n" + t }
     @Published var text = UserDefaults.standard.string(forKey: "quickNote") ?? "" {
         didSet { UserDefaults.standard.set(text, forKey: "quickNote") }
     }
@@ -1353,7 +1386,7 @@ struct QuickNoteView: View {
                 Button { n.text = "" } label: { Image(systemName: "trash") }
                     .help("Notiz leeren").accessibilityLabel("Notiz leeren").disabled(n.text.isEmpty)
                 Button { n.hide() } label: { Image(systemName: "xmark") }
-                    .help("Ausblenden" + (HotAction.note.current.map { " (\($0.display))" } ?? "")).accessibilityLabel("Notiz ausblenden")
+                    .help(tr("Ausblenden") + (HotAction.note.current.map { " (\($0.display))" } ?? "")).accessibilityLabel("Notiz ausblenden")
             }
             .buttonStyle(.borderless)
             .padding(.horizontal, 12).padding(.vertical, 8)
@@ -1522,7 +1555,7 @@ final class ClickView: NSView {
         guard _AXUIElementGetWindow(ax, &id) == .success, id != 0 else { Toast.show("Fenster nicht erkannt", symbol: "pin.slash"); return }
         if let p = pinned.first(where: { $0.windowID == id }) {
             remove(p)
-            Toast.show("\(p.name) gelöst", symbol: "pin.slash")
+            Toast.show(tr("%@ gelöst", p.name), symbol: "pin.slash")
             return
         }
         guard CGPreflightScreenCaptureAccess() else {
@@ -1537,7 +1570,7 @@ final class ClickView: NSView {
                 try await p.start()
                 pinned.append(p)
                 observe()
-                Toast.show("\(title) angeheftet", symbol: "pin.fill")
+                Toast.show(tr("%@ angeheftet", title), symbol: "pin.fill")
             } catch {
                 Toast.show("Anheften nicht möglich", symbol: "pin.slash")
             }
@@ -1744,14 +1777,14 @@ struct AnimationTab: View {
                         HStack(spacing: 10) {
                             Slider(value: Binding(get: { m.speeds[a.id] ?? a.standard }, set: { m.change(a, $0) }), in: a.range)
                                 .frame(width: 170)
-                                .accessibilityLabel(a.title)
+                                .accessibilityLabel(tr(a.title))
                                 .accessibilityValue("\((m.speeds[a.id] ?? a.standard).formatted(.number.precision(.fractionLength(2)))) Sekunden")
                             Text("\((m.speeds[a.id] ?? a.standard).formatted(.number.precision(.fractionLength(2)))) s")
                                 .monospacedDigit().foregroundStyle(.secondary).frame(width: 46, alignment: .trailing)
                         }
                     } label: {
-                        Text(a.title)
-                        Text(a.hint)
+                        Text(tr(a.title))
+                        Text(tr(a.hint))
                     }
                 }
             }
@@ -1781,7 +1814,7 @@ struct WelcomeView: View {
     var close: () -> Void
     private let highlights: [(String, Color, String, String)] = [
         ("square.grid.2x2.fill", .blue, "Startmenü", "Control kurz antippen – Apps suchen, Ein/Aus."),
-        ("magnifyingglass", .gray, "Suche", "Apps, Dateien und Rechnen – mit \(HotAction.search.current?.display ?? "eigenem Kürzel")."),
+        ("magnifyingglass", .gray, "Suche", tr("Apps, Dateien und Rechnen – mit %@.", HotAction.search.current?.display ?? tr("eigenem Kürzel"))),
         ("macwindow", .indigo, "Fenster wie bei Windows", "Einrasten, anheften, Schließen beendet die App."),
         ("dock.rectangle", .teal, "Dock wie die Taskleiste", "Kommt zuverlässig – auch über Vollbild-Apps."),
     ]
@@ -1797,8 +1830,8 @@ struct WelcomeView: View {
                     HStack(alignment: .top, spacing: 14) {
                         Image(systemName: h.0).font(.title2).foregroundStyle(h.1).frame(width: 30).accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(h.2).font(.headline)
-                            Text(h.3).foregroundStyle(.secondary)
+                            Text(tr(h.2)).font(.headline)
+                            Text(tr(h.3)).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -1836,8 +1869,8 @@ struct WelcomeView: View {
                 Button("Erlauben …", action: action)
             }
         } label: {
-            Text(title)
-            Text(hint)
+            Text(tr(title))
+            Text(tr(hint))
         }
         .accessibilityElement(children: .combine)
     }
@@ -1867,7 +1900,7 @@ struct WelcomeView: View {
     let w: NSWindow
     if let existing = windows[id] { w = existing } else {
         w = NSWindow(contentViewController: NSHostingController(rootView: view()))
-        w.title = title
+        w.title = tr(title)
         w.isReleasedWhenClosed = false
         w.center()
         if let onClose {
@@ -1954,9 +1987,9 @@ struct TaskRow: Identifiable {
             alert("Keine Stromfresser gefunden", "Gerade braucht keine Hintergrund-App mehr als 3 % CPU.")
             return
         }
-        guard alert("\(hogs.count) Stromfresser beenden?",
+        guard alert(tr("%lld Stromfresser beenden?", hogs.count),
                     hogs.map { "• \($0.name) – \($0.cpu.formatted(.number.precision(.fractionLength(0)))) % CPU" }.joined(separator: "\n")
-                    + "\n\nSie werden normal beendet und starten beim nächsten Mal wieder, falls sie Autostart haben.",
+                    + "\n\n" + tr("Sie werden normal beendet und starten beim nächsten Mal wieder, falls sie Autostart haben."),
                     ["Beenden", "Abbrechen"]) else { return }
         end(Set(hogs.map(\.id)), force: false)
     }
@@ -1999,7 +2032,7 @@ struct TaskView: View {
             }
             HStack {
                 Text(m.rows.isEmpty && m.background ? "Keine fremden Hintergrund-Apps aktiv"
-                     : "\(m.rows.count) \(m.background ? "Hintergrund-Apps" : "Apps") · alle 2 s aktualisiert")
+                     : "\(m.rows.count) \(m.background ? tr("Hintergrund-Apps") : tr("Apps")) · alle 2 s aktualisiert")
                     .foregroundStyle(.secondary)
                 Spacer()
                 if m.background { Button("Stromfresser beenden …") { m.endHogs() } }
@@ -2023,11 +2056,11 @@ struct TaskView: View {
 
 // Globale Tastenkürzel – selbst festlegbar unter Einstellungen → Tastenkürzel
 enum HotAction: String, CaseIterable, Identifiable {
-    case search, switcher, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, newFile, tasks, onenote, explorer
+    case search, switcher, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, newFile, tasks, onenote, explorer, gameMode, ask
     var id: UInt32 {
         switch self {
         case .tasks: 1; case .search: 2; case .note: 3; case .pin: 4; case .clipboard: 5
-        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9; case .switcher: 10; case .newFile: 12; case .onenote: 13; case .explorer: 14
+        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9; case .switcher: 10; case .newFile: 12; case .onenote: 13; case .explorer: 14; case .gameMode: 15; case .ask: 16
         }
     }
     var title: String {
@@ -2041,6 +2074,8 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .newFile: "Neue Textdatei im Finder"
         case .onenote: "OneNote: Seite, Abschnitt oder Notizbuch als PDF"
         case .explorer: "Explorer öffnen"
+        case .gameMode: "Game Mode ein/aus"
+        case .ask: "KI-Befehl (Apple Intelligence)"
         case .snapLeft: "Fenster: linke Hälfte"
         case .snapRight: "Fenster: rechte Hälfte"
         case .snapMax: "Fenster: maximieren"
@@ -2058,6 +2093,8 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .clipboard: Shortcut(code: kVK_ANSI_V, mods: controlKey | optionKey, key: "V")
         case .onenote: Shortcut(code: kVK_ANSI_P, mods: controlKey | optionKey, key: "P")
         case .explorer: Shortcut(code: kVK_ANSI_E, mods: controlKey | optionKey, key: "E")
+        case .gameMode: Shortcut(code: kVK_ANSI_G, mods: controlKey | optionKey, key: "G")
+        case .ask: Shortcut(code: kVK_ANSI_K, mods: controlKey | optionKey, key: "K")
         case .snapLeft: Shortcut(code: kVK_LeftArrow, mods: controlKey | optionKey)
         case .snapRight: Shortcut(code: kVK_RightArrow, mods: controlKey | optionKey)
         case .snapMax: Shortcut(code: kVK_UpArrow, mods: controlKey | optionKey)
@@ -2085,6 +2122,8 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .newFile: newTextFile()
         case .onenote: OneNotePDF.showMenu()
         case .explorer: openExplorer()
+        case .gameMode: GameMode.shared.toggle()
+        case .ask: AskPanel.toggle()
         case .snapLeft: Snap.run(.left)
         case .snapRight: Snap.run(.right)
         case .snapMax: Snap.run(.max)
@@ -2179,13 +2218,13 @@ enum HotKey {
         if f.contains(.option) { mods |= optionKey }
         if f.contains(.shift) { mods |= shiftKey }
         let s = Shortcut(code: Int(e.keyCode), mods: mods, key: e.charactersIgnoringModifiers)
-        guard s.isValid else { NSSound.beep(); message = "Bitte mit ⌘, ⌃ oder ⌥ kombinieren."; return }
+        guard s.isValid else { NSSound.beep(); message = tr("Bitte mit ⌘, ⌃ oder ⌥ kombinieren."); return }
         if let other = HotAction.allCases.first(where: { $0 != a && $0.current?.code == s.code && $0.current?.mods == s.mods }) {
-            NSSound.beep(); message = "Schon vergeben an „\(other.title)“."; return
+            NSSound.beep(); message = tr("Schon vergeben an „%@“.", tr(other.title)); return
         }
         a.current = s
         stop()
-        if HotKey.failed.contains(a) { message = "\(s.display) ist schon von macOS oder einer anderen App belegt." }
+        if HotKey.failed.contains(a) { message = tr("%@ ist schon von macOS oder einer anderen App belegt.", s.display) }
     }
 }
 
@@ -2195,27 +2234,27 @@ struct ShortcutsTab: View {
         Form {
             Section {
                 ForEach(HotAction.allCases) { a in
-                    LabeledContent(a.title) {
+                    LabeledContent(tr(a.title)) {
                         HStack(spacing: 8) {
                             Button {
                                 if r.recording == a { r.stop() } else { r.start(a) }
                             } label: {
-                                Text(r.recording == a ? "Kürzel drücken …" : (a.current?.display ?? "Aus"))
+                                Text(r.recording == a ? tr("Kürzel drücken …") : (a.current?.display ?? tr("Aus")))
                                     .frame(minWidth: 120)
                                     .foregroundStyle(r.recording == a ? Color.accentColor : (a.current == nil ? .secondary : .primary))
                             }
-                            .accessibilityLabel("\(a.title): \(a.current?.display ?? "aus")")
+                            .accessibilityLabel("\(tr(a.title)): \(a.current?.display ?? tr("aus"))")
                             .accessibilityHint("Klicken und neue Tastenkombination drücken")
                             Button { a.reset(); HotKey.registerAll(); r.message = "" } label: { Image(systemName: "arrow.counterclockwise") }
                                 .buttonStyle(.borderless)
                                 .help("Auf Standard (\(a.standard.display)) zurücksetzen")
-                                .accessibilityLabel("\(a.title) auf Standard zurücksetzen")
+                                .accessibilityLabel("\(tr(a.title)) auf Standard zurücksetzen")
                                 .disabled(a.current == a.standard)
                         }
                     }
                 }
             } footer: {
-                Text(r.message.isEmpty ? "Klicken, dann die neue Kombination drücken. Esc bricht ab, ⌫ schaltet das Kürzel aus." : r.message)
+                Text(r.message.isEmpty ? tr("Klicken, dann die neue Kombination drücken. Esc bricht ab, ⌫ schaltet das Kürzel aus.") : r.message)
                     .foregroundStyle(r.message.isEmpty ? Color.secondary : Color.red)
             }
             Section {
@@ -2291,10 +2330,10 @@ enum FinderCut {
             .executeAndReturnError(&err).stringValue else {
         Toast.show("Bitte erlauben, dass WinKomfort den Finder steuert", symbol: "lock"); return
     }
-    var url = URL(fileURLWithPath: dir).appendingPathComponent("Neue Textdatei.txt")
+    var url = URL(fileURLWithPath: dir).appendingPathComponent(tr("Neue Textdatei") + ".txt")
     var n = 2
     while FileManager.default.fileExists(atPath: url.path) {
-        url = URL(fileURLWithPath: dir).appendingPathComponent("Neue Textdatei \(n).txt")
+        url = URL(fileURLWithPath: dir).appendingPathComponent(tr("Neue Textdatei") + " \(n).txt")
         n += 1
     }
     guard FileManager.default.createFile(atPath: url.path, contents: Data()) else {
@@ -2329,7 +2368,7 @@ enum OneNotePDF {
         guard AXIsProcessTrusted() else { afterTrust(prompt: true) {}; return }
         let menu = NSMenu()
         for (title, scope) in [("Diese Seite als PDF", Scope.page), ("Ganzen Abschnitt als PDF", .section), ("Ganzes Notizbuch als PDF", .notebook)] {
-            let item = NSMenuItem(title: title, action: #selector(MenuTarget.run(_:)), keyEquivalent: "")
+            let item = NSMenuItem(title: tr(title), action: #selector(MenuTarget.run(_:)), keyEquivalent: "")
             item.target = MenuTarget.shared
             item.representedObject = scope
             menu.addItem(item)
@@ -2343,6 +2382,17 @@ enum OneNotePDF {
         static let shared = MenuTarget()
         @MainActor @objc func run(_ sender: NSMenuItem) {
             guard let scope = sender.representedObject as? Scope else { return }
+            OneNotePDF.start(scope)
+        }
+    }
+
+    // Auch für KI-Befehle und Links: erst Cloud (Hintergrund), sonst Notbehelf über OneNote selbst
+    @MainActor static func start(_ scope: Scope) {
+        guard !running else { Toast.show(L("PDF wird schon erstellt …", "Already creating a PDF…"), symbol: "hourglass"); return }
+        guard NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first != nil else {
+            Toast.show(L("OneNote ist nicht geöffnet", "OneNote isn't open"), symbol: "doc.richtext"); return
+        }
+        do {
             OneNotePDF.running = true
             DispatchQueue.global(qos: .userInitiated).async {
                 // Bevorzugt: Original-Dateien aus der Cloud – schnell, im Hintergrund, ohne OneNote zu bedienen
@@ -2369,7 +2419,7 @@ enum OneNotePDF {
                     OneNotePDF.running = false
                     switch result {
                     case .success(let url):
-                        Toast.show("PDF gespeichert: \(url.lastPathComponent)", symbol: "checkmark.circle")
+                        Toast.show(L("PDF gespeichert: \(url.lastPathComponent)", "PDF saved: \(url.lastPathComponent)"), symbol: "checkmark.circle")
                         NSWorkspace.shared.activateFileViewerSelecting([url])
                     case .failure(let e): Toast.show(e.text, symbol: "exclamationmark.triangle")
                     }
@@ -2412,7 +2462,7 @@ enum OneNotePDF {
               let ax = UIAuto.app(bundle),
               let win = UIAuto.attr(ax, kAXFocusedWindowAttribute).map({ $0 as! AXUIElement }),
               let pages = outline(win, "List of Pages"), let sections = outline(win, "List of Sections") else {
-            return .failure(Failure(text: "OneNote-Seitenliste nicht gefunden – Seitenliste einblenden"))
+            return .failure(Failure(text: L("OneNote-Seitenliste nicht gefunden – Seitenliste einblenden", "OneNote page list not found – show the page list")))
         }
         let pid = app.processIdentifier
         app.activate() // das Menü von WinKomfort kann den Fokus kurz genommen haben
@@ -3084,11 +3134,11 @@ struct LaunchItem: Identifiable {
             let script = "do shell script \"\(cmds.joined(separator: "; ")) 2>/dev/null; true\" with administrator privileges"
             var err: NSDictionary?
             NSAppleScript(source: script)?.executeAndReturnError(&err)
-            if err != nil { message = "Abgebrochen – \(item.label) wurde nicht geändert."; scan(); return }
+            if err != nil { message = tr("Abgebrochen – %@ wurde nicht geändert.", item.label); scan(); return }
         } else {
             cmds.forEach { sh(["/bin/sh", "-c", $0 + " 2>/dev/null"]) }
         }
-        message = on ? "\(item.label) startet wieder automatisch." : "\(item.label) startet nicht mehr automatisch."
+        message = on ? tr("%@ startet wieder automatisch.", item.label) : tr("%@ startet nicht mehr automatisch.", item.label)
         scan()
     }
 }
@@ -3104,7 +3154,7 @@ struct AutostartView: View {
                 ForEach(a.items) { item in
                     Toggle(isOn: Binding(get: { item.enabled }, set: { a.set(item, $0) })) {
                         Text(item.label)
-                        Text("\(item.program.isEmpty ? "–" : item.program)\(item.daemon ? " · systemweit, fragt nach Passwort" : "")")
+                        Text("\(item.program.isEmpty ? "–" : item.program)\(item.daemon ? tr(" · systemweit, fragt nach Passwort") : "")")
                     }
                     .accessibilityLabel(item.label)
                 }
@@ -3114,7 +3164,7 @@ struct AutostartView: View {
                 Text("Ausschalten verhindert den automatischen Start – nichts wird gelöscht, Einschalten macht es rückgängig. Apple-Dienste werden nicht angezeigt.")
             }
             Section("Apps beim Anmelden") {
-                if login.items.isEmpty { Text(login.message.isEmpty ? "Keine." : login.message).foregroundStyle(.secondary) }
+                if login.items.isEmpty { Text(login.message.isEmpty ? tr("Keine.") : login.message).foregroundStyle(.secondary) }
                 ForEach(login.items) { app in
                     Toggle(isOn: Binding(get: { app.on }, set: { login.set(app, $0) })) {
                         Text(app.name)
@@ -3125,7 +3175,7 @@ struct AutostartView: View {
                 }
             }
             Section {
-                if bg.items.isEmpty { Text(bg.busy ? "Lese Hintergrundaktivitäten …" : bg.message).foregroundStyle(.secondary) }
+                if bg.items.isEmpty { Text(bg.busy ? tr("Lese Hintergrundaktivitäten …") : bg.message).foregroundStyle(.secondary) }
                 ForEach(bg.items) { item in
                     Toggle(isOn: Binding(get: { item.on }, set: { bg.set(item.id, $0) })) {
                         Text(item.name)
@@ -3141,7 +3191,7 @@ struct AutostartView: View {
                     if bg.busy { ProgressView().controlSize(.small) }
                 }
             } footer: {
-                Text(bg.message.isEmpty ? "Darf eine App im Hintergrund laufen (Updater, Sync …)?" : bg.message)
+                Text(bg.message.isEmpty ? tr("Darf eine App im Hintergrund laufen (Updater, Sync …)?") : bg.message)
             }
             if !a.message.isEmpty { Section { Text(a.message) } }
         }
@@ -3220,7 +3270,7 @@ struct SysSwitch: Identifiable {
         let (url, ready, extract) = (url, ready, extract)
         run {
             let r = UIAuto.onSettingsPage(url, ready: ready) { extract($0).map(\.0) }
-            return (r, r == nil ? "Konnte die Einstellungen nicht lesen." : "")
+            return (r, r == nil ? tr("Konnte die Einstellungen nicht lesen.") : "")
         }
     }
 
@@ -3236,7 +3286,7 @@ struct SysSwitch: Identifiable {
                 return UIAuto.app(UIAuto.settings).map { extract(UIAuto.elements($0)).map(\.0) }
             }
             let ok = r?.first(where: { $0.id == id })?.on == on
-            return (r, ok ? "" : "Konnte den Schalter nicht umstellen.")
+            return (r, ok ? "" : tr("Konnte den Schalter nicht umstellen."))
         }
     }
 }
@@ -3274,7 +3324,7 @@ let menuBarSwitches = SettingsSwitches(
             guard role == "AXCheckBox" else { continue }
             if let id = UIAuto.id(el), id.hasPrefix("controlcenter-"), id.hasSuffix("-id") {
                 let label = UIAuto.label(el)
-                out.append((SysSwitch(id: id, name: label.isEmpty ? (names[id] ?? id) : label.replacingOccurrences(of: "\u{AD}", with: ""),
+                out.append((SysSwitch(id: id, name: label.isEmpty ? (names[id].map { tr($0) } ?? id) : label.replacingOccurrences(of: "\u{AD}", with: ""),
                                       group: "Symbole von macOS", on: UIAuto.value(el)), el))
             } else if inApps, !lastText.isEmpty, lastText != "WinKomfort" { // WinKomfort selbst bleibt immer sichtbar
                 out.append((SysSwitch(id: "app:" + lastText, name: lastText, group: "Symbole von Apps", on: UIAuto.value(el)), el))
@@ -3327,7 +3377,7 @@ struct LoginApp: Identifiable {
 
     private func run(_ work: @escaping () -> (list: [LoginApp]?, change: (String, String?)?)) {
         busy = true
-        message = items.isEmpty ? "Warte auf Erlaubnis für „System Events“ …" : ""
+        message = items.isEmpty ? tr("Warte auf Erlaubnis für „System Events“ …") : ""
         queue.async {
             let r = work()
             DispatchQueue.main.async {
@@ -3335,7 +3385,7 @@ struct LoginApp: Identifiable {
                     self.busy = false
                     if let (name, path) = r.change { self.removed[name] = path }
                     guard let list = r.list else {
-                        self.message = "Kein Zugriff auf „System Events“. Erlauben unter Datenschutz & Sicherheit → Automation."
+                        self.message = tr("Kein Zugriff auf „System Events“. Erlauben unter Datenschutz & Sicherheit → Automation.")
                         return
                     }
                     var all = list.filter { $0.name != "WinKomfort" } // WinKomfort selbst: Einstellungen → Allgemein
@@ -3427,9 +3477,9 @@ let cleanupCandidates = [
 
     func removeChosen() {
         let items = found.filter { chosen.contains($0.id) }
-        guard !items.isEmpty, alert("\(items.count) Objekt(e) in den Papierkorb legen?",
+        guard !items.isEmpty, alert(tr("%lld Objekt(e) in den Papierkorb legen?", items.count),
             items.map { "• \($0.name)" }.joined(separator: "\n")
-            + "\n\nAlles wird protokolliert. Wiederherstellen geht, solange der Papierkorb nicht geleert ist – Apple-Apps gibt es außerdem kostenlos im App Store.",
+            + "\n\n" + tr("Alles wird protokolliert. Wiederherstellen geht, solange der Papierkorb nicht geleert ist – Apple-Apps gibt es außerdem kostenlos im App Store."),
             ["In den Papierkorb", "Abbrechen"]) else { return }
         message = ""
         for c in items {
@@ -3437,7 +3487,7 @@ let cleanupCandidates = [
                 log.append(Removed(name: c.name, original: c.path, trash: trash, date: Date(), store: c.store))
                 save()
             } else {
-                message = "\(c.name) konnte nicht entfernt werden."
+                message = tr("%@ konnte nicht entfernt werden.", c.name)
             }
         }
         scan()
@@ -3450,12 +3500,12 @@ let cleanupCandidates = [
            finder("set f to move (POSIX file \"\(r.trash)\" as alias) to (POSIX file \"\(parent)\" as alias)\nset name of f to \"\(name)\"") != nil {
             log.removeAll { $0.id == r.id }
             save()
-            message = "\(r.name) ist wieder da."
+            message = tr("%@ ist wieder da.", r.name)
         } else if let s = r.store {
             NSWorkspace.shared.open(URL(string: "macappstore://apps.apple.com/app/id\(s)")!)
-            message = "\(r.name) ist nicht mehr im Papierkorb – im App Store kostenlos neu laden."
+            message = tr("%@ ist nicht mehr im Papierkorb – im App Store kostenlos neu laden.", r.name)
         } else {
-            message = "\(r.name) ist nicht mehr im Papierkorb. GarageBand lädt die Sounds beim nächsten Start selbst nach."
+            message = tr("%@ ist nicht mehr im Papierkorb. GarageBand lädt die Sounds beim nächsten Start selbst nach.", r.name)
         }
         scan()
     }
@@ -3508,9 +3558,9 @@ struct CleanupView: View {
 func alert(_ title: String, _ text: String, _ buttons: [String] = ["OK"]) -> Bool {
     NSApp.activate(ignoringOtherApps: true)
     let a = NSAlert()
-    a.messageText = title
-    a.informativeText = text
-    buttons.forEach { a.addButton(withTitle: $0) }
+    a.messageText = tr(title)
+    a.informativeText = tr(text)
+    buttons.forEach { a.addButton(withTitle: tr($0)) }
     return a.runModal() == .alertFirstButtonReturn
 }
 
@@ -3525,7 +3575,7 @@ struct Release: Decodable {
 
 @MainActor final class Updater: ObservableObject {
     static let shared = Updater()
-    @Published var status = "Noch nicht geprüft"
+    @Published var status = tr("Noch nicht geprüft")
 
     func loop() async {
         try? await Task.sleep(for: .seconds(10))
@@ -3536,7 +3586,7 @@ struct Release: Decodable {
     }
 
     func check(manual: Bool) async {
-        status = "Suche nach Updates …"
+        status = tr("Suche nach Updates …")
         do {
             let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!
             let (data, resp) = try await URLSession.shared.data(for: URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData))
@@ -3544,25 +3594,25 @@ struct Release: Decodable {
             let rel = try JSONDecoder().decode(Release.self, from: data)
             let latest = rel.tag_name.trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
             guard latest.compare(appVersion, options: .numeric) == .orderedDescending else {
-                status = "Du hast die neueste Version."
-                if manual { alert("Kein Update nötig", "Version \(appVersion) ist aktuell.") }
+                status = tr("Du hast die neueste Version.")
+                if manual { alert("Kein Update nötig", tr("Version %@ ist aktuell.", appVersion)) }
                 return
             }
             guard let zip = rel.assets.first(where: { $0.name.hasSuffix(".zip") }),
                   let sig = rel.assets.first(where: { $0.name == zip.name + ".sig" }) else {
-                status = "Version \(latest) hat keine signierte Download-Datei."
+                status = tr("Version %@ hat keine signierte Download-Datei.", latest)
                 return
             }
             if !UserDefaults.standard.bool(forKey: "autoUpdate") {
-                guard alert("Neue Version \(latest) verfügbar", rel.body ?? "", ["Jetzt installieren", "Später"]) else {
-                    status = "Version \(latest) verfügbar"
+                guard alert(tr("Neue Version %@ verfügbar", latest), rel.body ?? "", ["Jetzt installieren", "Später"]) else {
+                    status = tr("Version %@ verfügbar", latest)
                     return
                 }
             }
-            status = "Installiere Version \(latest) …"
+            status = tr("Installiere Version %@ …", latest)
             try await install(zip.browser_download_url, sig: sig.browser_download_url, expected: latest, notes: rel.body ?? "")
         } catch {
-            status = "Update-Prüfung fehlgeschlagen"
+            status = tr("Update-Prüfung fehlgeschlagen")
             if manual { alert("Update fehlgeschlagen", error.localizedDescription) }
         }
     }
@@ -3588,16 +3638,21 @@ struct Release: Decodable {
         // Version steckt im signierten Zip → schützt davor, dass ein altes signiertes Zip als "neu" untergeschoben wird
         let newVersion = b.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
         guard newVersion == expected, newVersion.compare(appVersion, options: .numeric) == .orderedDescending else {
-            throw UpdateError("Das Update hat die falsche Version (\(newVersion)) – es wurde nicht installiert.")
+            throw UpdateError(tr("Das Update hat die falsche Version (%@) – es wurde nicht installiert.", newVersion))
         }
         _ = try FileManager.default.replaceItemAt(Bundle.main.bundleURL, withItemAt: new)
         UserDefaults.standard.set(notes, forKey: "notes")
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/sh")
-        p.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", Bundle.main.bundlePath]
-        try p.run()
-        NSApp.terminate(nil)
+        try relaunch()
     }
+}
+
+// Startet WinKomfort neu: neue Instanz kurz nach dem Beenden öffnen
+@MainActor func relaunch() throws {
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/bin/sh")
+    p.arguments = ["-c", "sleep 1; /usr/bin/open -n \"$0\"", Bundle.main.bundlePath]
+    try p.run()
+    NSApp.terminate(nil)
 }
 
 // MARK: - App
@@ -3608,6 +3663,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         MainActor.assumeIsolated { openSettingsWindow() }
         return true
+    }
+
+    // winkomfort://… aus Kurzbefehlen/Siri oder dem Browser
+    func application(_ application: NSApplication, open urls: [URL]) {
+        MainActor.assumeIsolated { urls.forEach(Assistant.handle) }
     }
 
     func applicationDidFinishLaunching(_ n: Notification) {
@@ -3642,6 +3702,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SearchPanel.prepare()
         if !d.bool(forKey: "welcomeShown") { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MainActor.assumeIsolated { openWelcome() } } }
         DockReveal.start()
+        GameMode.shared.setup()
+        MouseScroll.update()
+        SystemMonitor.shared.update()
         Task { await Updater.shared.loop() }
     }
 }
@@ -3681,8 +3744,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     var status: String {
-        guard let mode else { return "Aus" }
-        return mode.rawValue + (until.map { " – bis \($0.formatted(date: .omitted, time: .shortened))" } ?? " – unbegrenzt")
+        guard let mode else { return tr("Aus") }
+        return tr(mode.rawValue) + (until.map { tr(" – bis %@", $0.formatted(date: .omitted, time: .shortened)) } ?? tr(" – unbegrenzt"))
     }
 }
 
@@ -3693,9 +3756,9 @@ struct MenuContent: View {
             Text(awake.status)
             Divider()
             ForEach([Awake.Mode.display, .system], id: \.self) { m in
-                Section(m.rawValue) {
+                Section(tr(m.rawValue)) {
                     ForEach(Awake.durations, id: \.0) { d in
-                        Button(d.0) { awake.start(m, minutes: d.1) }
+                        Button(tr(d.0)) { awake.start(m, minutes: d.1) }
                     }
                 }
             }
@@ -3723,7 +3786,7 @@ struct MenuContent: View {
 // Einstellungsfenster wie bei Systemapps: AppKit-Tabs im Toolbar-Stil, Inhalt in SwiftUI
 // Seiten wie in den Systemeinstellungen: farbige Symbolkachel, Titel, Suchbegriffe
 enum Pane: String, CaseIterable, Identifiable {
-    case general, input, shortcuts, windows, finder, explorer, screenshots, notifications, menubar, animations, autostarts, cleanup
+    case general, input, shortcuts, windows, desktop, finder, explorer, gamemode, screenshots, notifications, menubar, animations, autostarts, cleanup
     var id: String { rawValue }
 
     var title: String {
@@ -3734,6 +3797,8 @@ enum Pane: String, CaseIterable, Identifiable {
         case .windows: "Fenster"
         case .finder: "Finder"
         case .explorer: "Explorer"
+        case .gamemode: "Game Mode"
+        case .desktop: "Schreibtisch & Dock"
         case .screenshots: "Screenshots"
         case .notifications: "Mitteilungen"
         case .menubar: "Menüleiste"
@@ -3750,6 +3815,8 @@ enum Pane: String, CaseIterable, Identifiable {
         case .windows: "macwindow"
         case .finder: "folder.fill"
         case .explorer: "folder.badge.gearshape"
+        case .gamemode: "gamecontroller.fill"
+        case .desktop: "menubar.dock.rectangle"
         case .screenshots: "camera.viewfinder"
         case .notifications: "bell.badge.fill"
         case .menubar: "menubar.rectangle"
@@ -3767,6 +3834,8 @@ enum Pane: String, CaseIterable, Identifiable {
         case .windows: .indigo
         case .finder: .cyan
         case .explorer: .teal
+        case .gamemode: .red
+        case .desktop: .blue
         case .screenshots: .gray
         case .notifications: .red
         case .menubar: .secondary
@@ -3781,6 +3850,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .windows: groups[1]
         case .finder: groups[2]
         case .screenshots: groups[3]
+        case .desktop: groups[4]
         default: nil
         }
     }
@@ -3793,6 +3863,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .shortcuts: t += HotAction.allCases.map(\.title) + ["Kürzel Tastatur Hotkey Startmenü"]
         case .input: t += ["Startmenü Control Suche Tastenkürzel Trackpad Ziehen"]
         case .windows: t += ["Schließen beendet die App"]
+        case .gamemode: t += ["Spiele Spielen Gaming Leistung Drosseln Nicht stören"]
         case .explorer: t += ["Dateimanager GNOME Nautilus Dolphin KDE Linux Windows 11 Quick Look Vorschau Stil"]
         case .notifications: t += ["Nicht stören Fokus Alle Mitteilungen"]
         case .menubar: t += ["Symbole Notch Platz"]
@@ -3801,7 +3872,7 @@ enum Pane: String, CaseIterable, Identifiable {
         case .cleanup: t += ["GarageBand iMovie Papierkorb löschen Speicher"]
         default: break
         }
-        return t.joined(separator: " ")
+        return (t + t.map { tr($0) }).joined(separator: " ")
     }
 }
 
@@ -3833,7 +3904,7 @@ struct SettingsRoot: View {
         NavigationSplitView {
             List(nav.visible, selection: $nav.pane) { pane in
                 NavigationLink(value: pane) {
-                    Label { Text(pane.title) } icon: { PaneIcon(pane: pane) }
+                    Label { Text(tr(pane.title)) } icon: { PaneIcon(pane: pane) }
                 }
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 215, max: 260)
@@ -3849,10 +3920,11 @@ struct SettingsRoot: View {
                 case .autostarts: AutostartView()
                 case .cleanup: CleanupView()
                 case .explorer: ExplorerTab()
+                case .gamemode: GameModeTab()
                 case let p: FeatureTab(store: Store.shared, group: p.group ?? groups[0])
                 }
             }
-            .navigationTitle((nav.pane ?? .general).title)
+            .navigationTitle(tr((nav.pane ?? .general).title))
         }
         .searchable(text: $nav.query, placement: .sidebar, prompt: "Suchen")
         .onChange(of: nav.query) { _, _ in
@@ -3875,7 +3947,7 @@ struct SettingsRoot: View {
         w.toolbar = NSToolbar() // Platz für Seitenleisten-Knopf und Titel, wie bei Systemapps
         w.toolbarStyle = .unified
         w.titlebarSeparatorStyle = .automatic
-        w.title = (SettingsNav.shared.pane ?? .general).title // wie bei Apple: Name der Seite oben
+        w.title = tr((SettingsNav.shared.pane ?? .general).title) // wie bei Apple: Name der Seite oben
         w.setContentSize(NSSize(width: 780, height: 560))
         w.isReleasedWhenClosed = false
         w.setFrameAutosaveName("WinKomfortSettings") // Größe und Position merken
@@ -3899,13 +3971,14 @@ struct FeatureTab: View {
                     }
                     .accessibilityLabel("Control antippen öffnet das Startmenü")
                 }
+                if group == groups[0] { MouseSettings() }
                 if group == groups[1] {
-                    Toggle(isOn: store.closeQuits) { Text("Schließen beendet die App"); Text(closeHint) }
+                    Toggle(isOn: store.closeQuits) { Text("Schließen beendet die App"); Text(tr(closeHint)) }
                         .accessibilityLabel("Schließen beendet die App")
                 }
                 ForEach(features.filter { $0.group == group }) { f in
-                    Toggle(isOn: store.binding(f)) { Text(f.title); Text(f.hint) }
-                        .accessibilityLabel(f.title)
+                    Toggle(isOn: store.binding(f)) { Text(tr(f.title)); Text(tr(f.hint)) }
+                        .accessibilityLabel(tr(f.title))
                 }
             }
         }
@@ -3920,6 +3993,7 @@ struct GeneralTab: View {
     @AppStorage("autoUpdate") var autoUpdate = true
     @AppStorage("clipHistory") var clipHistory = true
     @AppStorage("onenoteQuality") var onenoteQuality = PDFQuality.compact.rawValue
+    @AppStorage("language") var language = "auto" // auch von L() in Explorer.swift gelesen
     var body: some View {
         Form {
             Section {
@@ -3938,12 +4012,12 @@ struct GeneralTab: View {
             Section("Wach bleiben") {
                 LabeledContent("Status", value: awake.status)
                 ForEach([Awake.Mode.display, .system], id: \.self) { m in
-                    LabeledContent(m.rawValue) {
+                    LabeledContent(tr(m.rawValue)) {
                         Menu("Starten") {
-                            ForEach(Awake.durations, id: \.0) { d in Button(d.0) { awake.start(m, minutes: d.1) } }
+                            ForEach(Awake.durations, id: \.0) { d in Button(tr(d.0)) { awake.start(m, minutes: d.1) } }
                         }
                         .fixedSize()
-                        .accessibilityLabel("\(m.rawValue) starten")
+                        .accessibilityLabel("\(tr(m.rawValue)) starten")
                     }
                 }
                 HStack {
@@ -3953,7 +4027,7 @@ struct GeneralTab: View {
                 }
             }
             Section {
-                Toggle("Zwischenablage-Verlauf (\(HotAction.clipboard.current?.display ?? "Kürzel aus"))", isOn: $clipHistory)
+                Toggle("Zwischenablage-Verlauf (\(HotAction.clipboard.current?.display ?? tr("Kürzel aus")))", isOn: $clipHistory)
                     .onChange(of: clipHistory) { ClipHistory.shared.start() }
                 Button("Verlauf jetzt leeren") { ClipHistory.shared.clear() }
             } header: { Text("Zwischenablage") } footer: {
@@ -3979,6 +4053,19 @@ struct GeneralTab: View {
                 Button("Jetzt nach Updates suchen") { Task { await updater.check(manual: true) } }
             }
             Section {
+                Picker("Sprache", selection: $language) {
+                    Text("Automatisch (Systemsprache)").tag("auto")
+                    Text(verbatim: "Deutsch").tag("de")
+                    Text(verbatim: "English").tag("en")
+                }
+                .onChange(of: language) { _, v in
+                    // AppleLanguages der App selbst: macOS wählt damit beim Start die Sprache aus de.lproj/en.lproj
+                    if v == "auto" { UserDefaults.standard.removeObject(forKey: "AppleLanguages") }
+                    else { UserDefaults.standard.set([v], forKey: "AppleLanguages") }
+                }
+                LabeledContent("Gilt nach dem Neustart von WinKomfort.") {
+                    Button("Neu starten") { try? relaunch() }
+                }
             }
         }
         .formStyle(.grouped)

@@ -50,3 +50,31 @@ enum MouseScroll {
         tap = nil
     }
 }
+
+import SwiftUI
+
+// Einstellungen (Seite „Eingabe“): Richtung und Tempo nur für die Maus, dazu die Systemanzeige in der Menüleiste
+struct MouseSettings: View {
+    @AppStorage("mouseReverse") private var reverse = false
+    @AppStorage("mouseSpeed") private var speed = 1.0
+    @AppStorage("sysMonitor") private var monitor = false
+    var body: some View {
+        Toggle(isOn: $reverse) {
+            Text(L("Maus scrollt wie unter Windows", "Mouse scrolls like Windows"))
+            Text(L("Nur die Maus scrollt umgekehrt – das Trackpad bleibt „natürlich“.", "Only the mouse scrolls the other way – the trackpad stays “natural”."))
+        }
+        .onChange(of: reverse) { _, _ in MouseScroll.update(prompt: true) }
+        LabeledContent(L("Scrolltempo der Maus", "Mouse scroll speed")) {
+            HStack {
+                Slider(value: $speed, in: 0.5...4, step: 0.5) { Text(L("Scrolltempo der Maus", "Mouse scroll speed")) }.labelsHidden().frame(width: 160)
+                Text(speed == 1 ? L("normal", "normal") : String(format: "%.1f×", speed)).monospacedDigit().frame(width: 52, alignment: .trailing)
+            }
+        }
+        .onChange(of: speed) { _, _ in MouseScroll.update(prompt: true) }
+        Toggle(isOn: $monitor) {
+            Text(L("CPU und Speicher in der Menüleiste", "CPU and memory in the menu bar"))
+            Text(L("Wie iStat/Stats – klicken öffnet den Task-Manager. Misst alle 3 s, kaum Energiebedarf.", "Like iStat/Stats – click opens Task Manager. Measures every 3 s, negligible energy use."))
+        }
+        .onChange(of: monitor) { _, _ in SystemMonitor.shared.update() }
+    }
+}
