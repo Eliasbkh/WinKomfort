@@ -3898,7 +3898,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 @MainActor final class Awake: ObservableObject {
     static let shared = Awake()
-    enum Mode: String { case display = "Bildschirm bleibt an", system = "Mac bleibt wach, Bildschirm darf aus" }
+    enum Mode: String { case display = "Bildschirm bleibt an", system = "Mac bleibt wach, Bildschirm darf aus", lid = "Auch zugeklappt weiterarbeiten" }
     @Published private(set) var mode: Mode?
     @Published private(set) var until: Date?
     private var assertion: IOPMAssertionID = 0
@@ -3906,8 +3906,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     static let durations: [(String, Int?)] = [("30 Minuten", 30), ("1 Stunde", 60), ("2 Stunden", 120), ("5 Stunden", 300), ("Unbegrenzt", nil)]
 
+    private var lidStop: URL?
+    private var lidWatch: Timer?
+    private var lidRequest = 0 // verwirft eine alte Passwort-Abfrage, wenn inzwischen etwas anderes gewählt wurde
+
+    // Hält macOS gerade wirklich auch zugeklappt wach?
+    nonisolated static var sleepDisabled: Bool {
+        let e = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
+        guard e != 0 else { return false }
+        defer { IOObjectRelease(e) }
+        return IORegistryEntryCreateCFProperty(e, "SleepDisabled" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? Bool ?? false
+    }
+
+    private func startLid(_ minutes: Int?) {
+        lidRequest += 1
+        let request = lidRequest
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("wk-lid-\(UUID().uuidString)")
+        let cmd = "/bin/bash -c " + LidScript.quote(LidScript.make(pid: getpid(), seconds: minutes.map { $0 * 60 }, stopFile: file.path)) + " >/dev/null 2>&1 &"
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        p.arguments = ["-e", "on run argv", "-e", "do shell script (item 1 of argv) with prompt (item 2 of argv) with administrator privileges", "-e", "end run", cmd,
+                       L("WinKomfort möchte den Mac auch zugeklappt wach halten.", "WinKomfort wants to keep the Mac awake with the lid closed.")]
+        p.standardError = FileHandle.nullDevice; p.standardOutput = FileHandle.nullDevice
+        p.terminationHandler = { p in
+            let ok = p.terminationStatus == 0
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { Awake.shared.lidStarted(ok, request, file, minutes) } }
+        }
+        do { try p.run() } catch { Toast.show(L("Nicht eingeschaltet", "Not turned on"), symbol: "lock") }
+    }
+    private func lidStarted(_ ok: Bool, _ request: Int, _ file: URL, _ minutes: Int?) {
+        guard ok, request == lidRequest, Self.sleepDisabled else {
+            FileManager.default.createFile(atPath: file.path, contents: nil) // falls es doch läuft: sofort zurücknehmen
+            if request == lidRequest { Toast.show(L("Nicht eingeschaltet", "Not turned on"), symbol: "lock") }
+            return
+        }
+        lidStop = file
+        begin(.lid, minutes)
+        // Endet von selbst bei fast leerem Akku – dann auch hier ausschalten
+        lidWatch = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in MainActor.assumeIsolated { if !Awake.sleepDisabled { Awake.shared.stop() } } }
+        lidWatch?.tolerance = 10
+        Toast.show(L("Du kannst zuklappen – der Mac arbeitet weiter", "You can close the lid – the Mac keeps working"), symbol: "laptopcomputer")
+    }
+
     func start(_ m: Mode, minutes: Int?) {
         stop()
+        if m == .lid { startLid(minutes) } else { begin(m, minutes) }
+    }
+
+    private func begin(_ m: Mode, _ minutes: Int?) {
         let type = m == .display ? kIOPMAssertionTypePreventUserIdleDisplaySleep : kIOPMAssertionTypePreventUserIdleSystemSleep
         guard IOPMAssertionCreateWithName(type as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
                                           "WinKomfort: \(m.rawValue)" as CFString, &assertion) == kIOReturnSuccess else { return }
@@ -3921,6 +3967,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func stop() {
+        lidRequest += 1
+        if let f = lidStop { FileManager.default.createFile(atPath: f.path, contents: nil); lidStop = nil }
+        lidWatch?.invalidate()
+        lidWatch = nil
         if assertion != 0 { IOPMAssertionRelease(assertion); assertion = 0 }
         timer?.invalidate()
         timer = nil
@@ -3940,7 +3990,7 @@ struct MenuContent: View {
         Menu("Wach bleiben") {
             Text(awake.status)
             Divider()
-            ForEach([Awake.Mode.display, .system], id: \.self) { m in
+            ForEach([Awake.Mode.display, .system, .lid], id: \.self) { m in
                 Section(tr(m.rawValue)) {
                     ForEach(Awake.durations, id: \.0) { d in
                         Button(tr(d.0)) { awake.start(m, minutes: d.1) }
@@ -4206,9 +4256,9 @@ struct GeneralTab: View {
                     }
                 }
             }
-            Section("Wach bleiben") {
+            Section {
                 LabeledContent("Status", value: awake.status)
-                ForEach([Awake.Mode.display, .system], id: \.self) { m in
+                ForEach([Awake.Mode.display, .system, .lid], id: \.self) { m in
                     LabeledContent(tr(m.rawValue)) {
                         Menu("Starten") {
                             ForEach(Awake.durations, id: \.0) { d in Button(tr(d.0)) { awake.start(m, minutes: d.1) } }
@@ -4222,6 +4272,9 @@ struct GeneralTab: View {
                     Spacer()
                     if awake.mode != nil { Button("Beenden") { awake.stop() } }
                 }
+            } header: { Text("Wach bleiben") } footer: {
+                Text(L("Zugeklappt fragt macOS nach deinem Passwort. Endet von selbst nach der Zeit, bei 20 % Akku oder wenn WinKomfort beendet wird. Nicht in der Tasche benutzen: Der Mac kann heiß werden.",
+                       "With the lid closed, macOS asks for your password. Ends by itself after the time, at 20% battery or when WinKomfort quits. Don't use it in a bag: the Mac can get hot."))
             }
             Section {
                 Toggle("Zwischenablage-Verlauf (\(HotAction.clipboard.current?.display ?? tr("Kürzel aus")))", isOn: $clipHistory)
