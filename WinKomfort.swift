@@ -3885,9 +3885,10 @@ enum Pane: String, CaseIterable, Identifiable {
         var t = [title]
         if let g = group { t += features.filter { $0.group == g }.flatMap { [$0.title, $0.hint] } }
         switch self {
-        case .general: t += ["Anmelden Start Updates Version Bedienungshilfen Wach bleiben Bildschirm Ruhezustand Zwischenablage Verlauf Kopieren Einfügen"]
+        case .general: t += ["Anmelden Start Updates Version Bedienungshilfen Wach bleiben Bildschirm Ruhezustand Zwischenablage Verlauf Kopieren Einfügen Text-Kürzel Snippets Textbausteine Siri Kurzbefehle Shortcuts KI Selbsttest Reparieren Protokoll Sprache Englisch Deutsch OneNote PDF Größe"]
         case .shortcuts: t += HotAction.allCases.map(\.title) + ["Kürzel Tastatur Hotkey Startmenü"]
-        case .input: t += ["Startmenü Control Suche Tastenkürzel Trackpad Ziehen"]
+        case .desktop: t += ["Dock Position Größe Vergrößerung Taskleiste Ecke Schreibtisch Symbole Widgets Laufwerke"]
+        case .input: t += ["Startmenü Control Suche Tastenkürzel Trackpad Ziehen Maus Scrollen Scrollrichtung Mausrad Tempo CPU RAM Speicher Auslastung Menüleiste"]
         case .windows: t += ["Schließen beendet die App"]
         case .gamemode: t += ["Spiele Spielen Gaming Leistung Drosseln Nicht stören"]
         case .explorer: t += ["Dateimanager GNOME Nautilus Dolphin KDE Linux Windows 11 Quick Look Vorschau Stil"]
