@@ -365,15 +365,18 @@ final class CloseWatcher {
         guard pending.insert(pid).inserted else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.pending.remove(pid)
-            var value: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXWindowsAttribute as CFString, &value) == .success,
-                  let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated,
-                  // Der Schreibtisch zählt beim Finder als Fenster (ohne Fensterart) – ihn nicht mitzählen
-                  let windows = (value as? [AXUIElement])?.filter({ app.bundleIdentifier != "com.apple.finder" || UIAuto.attr($0, kAXSubroleAttribute) != nil }),
-                  windows.isEmpty, !Self.hasWindowInOtherSpace(pid) else { return }
-            app.terminate()
+            Self.queue.async { // eine hängende App darf WinKomfort nicht anhalten
+                var value: CFTypeRef?
+                guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXWindowsAttribute as CFString, &value) == .success,
+                      let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated,
+                      // Der Schreibtisch zählt beim Finder als Fenster (ohne Fensterart) – ihn nicht mitzählen
+                      let windows = (value as? [AXUIElement])?.filter({ app.bundleIdentifier != "com.apple.finder" || UIAuto.attr($0, kAXSubroleAttribute) != nil }),
+                      windows.isEmpty, !Self.hasWindowInOtherSpace(pid) else { return }
+                DispatchQueue.main.async { if UserDefaults.standard.bool(forKey: "closeQuits") { app.terminate() } }
+            }
         }
     }
+    private static let queue = DispatchQueue(label: "winkomfort.close", qos: .utility)
 }
 
 // MARK: - Ziehen endet sofort beim Loslassen (wie Windows)
@@ -1777,10 +1780,11 @@ enum DockReveal {
         if p.y < bottom - 30 { pushed = false; return }       // Rand verlassen → nächstes Mal wieder helfen
         guard !pushed, p.y >= bottom - 1, !dockVisible() else { return }
         pushed = true
-        let x = p.x
         DispatchQueue.global(qos: .userInteractive).async {
             for _ in 0..<15 { // ~¼ s sanft weiterdrücken, Zeiger bleibt am Rand
-                guard let e = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: CGPoint(x: x, y: bottom - 1), mouseButton: .left) else { return }
+                // Immer an der aktuellen Stelle drücken; verlässt der Zeiger den Rand, sofort aufhören (sonst springt er zurück)
+                guard let now = CGEvent(source: nil)?.location, now.y >= bottom - 2,
+                      let e = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: CGPoint(x: now.x, y: bottom - 1), mouseButton: .left) else { return }
                 e.setIntegerValueField(.mouseEventDeltaY, value: 6)
                 e.setIntegerValueField(.eventSourceUserData, value: marker)
                 e.post(tap: .cghidEventTap)
@@ -2336,12 +2340,13 @@ enum HotKey {
     static let shared = ShortcutRecorder()
     @Published private(set) var recording: HotAction?
     @Published private(set) var recordingLaunch: UUID?
+    @Published private(set) var output = false // true: aufgenommen wird, was gedrückt werden SOLL
     var active: Bool { recording != nil || recordingLaunch != nil }
     @Published var message = ""
     private var monitor: Any?
 
     func start(_ a: HotAction) { stop(); recording = a; listen() }
-    func start(launch id: UUID) { stop(); recordingLaunch = id; listen() }
+    func start(launch id: UUID, output: Bool = false) { stop(); recordingLaunch = id; self.output = output; listen() }
 
     private func listen() {
         message = ""
@@ -2356,13 +2361,14 @@ enum HotKey {
         if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
         recording = nil
         recordingLaunch = nil
+        output = false
         HotKey.registerAll()
     }
 
     private func handle(_ e: NSEvent) {
         guard active else { return }
         let a = recording, launch = recordingLaunch
-        let set = { (s: Shortcut?) in if let a { a.current = s } else if let launch { Launcher.shared.setShortcut(launch, s) } }
+        let set = { (s: Shortcut?) in if let a { a.current = s } else if let launch { Launcher.shared.setShortcut(launch, s, output: ShortcutRecorder.shared.output) } }
         let f = e.modifierFlags
         if f.intersection([.command, .control, .option]).isEmpty {
             if e.keyCode == 53 { stop(); return }                                   // Esc: abbrechen
@@ -2374,9 +2380,16 @@ enum HotKey {
         if f.contains(.option) { mods |= optionKey }
         if f.contains(.shift) { mods |= shiftKey }
         let s = Shortcut(code: Int(e.keyCode), mods: mods, key: e.charactersIgnoringModifiers)
+        if output { // beim Ziel ist jede Taste erlaubt, nur kein eigenes Kürzel (sonst dreht es sich im Kreis)
+            if Launcher.shared.keys.contains(where: { $0.shortcut.map { $0.code == s.code && $0.mods == s.mods } == true }) { NSSound.beep(); message = L("Das ist selbst ein eigenes Kürzel.", "That is a custom shortcut itself."); return }
+            set(s); stop(); return
+        }
         guard s.isValid else { NSSound.beep(); message = tr("Bitte mit ⌘, ⌃ oder ⌥ kombinieren."); return }
         if let other = HotAction.allCases.first(where: { $0 != a && $0.current?.code == s.code && $0.current?.mods == s.mods }) {
             NSSound.beep(); message = tr("Schon vergeben an „%@“.", tr(other.title)); return
+        }
+        if Launcher.shared.keys.contains(where: { $0.output.map { $0.code == s.code && $0.mods == s.mods } == true }) {
+            NSSound.beep(); message = L("Das ist schon das Ziel eines umgelegten Kürzels.", "That is already the target of a remapped shortcut."); return
         }
         if let other = Launcher.shared.keys.first(where: { $0.id != launch && $0.shortcut?.code == s.code && $0.shortcut?.mods == s.mods }) {
             NSSound.beep(); message = tr("Schon vergeben an „%@“.", Launcher.shared.title(other)); return
@@ -4099,6 +4112,7 @@ struct SettingsRoot: View {
                 }
             }
             .navigationTitle(tr((nav.pane ?? .general).title))
+            .onChange(of: nav.pane) { _, _ in if nav.query.isEmpty { calmFocus("settings") } }
         }
         .searchable(text: $nav.query, placement: .sidebar, prompt: "Suchen")
         .onChange(of: nav.query) { _, _ in
@@ -4130,6 +4144,15 @@ struct SettingsRoot: View {
     }
     NSApp.activate(ignoringOtherApps: true)
     windows["settings"]?.makeKeyAndOrderFront(nil)
+    calmFocus("settings")
+}
+
+// macOS markiert sonst beim Öffnen und Seitenwechsel das erste Textfeld
+@MainActor func calmFocus(_ id: String) {
+    DispatchQueue.main.async {
+        guard let w = windows[id], (w.firstResponder as? NSTextView)?.isFieldEditor == true else { return }
+        w.makeFirstResponder(nil)
+    }
 }
 
 struct FeatureTab: View {

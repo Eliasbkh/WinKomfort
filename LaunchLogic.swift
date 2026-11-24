@@ -1,13 +1,14 @@
 // Eigene Kürzel: was ein Kürzel starten kann (reine Daten, testbar)
 import Foundation
 
-enum LaunchKind: String, Codable, CaseIterable { case app, file, web, shortcut, command }
+enum LaunchKind: String, Codable, CaseIterable { case app, file, web, shortcut, command, action, remap }
 
 struct LaunchKey: Codable, Identifiable, Equatable {
     var id = UUID()
     var kind: LaunchKind
     var target: String      // Pfad, Adresse, Name des Kurzbefehls oder Befehl
     var shortcut: Shortcut?
+    var output: Shortcut?    // nur beim Umlegen: diese Kombination wird gedrückt
 }
 
 enum LaunchLogic {

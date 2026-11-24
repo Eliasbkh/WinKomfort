@@ -8,6 +8,7 @@ struct ScaleLogic {
     private(set) var tare: Double?
     private(set) var held: Double? // letzter ruhiger Wert – bleibt stehen, wenn der Finger weggeht
     var factor = 1.0
+    var finger = true // false: der Gegenstand berührt das Trackpad selbst (leitend) – nichts abziehen
 
     // Rohdruck je Frame; nil = nichts berührt das Trackpad
     mutating func add(_ raw: Double?) {
@@ -16,6 +17,7 @@ struct ScaleLogic {
         recent.append(raw)
         frames += 1
         if recent.count > Self.window { recent.removeFirst() }
+        if !finger, tare == nil { tare = 0 }
         if tare == nil, frames >= Self.settle, steady { zero() }
         if steady, let g = live { held = g }
     }

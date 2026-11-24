@@ -74,6 +74,11 @@ check("Dreimal tippen → kein Ziehen",
       run(tap + [Seg(fingers: 1, from: 0.25, to: 0.32), Seg(fingers: 0, from: 0.32, to: 0),
                  Seg(fingers: 1, from: 0.45, to: 0.52), Seg(fingers: 0, from: 0.52, to: 0)]), [])
 
+check("Zweite Berührung liegt nur still → nichts anklicken oder markieren",
+      run(tap + [Seg(fingers: 1, from: 0.3, to: 1.5), Seg(fingers: 0, from: 1.5, to: 0)]), [])
+check("Tippen, Pause, dann Zeiger bewegen → KEIN Ziehen",
+      run(tap + [Seg(fingers: 1, from: 0.4, to: 1.0, b: far), Seg(fingers: 0, from: 1.0, to: 0)]), [])
+
 // Rechner
 func calc(_ input: String, _ want: String?) {
     let got = Calc.evaluate(input).map(Calc.format)
@@ -156,6 +161,11 @@ sc("Waage: Wert bleibt nach dem Abheben", "\(scale.grams ?? -1)", "100.0")
 scale.add(20)
 sc("Waage: neue Berührung beginnt neu", "\(scale.grams == nil)", "true")
 sc("Waage: Skala", "\(ScaleLogic.range(90)) \(ScaleLogic.range(101)) \(ScaleLogic.range(9999))", "100.0 250.0 4000.0")
+
+var bare = ScaleLogic()
+bare.finger = false
+for _ in 0..<100 { bare.add(42) }
+sc("Waage ohne Finger zieht nichts ab", "\(bare.grams ?? -1)", "42.0")
 
 // Eigene Kürzel: Webadressen
 for (q, want) in [("github.com", "https://github.com"), (" https://a.de/x ", "https://a.de/x"), ("mailto:a@b.de", "mailto:a@b.de"), ("localhost:3000", "https://localhost:3000"), ("", "nil"), ("zwei worte", "nil")] {

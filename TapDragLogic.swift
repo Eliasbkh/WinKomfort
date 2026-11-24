@@ -7,10 +7,9 @@ struct TapDragLogic {
 
     static let maxTap = 0.22      // so kurz ist ein Tippen höchstens
     static let tapMove = 0.02     // so wenig darf sich ein Tippen bewegen (≈ 3 mm)
-    static let maxGap = 0.35      // so schnell muss die zweite Berührung nach dem Tippen kommen
-    static let sameSpot = 0.08    // so nah an der Tipp-Stelle muss sie liegen (≈ 1 cm)
+    static let maxGap = 0.25      // so schnell muss die zweite Berührung nach dem Tippen kommen
+    static let sameSpot = 0.05    // so nah an der Tipp-Stelle muss sie liegen (≈ 6 mm)
     static let dragMove = 0.008   // ab dieser Bewegung des zweiten Fingers beginnt das Ziehen sofort
-    static let holdToDrag = 0.18  // oder ab so langem Liegenlassen (sonst ist es ein Doppelklick)
 
     private var touchStart: Double?
     private var startPos = Point(x: 0, y: 0)
@@ -37,7 +36,8 @@ struct TapDragLogic {
             moved = max(moved, Self.dist(p, startPos))
             maxFingers = max(maxFingers, touching.count)
             if maxFingers > 1 && !dragging { armed = false } // zwei Finger = Scrollen, kein Ziehen
-            if armed, !dragging, let s = touchStart, moved >= Self.dragMove || t - s >= Self.holdToDrag {
+            // Nur Bewegung startet das Ziehen: ein bloß liegender Finger darf nichts anklicken oder markieren
+            if armed, !dragging, moved >= Self.dragMove {
                 dragging = true
                 return .press
             }

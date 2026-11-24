@@ -9,6 +9,16 @@ import SwiftUI
     @Published private(set) var state = State.empty
     @Published private(set) var available = true
     enum State { case empty, taring, measuring, steady, held }
+    @Published var finger = UserDefaults.standard.object(forKey: "scaleFinger") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(finger, forKey: "scaleFinger"); reset() }
+    }
+    private func reset() {
+        let f = logic.factor
+        logic = ScaleLogic()
+        logic.factor = f
+        logic.finger = finger
+        grams = nil; state = .empty
+    }
     @Published var known = ""
     @Published var note = ""
     private var logic = ScaleLogic()
@@ -28,7 +38,7 @@ import SwiftUI
             for i in 0..<Int(count) {
                 let t = data + i * 96
                 let state = t.load(fromByteOffset: 20, as: Int32.self)
-                guard (3...5).contains(state) else { continue } // auch leitende Gegenstände, nicht nur Finger
+                guard (2...5).contains(state) else { continue } // auch leitende Gegenstände, nicht nur Finger
                 sum = (sum ?? 0) + Double(t.load(fromByteOffset: 52, as: Float.self))
             }
         }
@@ -47,10 +57,10 @@ import SwiftUI
 
     func start() {
         guard device == nil else { return }
-        logic = ScaleLogic()
+        reset()
         let f = UserDefaults.standard.double(forKey: "scaleFactor")
         logic.factor = f > 0 && f.isFinite ? f : 1
-        grams = nil; state = .empty; note = ""
+        note = ""
         guard let dev = Self.fn("MTDeviceCreateDefault", (@convention(c) () -> UnsafeMutableRawPointer?).self)?(),
               let force = Self.fn("MTDeviceSupportsForce", (@convention(c) (UnsafeMutableRawPointer) -> Bool).self), force(dev),
               let register = Self.fn("MTRegisterContactFrameCallback", DevFn.self),
@@ -112,7 +122,7 @@ struct ScaleView: View {
 
     private var hint: String {
         switch s.state {
-        case .empty: L("Finger leicht auflegen", "Rest a finger lightly")
+        case .empty: s.finger ? L("Finger leicht auflegen", "Rest a finger lightly") : L("Gegenstand auflegen", "Place the object")
         case .taring: L("Stillhalten …", "Hold still…")
         case .measuring: L("Misst …", "Measuring…")
         case .steady: g < 1 ? L("Gegenstand dazulegen", "Add the object") : L("Gramm", "Grams")
@@ -126,12 +136,19 @@ struct ScaleView: View {
                 ContentUnavailableView(L("Kein Force-Touch-Trackpad gefunden", "No Force Touch trackpad found"), systemImage: "scalemass")
             }
         }
-        .frame(width: 360, height: 404)
+        .frame(width: 360, height: 470)
         .ignoresSafeArea()
     }
 
     private var content: some View {
         VStack(spacing: 20) {
+            Picker("", selection: $s.finger) {
+                Text(L("Mit Finger", "With finger")).tag(true)
+                Text(L("Ohne Finger", "No finger")).tag(false)
+            }
+            .pickerStyle(.segmented).labelsHidden().frame(width: 220)
+            .help(L("Ohne Finger: für Metall, Obst und alles mit Alufolie darunter. Mit Finger: für jedes Material.",
+                    "No finger: for metal, fruit and anything on foil. With finger: for any material."))
             ZStack {
                 ScaleRing(fraction: fraction).animation(calm ? nil : .spring(response: 0.4, dampingFraction: 1), value: fraction)
                 VStack(spacing: 2) {
@@ -158,6 +175,9 @@ struct ScaleView: View {
                     .popover(isPresented: $options.on, arrowEdge: .bottom) { calibration }
             }
             .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.large)
+            Text(s.finger ? L("Der Finger wird automatisch abgezogen.", "Your finger is subtracted automatically.")
+                          : L("Für Metall, Obst und alles mit Alufolie darunter.", "For metal, fruit and anything on foil."))
+                .font(.caption).foregroundStyle(.secondary)
         }
         .padding(.top, 34)
     }
