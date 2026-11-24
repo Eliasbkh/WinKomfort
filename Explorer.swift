@@ -58,6 +58,10 @@ struct FileItem: Identifiable, Hashable, Sendable {
     @Published var query = "" { didSet { if query != oldValue { scheduleDeepSearch() } } }
     @Published private(set) var deepHits: [FileItem] = [] // Treffer in Unterordnern (macOS-Suchindex)
     @Published private(set) var recents = false             // Seitenleiste „Zuletzt benutzt“
+    @Published var folderSizes = UserDefaults.standard.bool(forKey: "explorerFolderSizes") {
+        didSet { UserDefaults.standard.set(folderSizes, forKey: "explorerFolderSizes"); computeFolderSizes() }
+    }
+    private var sizeTask: Task<Void, Never>?
     private var mdq: NSMetadataQuery?
     private var mdqToken: NSObjectProtocol?
     private var deepTask: DispatchWorkItem?
@@ -137,7 +141,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
             await MainActor.run {
                 guard id == self.loadID else { return } // inzwischen woanders hin navigiert
                 switch result {
-                case .success(let list): self.items = list; self.error = nil
+                case .success(let list): self.items = list; self.error = nil; self.computeFolderSizes()
                 case .failure: self.items = []; self.error = L("Dieser Ordner kann nicht gelesen werden.", "This folder can't be read.")
                 }
                 self.freeSpace = free
@@ -177,7 +181,22 @@ struct FileItem: Identifiable, Hashable, Sendable {
         reloadPending = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in MainActor.assumeIsolated { self?.reloadPending = false; self?.reload() } }
     }
-    func stop() { watcher?.cancel(); watcher = nil; stopQuery() }
+    func stop() { watcher?.cancel(); watcher = nil; stopQuery(); sizeTask?.cancel() }
+
+    // Ordnergrößen nacheinander im Hintergrund berechnen; beim Ordnerwechsel abbrechen
+    private func computeFolderSizes() {
+        sizeTask?.cancel()
+        guard folderSizes, !recents else { return }
+        let folders = items.filter(\.opensAsFolder).map(\.url), dir = url
+        sizeTask = Task { [weak self] in
+            for f in folders {
+                guard let size = await FolderSize.shared.size(of: f) else { return }
+                guard let self, !Task.isCancelled, self.url == dir, let i = self.items.firstIndex(where: { $0.url == f }) else { return }
+                let o = self.items[i]
+                self.items[i] = FileItem(url: o.url, name: o.name, isDir: o.isDir, isPackage: o.isPackage, size: size, modified: o.modified, kind: o.kind)
+            }
+        }
+    }
 
     // MARK: Suche in Unterordnern und „Zuletzt benutzt“ – über den Suchindex von macOS, nichts wird selbst durchsucht
 
@@ -747,6 +766,7 @@ struct ExplorerView: View {
             Divider()
             if style != .windows { sortMenu }
             Toggle(L("Versteckte Dateien zeigen", "Show hidden files"), isOn: $model.showHidden)
+            Toggle(L("Ordnergrößen anzeigen", "Show folder sizes"), isOn: $model.folderSizes)
             Button(L("Ansicht teilen (F3)", "Split view (F3)")) { model.window?.splitView() }
             Divider()
             Button(L("Im Terminal öffnen", "Open in Terminal")) { model.openTerminal() }
