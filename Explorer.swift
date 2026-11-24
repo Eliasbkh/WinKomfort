@@ -105,7 +105,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
         let sorted = list.sorted(using: sortOrder)
         return sorted.filter(\.opensAsFolder) + sorted.filter { !$0.opensAsFolder }
     }
-    var selectedItems: [FileItem] { items.filter { selection.contains($0.url) } }
+    var selectedItems: [FileItem] { visible.filter { selection.contains($0.url) } } // inkl. Treffern aus Unterordnern
     var title: String { FileManager.default.displayName(atPath: url.path) }
 
     // Pfad als Knöpfe; der Benutzerordner ist der Anfang (wie bei GNOME/Dolphin)
@@ -138,6 +138,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
     func goUp() { let p = url.deletingLastPathComponent(); if p.path != url.path { open(p) } }
 
     func reload() {
+        if recents { return } // „Zuletzt benutzt“ hat keinen Ordner zum Neuladen
         loadID += 1
         let id = loadID, dir = url, hidden = showHidden
         watch(dir)
@@ -151,7 +152,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
                 case .failure: self.items = []; self.error = L("Dieser Ordner kann nicht gelesen werden.", "This folder can't be read.")
                 }
                 self.freeSpace = free
-                self.selection = self.selection.filter { u in self.items.contains { $0.url == u } }
+                self.selection = self.selection.filter { u in self.items.contains { $0.url == u } || self.deepHits.contains { $0.url == u } }
             }
         }
     }
@@ -262,6 +263,8 @@ struct FileItem: Identifiable, Hashable, Sendable {
     func openRecents() {
         back.append(url); forward = []
         recents = true
+        watcher?.cancel(); watcher = nil
+        loadID += 1 // ein noch laufendes Neuladen des alten Ordners verwerfen
         selection = []; query = ""; items = []
         window?.title = L("Zuletzt benutzt", "Recents")
         let since = Date().addingTimeInterval(-30 * 86400) as NSDate
@@ -296,6 +299,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
     func selectAll() { selection = Set(visible.map(\.url)) }
 
     func newFolder() {
+        guard !recents else { NSSound.beep(); return }
         var target = url.appendingPathComponent(L("Neuer Ordner", "New Folder")), n = 2
         while FileManager.default.fileExists(atPath: target.path) {
             target = url.appendingPathComponent(L("Neuer Ordner", "New Folder") + " \(n)"); n += 1
@@ -331,6 +335,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
         if cut { Toast.show(L("Ausgeschnitten – mit ⌘V verschieben", "Cut – press ⌘V to move"), symbol: "scissors") }
     }
     func paste() {
+        guard !recents else { NSSound.beep(); return }
         let urls = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         guard !urls.isEmpty else { return }
         let move = !ExplorerModel.cutURLs.isEmpty && Set(ExplorerModel.cutURLs) == Set(urls)
@@ -356,6 +361,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
         }
     }
     func newTextFile() {
+        guard !recents else { NSSound.beep(); return }
         var target = url.appendingPathComponent(L("Neue Textdatei.txt", "New Text File.txt")), n = 2
         while FileManager.default.fileExists(atPath: target.path) {
             target = url.appendingPathComponent(L("Neue Textdatei \(n).txt", "New Text File \(n).txt")); n += 1
@@ -368,17 +374,23 @@ struct FileItem: Identifiable, Hashable, Sendable {
     func zip() {
         let sel = selectedItems
         guard !sel.isEmpty else { return }
-        let base = sel.count == 1 ? sel[0].url.deletingPathExtension().lastPathComponent : L("Archiv", "Archive")
-        var target = url.appendingPathComponent(base + ".zip"), n = 2
-        while FileManager.default.fileExists(atPath: target.path) { target = url.appendingPathComponent("\(base) \(n).zip"); n += 1 }
-        let names = sel.map { $0.url.lastPathComponent }, dir = url, out = target
+        // Ordner der Dateien (auch bei Suchtreffern aus Unterordnern und „Zuletzt benutzt“) – nur Dateien aus einem Ordner
+        let dir = sel[0].url.deletingLastPathComponent()
+        guard sel.allSatisfy({ $0.url.deletingLastPathComponent() == dir }) else { NSSound.beep(); return }
+        let first = sel[0]
+        let base = sel.count == 1 ? (first.isDir ? first.url.lastPathComponent : first.url.deletingPathExtension().lastPathComponent) : L("Archiv", "Archive")
+        var target = dir.appendingPathComponent(base + ".zip"), n = 2
+        while FileManager.default.fileExists(atPath: target.path) { target = dir.appendingPathComponent("\(base) \(n).zip"); n += 1 }
+        let names = sel.map { $0.url.lastPathComponent }, out = target
         Task.detached {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
             p.currentDirectoryURL = dir
             // „./“ davor: Dateinamen, die mit „-“ beginnen, dürfen nicht als zip-Option gelten
             p.arguments = ["-r", "-q", "-y", out.path] + names.map { "./" + $0 } + ["-x", "*.DS_Store"]
-            try? p.run(); p.waitUntilExit()
+            guard (try? p.run()) != nil else { return }
+            p.waitUntilExit()
+            if p.terminationStatus != 0 { await MainActor.run { Toast.show(L("ZIP konnte nicht erstellt werden", "Couldn't create the ZIP"), symbol: "exclamationmark.triangle") } }
         }
     }
     func copyPath() {
@@ -443,8 +455,9 @@ final class ExplorerWindow: NSWindow {
     @MainActor func splitView() {
         guard let screen = screen ?? NSScreen.main, let m = model else { return }
         let v = screen.visibleFrame, half = (v.width / 2).rounded()
+        setFrameAutosaveName("") // halbe Größe nicht als Standard für neue Fenster merken
         setFrame(NSRect(x: v.minX, y: v.minY, width: half, height: v.height), display: true, animate: true)
-        openExplorer(m.url)
+        openExplorer(m.recents ? FileManager.default.homeDirectoryForCurrentUser : m.url, split: true)
         explorerWindows.last?.setFrame(NSRect(x: v.minX + half, y: v.minY, width: v.width - half, height: v.height), display: true, animate: true)
     }
 
@@ -478,7 +491,7 @@ final class ExplorerWindow: NSWindow {
 
 @MainActor private var explorerWindows: [ExplorerWindow] = []
 
-@MainActor func openExplorer(_ url: URL? = nil, tabOf parent: NSWindow? = nil, query: String? = nil) {
+@MainActor func openExplorer(_ url: URL? = nil, tabOf parent: NSWindow? = nil, query: String? = nil, split: Bool = false) {
     let style = ExplorerStyle.current
     let start = url ?? FileManager.default.homeDirectoryForCurrentUser
     let model = ExplorerModel(start, style: style)
@@ -490,7 +503,7 @@ final class ExplorerWindow: NSWindow {
     w.isReleasedWhenClosed = false
     w.minSize = NSSize(width: 620, height: 380)
     w.tabbingIdentifier = "WinKomfortExplorer" // macOS-Tabs: ⌘T, Tabs ziehen, ⌘⇧\\ Übersicht
-    w.tabbingMode = .automatic // neue Fenster wie in macOS eingestellt; ⌘T immer als Tab
+    w.tabbingMode = split ? .disallowed : .automatic // neue Fenster wie in macOS eingestellt; ⌘T immer als Tab
     w.model = model
     model.window = w
     if let query, !query.isEmpty { model.searching = true; model.query = query } // z. B. von der KI: „finde meine Bewerbung“
@@ -499,7 +512,7 @@ final class ExplorerWindow: NSWindow {
     host.sizingOptions = [] // sonst schrumpft SwiftUI das Fenster auf die Mindestgröße
     w.contentViewController = host
     w.setContentSize(NSSize(width: 980, height: 620))
-    w.setFrameAutosaveName("WinKomfortExplorer")
+    if !split { w.setFrameAutosaveName("WinKomfortExplorer") }
     if !w.setFrameUsingName("WinKomfortExplorer") || w.frame.width < 700 { w.setContentSize(NSSize(width: 980, height: 620)); w.center() }
     if parent == nil, let last = explorerWindows.last { w.setFrameTopLeftPoint(NSPoint(x: last.frame.minX + 26, y: last.frame.maxY - 26)) }
     var token: NSObjectProtocol?
@@ -945,7 +958,7 @@ struct ExplorerView: View {
             .width(min: 60, ideal: 90)
         }
         .contextMenu(forSelectionType: URL.self) { urls in
-            if let u = urls.first, let item = model.items.first(where: { $0.url == u }) { itemMenu(item) }
+            if let u = urls.first, let item = model.visible.first(where: { $0.url == u }) { itemMenu(item) }
         } primaryAction: { urls in
             model.selection = urls
             model.openSelection()

@@ -61,6 +61,8 @@ enum Snippets {
         if type == .leftMouseDown || IsSecureEventInputEnabled() { buffer = ""; return }
         // In WinKomfort selbst (z. B. beim Bearbeiten der Kürzel) nie ersetzen
         if NSWorkspace.shared.frontmostApplication?.processIdentifier == getpid() { buffer = ""; return }
+        // …auch nicht in WinKomforts eigenen Panels (Startmenü-, Such-Feld), die andere Apps vorne lassen
+        if MainActor.assumeIsolated({ NSApp.keyWindow != nil }) { buffer = ""; return }
         if e.getIntegerValueField(.eventSourceUserData) == marker { return }
         let flags = e.flags.intersection([.maskCommand, .maskControl])
         guard flags.isEmpty else { buffer = ""; return }
@@ -89,16 +91,30 @@ enum Snippets {
             post(CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_Delete), keyDown: true))
             post(CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_Delete), keyDown: false))
         }
-        // In Stücken, weil ein Tastendruck nur begrenzt viele Zeichen trägt
-        let units = Array(text.utf16)
-        var i = 0
-        while i < units.count {
-            let chunk = Array(units[i..<min(i + 16, units.count)])
-            let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)
-            down?.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
-            post(down)
-            post(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false))
-            i += 16
+        // Zeilenumbruch als ⇧↩ (in Chats sonst „Senden“), Text in Stücken ganzer Zeichen (Emojis nie zerteilen)
+        for (n, line) in text.components(separatedBy: "\n").enumerated() {
+            if n > 0 {
+                for down in [true, false] {
+                    let e = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_Return), keyDown: down)
+                    e?.flags = .maskShift
+                    post(e)
+                }
+            }
+            var chunk = [UniChar]()
+            func flush() {
+                guard !chunk.isEmpty else { return }
+                let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)
+                down?.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
+                post(down)
+                post(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false))
+                chunk = []
+            }
+            for ch in line {
+                let u = Array(String(ch).utf16)
+                if chunk.count + u.count > 16 { flush() }
+                chunk += u
+            }
+            flush()
         }
     }
 }

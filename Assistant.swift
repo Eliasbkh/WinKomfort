@@ -262,9 +262,10 @@ enum SiriShortcuts {
             p.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
             p.arguments = ["sign", "--mode", "anyone", "--input", raw.path, "--output", signed.path]
             p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
-            try? p.run(); p.waitUntilExit()
+            let ok = (try? p.run()) != nil
+            if ok { p.waitUntilExit() }
             DispatchQueue.main.async {
-                if p.terminationStatus == 0 { NSWorkspace.shared.open(signed) } // Kurzbefehle fragt „Hinzufügen?“
+                if ok && p.terminationStatus == 0 { NSWorkspace.shared.open(signed) } // Kurzbefehle fragt „Hinzufügen?“
                 else { MainActor.assumeIsolated { Toast.show(L("Kurzbefehl konnte nicht erstellt werden", "Couldn't create the shortcut"), symbol: "exclamationmark.triangle") } }
             }
         }

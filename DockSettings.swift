@@ -26,6 +26,8 @@ final class DockModel: ObservableObject {
             sh(["/usr/bin/defaults", "write", "com.apple.dock", "magnification", "-bool", m ? "true" : "false"])
             sh(["/usr/bin/defaults", "write", "com.apple.dock", "largesize", "-int", "\(ms)"])
             sh(["/usr/bin/killall", "Dock"])
+            // Dock-Hilfe kennt die Position nur beim Start → neu starten
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { DockReveal.stop(); DockReveal.start() } }
         }
         pending = w
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.6, execute: w)

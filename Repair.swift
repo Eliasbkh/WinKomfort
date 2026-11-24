@@ -19,7 +19,7 @@ import SwiftUI
 
     // Alles still neu starten – jeder Dienst prüft selbst, ob er eingeschaltet ist
     static func run(quiet: Bool) {
-        HotKey.registerAll()
+        if ShortcutRecorder.shared.recording == nil { HotKey.registerAll() } // nicht mitten in die Kürzel-Aufnahme
         if UserDefaults.standard.bool(forKey: "startMenu") { StartKey.stop(); StartKey.start() }
         FinderCut.stop(); FinderCut.start()
         if let drag = features.first(where: { $0.id == "drag" }), isOn(drag) { TapDragFix.stop(); TapDragFix.start() }
@@ -35,7 +35,12 @@ import SwiftUI
 
     struct Check: Identifiable { let id: String; let ok: Bool; let text: String; let fix: String? }
 
-    static func checks() -> [Check] {
+    nonisolated static func cacheMB() -> Int {
+        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("de.winkomfort.app/OneNote")
+        return (FileManager.default.enumerator(at: cache, includingPropertiesForKeys: [.fileSizeKey])?.compactMap { ($0 as? URL).flatMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize } }.reduce(0, +) ?? 0) / 1_000_000
+    }
+
+    static func checks(cacheMB mb: Int?) -> [Check] {
         var c: [Check] = []
         c.append(Check(id: "ax", ok: AXIsProcessTrusted(), text: L("Bedienungshilfen erlaubt", "Accessibility allowed"),
                        fix: L("Systemeinstellungen › Datenschutz › Bedienungshilfen › WinKomfort einschalten", "System Settings › Privacy › Accessibility › turn on WinKomfort")))
@@ -46,9 +51,7 @@ import SwiftUI
                        fix: L("Andere App nutzt das Kürzel – unter Tastenkürzel ein anderes wählen", "Another app uses it – pick another under Shortcuts")))
         c.append(Check(id: "login", ok: SMAppServiceStatusIsEnabled(), text: L("Startet bei der Anmeldung", "Opens at login"),
                        fix: L("Unter Allgemein einschalten", "Turn on under General")))
-        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("de.winkomfort.app/OneNote")
-        let mb = (FileManager.default.enumerator(at: cache, includingPropertiesForKeys: [.fileSizeKey])?.compactMap { ($0 as? URL).flatMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize } }.reduce(0, +) ?? 0) / 1_000_000
-        c.append(Check(id: "cache", ok: true, text: L("OneNote-Zwischenspeicher: \(mb) MB", "OneNote cache: \(mb) MB"), fix: nil))
+        c.append(Check(id: "cache", ok: true, text: mb.map { L("OneNote-Zwischenspeicher: \($0) MB", "OneNote cache: \($0) MB") } ?? L("OneNote-Zwischenspeicher: wird gemessen …", "OneNote cache: measuring…"), fix: nil))
         return c
     }
 
@@ -62,14 +65,22 @@ import SwiftUI
 import ServiceManagement
 func SMAppServiceStatusIsEnabled() -> Bool { SMAppService.mainApp.status == .enabled }
 
-final class RepairModel: ObservableObject { @Published var tick = 0 }
+@MainActor final class RepairModel: ObservableObject {
+    @Published var checks: [Repair.Check] = []
+    func refresh() {
+        checks = Repair.checks(cacheMB: nil)
+        Task.detached(priority: .utility) {
+            let mb = Repair.cacheMB()
+            await MainActor.run { self.checks = Repair.checks(cacheMB: mb) }
+        }
+    }
+}
 
 struct RepairSection: View {
     @StateObject private var m = RepairModel()
     var body: some View {
-        let checks = { _ = m.tick; return Repair.checks() }()
         Section {
-            ForEach(checks) { c in
+            ForEach(m.checks) { c in
                 HStack(alignment: .top) {
                     Image(systemName: c.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                         .foregroundStyle(c.ok ? Color.green : Color.orange).accessibilityHidden(true)
@@ -81,16 +92,16 @@ struct RepairSection: View {
                 .accessibilityElement(children: .combine)
             }
             HStack {
-                Button(L("Reparieren", "Repair")) { Repair.run(quiet: false); m.tick += 1 }
+                Button(L("Reparieren", "Repair")) { Repair.run(quiet: false); m.refresh() }
                 Button(L("Protokoll zeigen", "Show log")) {
                     let log = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0].appendingPathComponent("Logs/WinKomfort.log")
                     if FileManager.default.fileExists(atPath: log.path) { NSWorkspace.shared.open(log) } else { Toast.show(L("Noch kein Protokoll", "No log yet"), symbol: "doc.text") }
                 }
-                Button(L("OneNote-Zwischenspeicher leeren", "Clear OneNote cache")) { Repair.clearOneNoteCache(); m.tick += 1 }
+                Button(L("OneNote-Zwischenspeicher leeren", "Clear OneNote cache")) { Repair.clearOneNoteCache(); m.refresh() }
             }
         } header: { Text(L("Selbsttest", "Self-check")) } footer: {
             Text(L("WinKomfort repariert sich nach dem Aufwachen automatisch. Der Knopf macht dasselbe sofort.", "WinKomfort repairs itself automatically after waking. The button does the same right away."))
         }
-        .onAppear { m.tick += 1 }
+        .onAppear { m.refresh() }
     }
 }
