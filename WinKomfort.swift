@@ -2461,6 +2461,14 @@ enum OneNotePDF {
         for f in (try? fm.contentsOfDirectory(atPath: tmp.path)) ?? [] where f.hasPrefix("WinKomfort-OneNote-") {
             try? fm.removeItem(at: tmp.appendingPathComponent(f))
         }
+        // OneNote-Zwischenspeicher: Abschnitte, die 30 Tage nicht exportiert wurden, wieder freigeben
+        let cache = fm.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("de.winkomfort.app/OneNote")
+        let old = Date().addingTimeInterval(-30 * 86400)
+        for case let f as URL in fm.enumerator(at: cache, includingPropertiesForKeys: [.contentAccessDateKey, .isRegularFileKey]) ?? FileManager.DirectoryEnumerator() {
+            guard let v = try? f.resourceValues(forKeys: [.contentAccessDateKey, .isRegularFileKey]), v.isRegularFile == true,
+                  (v.contentAccessDate ?? .distantPast) < old else { continue }
+            try? fm.removeItem(at: f)
+        }
     }
 
     private static func outline(_ win: AXUIElement, _ name: String) -> AXUIElement? {
