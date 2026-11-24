@@ -77,9 +77,20 @@ enum Snippets {
         if buffer.count > 40 { buffer.removeFirst(buffer.count - 40) }
         guard let hit = list.first(where: { buffer.hasSuffix($0.key) }) else { return }
         buffer = ""
-        let deletes = hit.key.count, text = hit.text
+        let deletes = hit.key.count, text = expand(hit.text)
         // Ersetzen nach dem aktuellen Tastendruck: Kürzel löschen, Text eintippen (ohne die Zwischenablage anzufassen)
         DispatchQueue.main.async { insert(deletes: deletes, text: text) }
+    }
+
+    // Platzhalter wie bei TextExpander: {datum} {uhrzeit} {zwischenablage} (auch englisch: {date} {time} {clipboard})
+    static func expand(_ t: String) -> String {
+        guard t.contains("{") else { return t }
+        let now = Date()
+        let date = now.formatted(date: .numeric, time: .omitted), time = now.formatted(date: .omitted, time: .shortened)
+        let clip = NSPasteboard.general.string(forType: .string) ?? ""
+        return t.replacingOccurrences(of: "{datum}", with: date).replacingOccurrences(of: "{date}", with: date)
+            .replacingOccurrences(of: "{uhrzeit}", with: time).replacingOccurrences(of: "{time}", with: time)
+            .replacingOccurrences(of: "{zwischenablage}", with: clip).replacingOccurrences(of: "{clipboard}", with: clip)
     }
 
     private static func post(_ e: CGEvent?) {
@@ -147,8 +158,8 @@ struct SnippetsSection: View {
                 store.items.append(Snippet(key: ";", text: ""))
             }
         } header: { Text(L("Text-Kürzel", "Text snippets")) } footer: {
-            Text(L("Funktioniert in jeder App. Kürzel am besten mit einem Zeichen wie „;“ beginnen, damit es nicht versehentlich auslöst. In Passwortfeldern passiert nie etwas.",
-                   "Works in every app. Start snippets with a character like “;” so they don't fire by accident. Nothing happens in password fields."))
+            Text(L("Funktioniert in jeder App. Kürzel am besten mit „;“ beginnen. Platzhalter: {datum}, {uhrzeit}, {zwischenablage}. In Passwortfeldern passiert nie etwas.",
+                   "Works in every app. Start snippets with “;”. Placeholders: {date}, {time}, {clipboard}. Nothing happens in password fields."))
         }
         .onChange(of: store.items) { _, _ in store.commit() }
     }

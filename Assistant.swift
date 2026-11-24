@@ -21,6 +21,7 @@ enum Assistant {
     volume(0-100) – Lautstärke
     dark(on) | dark(off) – Dunkelmodus
     screenoff – Bildschirm aus
+    screenshot – Bildschirmfoto machen
     open(APPNAME) – App öffnen
     tasks – Task-Manager
     clipboard – Zwischenablage-Verlauf
@@ -93,6 +94,12 @@ enum Assistant {
         case "dark":
             NSAppleScript(source: "tell application \"System Events\" to tell appearance preferences to set dark mode to \(on)")?.executeAndReturnError(nil)
             return on ? L("Dunkelmodus an", "Dark mode on") : L("Dunkelmodus aus", "Dark mode off")
+        case "screenshot":
+            // Apples Bildschirmfoto-Leiste (wie ⌘⇧5) – Bereich, Fenster oder ganzer Bildschirm, gespeichert wie eingestellt
+            if let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.screenshot.launcher") {
+                NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
+            }
+            return L("Bildschirmfoto", "Screenshot")
         case "screenoff":
             sh(["/usr/bin/pmset", "displaysleepnow"])
             return L("Bildschirm aus", "Display off")
