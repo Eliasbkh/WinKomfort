@@ -1,0 +1,139 @@
+// Text-Kürzel (wie TextExpander): „;mail“ tippen → wird durch den gespeicherten Text ersetzt.
+// Nur aktiv, wenn es Kürzel gibt. In Passwortfeldern (sichere Eingabe) passiert nie etwas.
+import AppKit
+import SwiftUI
+import Carbon.HIToolbox
+
+struct Snippet: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var key: String
+    var text: String
+}
+
+enum Snippets {
+    private static var tap: CFMachPort?
+    private static var buffer = ""          // zuletzt getippte Zeichen (nur im Arbeitsspeicher, max. 40)
+    private static var list: [Snippet] = []
+    private static let marker: Int64 = 0x534E // eigene Tastendrücke erkennen
+
+    static func load() -> [Snippet] {
+        (UserDefaults.standard.data(forKey: "snippets")).flatMap { try? JSONDecoder().decode([Snippet].self, from: $0) } ?? []
+    }
+    static func save(_ s: [Snippet]) {
+        UserDefaults.standard.set(try? JSONEncoder().encode(s), forKey: "snippets")
+        update()
+    }
+
+    static func update(prompt: Bool = false) {
+        list = load().filter { !$0.key.isEmpty && !$0.text.isEmpty }
+        if list.isEmpty { stop(); return }
+        guard tap == nil else { return }
+        afterTrust(prompt: prompt) { if !list.isEmpty { start() } }
+    }
+
+    private static func start() {
+        guard tap == nil else { return }
+        tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .tailAppendEventTap, options: .listenOnly,
+                                eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue) | CGEventMask(1 << CGEventType.leftMouseDown.rawValue),
+                                callback: { _, type, e, _ in
+            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                if let t = Snippets.tap { CGEvent.tapEnable(tap: t, enable: true) }
+                return Unmanaged.passUnretained(e)
+            }
+            Snippets.handle(type, e)
+            return Unmanaged.passUnretained(e)
+        }, userInfo: nil)
+        guard let tap else { return }
+        CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
+    static func stop() {
+        guard let t = tap else { return }
+        CGEvent.tapEnable(tap: t, enable: false)
+        CFMachPortInvalidate(t)
+        tap = nil
+        buffer = ""
+    }
+
+    private static func handle(_ type: CGEventType, _ e: CGEvent) {
+        // Klick = Cursor woanders → Puffer verwerfen; Passwortfelder nie mitlesen
+        if type == .leftMouseDown || IsSecureEventInputEnabled() { buffer = ""; return }
+        // In WinKomfort selbst (z. B. beim Bearbeiten der Kürzel) nie ersetzen
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == getpid() { buffer = ""; return }
+        if e.getIntegerValueField(.eventSourceUserData) == marker { return }
+        let flags = e.flags.intersection([.maskCommand, .maskControl])
+        guard flags.isEmpty else { buffer = ""; return }
+        let code = e.getIntegerValueField(.keyboardEventKeycode)
+        if code == Int64(kVK_Delete) { buffer = String(buffer.dropLast()); return }
+        if [kVK_Return, kVK_Tab, kVK_Escape, kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow].contains(Int(code)) { buffer = ""; return }
+        var len = 0
+        var chars = [UniChar](repeating: 0, count: 4)
+        e.keyboardGetUnicodeString(maxStringLength: 4, actualStringLength: &len, unicodeString: &chars)
+        guard len > 0 else { return }
+        buffer += String(utf16CodeUnits: chars, count: len)
+        if buffer.count > 40 { buffer.removeFirst(buffer.count - 40) }
+        guard let hit = list.first(where: { buffer.hasSuffix($0.key) }) else { return }
+        buffer = ""
+        let deletes = hit.key.count, text = hit.text
+        // Ersetzen nach dem aktuellen Tastendruck: Kürzel löschen, Text eintippen (ohne die Zwischenablage anzufassen)
+        DispatchQueue.main.async { insert(deletes: deletes, text: text) }
+    }
+
+    private static func post(_ e: CGEvent?) {
+        e?.setIntegerValueField(.eventSourceUserData, value: marker)
+        e?.post(tap: .cghidEventTap)
+    }
+    private static func insert(deletes: Int, text: String) {
+        for _ in 0..<deletes {
+            post(CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_Delete), keyDown: true))
+            post(CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_Delete), keyDown: false))
+        }
+        // In Stücken, weil ein Tastendruck nur begrenzt viele Zeichen trägt
+        let units = Array(text.utf16)
+        var i = 0
+        while i < units.count {
+            let chunk = Array(units[i..<min(i + 16, units.count)])
+            let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)
+            down?.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
+            post(down)
+            post(CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false))
+            i += 16
+        }
+    }
+}
+
+final class SnippetStore: ObservableObject {
+    @Published var items: [Snippet] = Snippets.load()
+    func commit() { Snippets.save(items) }
+}
+
+struct SnippetsSection: View {
+    @StateObject private var store = SnippetStore()
+    var body: some View {
+        Section {
+            if store.items.isEmpty {
+                Text(L("Noch keine Kürzel. Beispiel: „;mail“ → deine E-Mail-Adresse.", "No snippets yet. Example: “;mail” → your email address."))
+                    .foregroundStyle(.secondary)
+            }
+            ForEach($store.items) { $s in
+                HStack(alignment: .firstTextBaseline) {
+                    TextField(L("Kürzel", "Abbreviation"), text: $s.key).frame(width: 110).font(.body.monospaced())
+                        .onSubmit { store.commit() }
+                    Image(systemName: "arrow.right").foregroundStyle(.secondary).accessibilityHidden(true)
+                    TextField(L("Text", "Text"), text: $s.text, axis: .vertical).lineLimit(1...4)
+                        .onSubmit { store.commit() }
+                    Button { store.items.removeAll { $0.id == s.id }; store.commit() } label: { Image(systemName: "minus.circle") }
+                        .buttonStyle(.borderless).accessibilityLabel(L("Kürzel löschen", "Delete snippet"))
+                }
+            }
+            Button(L("Kürzel hinzufügen", "Add snippet")) {
+                store.items.append(Snippet(key: ";", text: ""))
+            }
+        } header: { Text(L("Text-Kürzel", "Text snippets")) } footer: {
+            Text(L("Funktioniert in jeder App. Kürzel am besten mit einem Zeichen wie „;“ beginnen, damit es nicht versehentlich auslöst. In Passwortfeldern passiert nie etwas.",
+                   "Works in every app. Start snippets with a character like “;” so they don't fire by accident. Nothing happens in password fields."))
+        }
+        .onChange(of: store.items) { _, _ in store.commit() }
+    }
+}

@@ -24,7 +24,10 @@ Windows-Komfort für macOS als Menüleisten-App – jede Funktion einzeln schalt
 - **Schreibtisch & Dock**: Ecke unten rechts zeigt den Schreibtisch, Symbole/Widgets ausblenden, Laufwerke auf dem Schreibtisch, Dock ohne „Zuletzt benutzt“ und ohne Hüpfen
 - **Englisch**: automatisch nach Systemsprache, umschaltbar unter Allgemein
 - **Selbstreparatur**: nach dem Aufwachen startet WinKomfort Kürzel und Dienste still neu; Selbsttest mit „Reparieren“ unter Allgemein, Protokoll in ~/Library/Logs/WinKomfort.log
-- **Explorer** (⌃⌥E): eigener Dateimanager in drei Stilen – GNOME, KDE Dolphin, Windows 11 – mit Live-Vorschau in den Einstellungen und Quick Look (Leertaste)
+- **Text-Kürzel** (wie TextExpander): „;mail“ → deine E-Mail-Adresse – in jeder App, nie in Passwortfeldern (Allgemein › Text-Kürzel)
+- **Siri & Kurzbefehle**: fertige Kurzbefehle mit einem Klick hinzufügen („Hey Siri, Game Mode an“)
+- **Dock**: Position, Größe und Vergrößerung direkt unter Schreibtisch & Dock
+- **Explorer** (⌃⌥E, im Finder: gleicher Ordner): eigener Dateimanager in drei Stilen – GNOME, KDE Dolphin, Windows 11 – mit Live-Vorschau in den Einstellungen, Quick Look (Leertaste), Tabs (⌘T), geteilter Ansicht (F3), Suche in allen Unterordnern, „Zuletzt benutzt“, Öffnen mit, ZIP, Pfad kopieren
 - **Fenster einrasten per Tastatur** (⌃⌥←/→/↑/↓): linke/rechte Hälfte, maximieren, zurück bzw. minimieren
 - **Fenster anheften** (⌃⌘P): Fenster bleibt immer im Vordergrund (Live-Kopie, braucht einmal „Bildschirmaufnahme“)
 - **Wach bleiben:** Bildschirm an lassen oder nur den Mac wach halten, für 30 Min bis unbegrenzt

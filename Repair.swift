@@ -24,6 +24,7 @@ import SwiftUI
         FinderCut.stop(); FinderCut.start()
         if let drag = features.first(where: { $0.id == "drag" }), isOn(drag) { TapDragFix.stop(); TapDragFix.start() }
         MouseScroll.stop(); MouseScroll.update()
+        Snippets.stop(); Snippets.update()
         DockReveal.stop(); DockReveal.start()
         ClipHistory.shared.start()
         SystemMonitor.shared.update()
