@@ -101,6 +101,7 @@ enum OneNoteCloud {
                 ? try await session.list(root, recursive: true).filter { !$0.path.contains("/OneNote_RecycleBin/") && ($0.path.hasSuffix(".one") || $0.path.hasSuffix(".onetoc2")) }
                 : try await session.list(sectionFolder, recursive: false).filter { $0.path == t.section }
             guard !remote.isEmpty else { return .failure(Failure(text: L("Keine OneNote-Dateien gefunden", "No OneNote files found"))) }
+            wkLog("OneNote: Liste nach \(String(format: "%.1f", Date().timeIntervalSince(started))) s (\(remote.count) Dateien)")
 
             // Laden – nur, was sich geändert hat
             let cache = cacheDir(t.host).appendingPathComponent(root)
@@ -120,6 +121,7 @@ enum OneNoteCloud {
                 }
             }
             Toast.show(L("OneNote: PDF wird erstellt …", "OneNote: creating PDF…"), symbol: "doc.richtext")
+            wkLog("OneNote: geladen nach \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
 
             // Umwandeln (im Hintergrund, Abschnitte gleichzeitig). Die Notizbuch-Datei (.onetoc2) liest der Umwandler
             // nicht zuverlässig – deshalb jeder Abschnitt einzeln, Reihenfolge wie in der OneNote-Seitenleiste.
@@ -151,6 +153,7 @@ enum OneNoteCloud {
             }
             guard !pages.isEmpty else { return .failure(Failure(text: L("Keine Seiten gefunden", "No pages found"))) }
 
+            wkLog("OneNote: umgewandelt nach \(String(format: "%.1f", Date().timeIntervalSince(started))) s, \(pages.count) Seiten")
             let quality = PDFQuality.current
             let dirs = Set(pages.map { $0.deletingLastPathComponent() })
             await Task.detached(priority: .userInitiated) { dirs.forEach { compressImages(in: $0, maxPx: quality.maxPx, q: quality.jpeg) } }.value
@@ -162,6 +165,7 @@ enum OneNoteCloud {
                 case .page: return pages.first.map { $0.deletingPathExtension().lastPathComponent } ?? "OneNote"
                 }
             }()
+            wkLog("OneNote: Bilder verkleinert nach \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
             let out = uniqueDownload(name)
             try await PageRenderer().render(pages, root: work.resolvingSymlinksInPath(), to: out)
             return .success(out)
@@ -182,8 +186,18 @@ enum OneNoteCloud {
     }
     private static func isCached(_ item: SPSession.Item, in cache: URL, root: String) -> Bool {
         let f = cache.appendingPathComponent(String(item.path.dropFirst(root.count)))
-        guard let v = try? f.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { return false }
-        return v.fileSize == item.size && (v.contentModificationDate ?? .distantPast) >= item.modified.addingTimeInterval(-2)
+        guard let v = try? f.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+              v.fileSize == item.size, (v.contentModificationDate ?? .distantPast) >= item.modified.addingTimeInterval(-2) else { return false }
+        touch(f) // benutzt → beim 30-Tage-Aufräumen behalten
+        return true
+    }
+
+    // Zugriffsdatum auf jetzt (Änderungsdatum bleibt das vom Server)
+    static func touch(_ f: URL) {
+        var rv = URLResourceValues()
+        rv.contentAccessDate = Date()
+        var u = f
+        try? u.setResourceValues(rv)
     }
 
     // MARK: Umwandeln mit dem mitgelieferten Programm
@@ -244,26 +258,32 @@ enum OneNoteCloud {
     // MARK: Bilder verkleinern (gleicher Dateiname – WebKit erkennt das Format am Inhalt)
 
     static func compressImages(in dir: URL, maxPx: Int, q: Double) {
-        for f in (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey])) ?? [] {
+        // Alle Kerne nutzen: jedes Bild ist unabhängig
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey])) ?? []
+        DispatchQueue.concurrentPerform(iterations: files.count) { i in compressImage(files[i], maxPx: maxPx, q: q) }
+    }
+
+    private static func compressImage(_ f: URL, maxPx: Int, q: Double) {
+        do {
             guard ["png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff"].contains(f.pathExtension.lowercased()),
                   let src = CGImageSourceCreateWithURL(f as CFURL, nil),
                   let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
-                  let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int else { continue }
+                  let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int else { return }
             let size = (try? f.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            guard size > 40_000 || max(w, h) > maxPx else { continue }
+            guard size > 40_000 || max(w, h) > maxPx else { return }
             let opts: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: min(max(w, h), maxPx),
                                          kCGImageSourceCreateThumbnailWithTransform: true]
-            guard let img = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { continue }
+            guard let img = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return }
             // Fast farblose Bilder (gedruckte Arbeitsblätter) als Graustufen: gleiche Lesbarkeit, deutlich kleiner
             let gray = isGrayish(img)
             guard let ctx = CGContext(data: nil, width: img.width, height: img.height, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: gray ? CGColorSpaceCreateDeviceGray() : CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: gray ? CGImageAlphaInfo.none.rawValue : CGImageAlphaInfo.noneSkipLast.rawValue) else { continue }
+                                      bitmapInfo: gray ? CGImageAlphaInfo.none.rawValue : CGImageAlphaInfo.noneSkipLast.rawValue) else { return }
             ctx.setFillColor(.white) // JPEG kennt keine Transparenz
             ctx.fill(CGRect(x: 0, y: 0, width: img.width, height: img.height))
             ctx.draw(img, in: CGRect(x: 0, y: 0, width: img.width, height: img.height))
             let data = NSMutableData()
-            guard let out = ctx.makeImage(), let dst = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { continue }
+            guard let out = ctx.makeImage(), let dst = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { return }
             CGImageDestinationAddImage(dst, out, [kCGImageDestinationLossyCompressionQuality: q] as CFDictionary)
             if CGImageDestinationFinalize(dst), data.length < size { data.write(to: f, atomically: true) }
         }
@@ -373,15 +393,16 @@ enum PDFQuality: String, CaseIterable, Identifiable {
         let js = """
         const h = { headers: { Accept: 'application/json;odata=nometadata' } };
         const enc = p => encodeURIComponent(p).replace(/'/g, "''");
+        // Dateien und Unterordner gleichzeitig abfragen, Unterordner parallel – statt einer Anfrage nach der anderen
         async function ls(p) {
-          const f = await (await fetch(`${site}/_api/web/GetFolderByServerRelativeUrl('${enc(p)}')/Files?$select=Name,Length,TimeLastModified`, h)).json();
-          if (f['odata.error']) throw new Error(f['odata.error'].message.value);
-          let out = (f.value || []).map(x => [p + '/' + x.Name, +x.Length, x.TimeLastModified]);
-          if (recursive) {
-            const d = await (await fetch(`${site}/_api/web/GetFolderByServerRelativeUrl('${enc(p)}')/Folders?$select=Name`, h)).json();
-            for (const sub of (d.value || [])) out = out.concat(await ls(p + '/' + sub.Name));
-          }
-          return out;
+          const [fr, dr] = await Promise.all([
+            fetch(`${site}/_api/web/GetFolderByServerRelativeUrl('${enc(p)}')/Files?$select=Name,Length,TimeLastModified`, h).then(r => r.json()),
+            recursive ? fetch(`${site}/_api/web/GetFolderByServerRelativeUrl('${enc(p)}')/Folders?$select=Name`, h).then(r => r.json()) : Promise.resolve({ value: [] })
+          ]);
+          if (fr['odata.error']) throw new Error(fr['odata.error'].message.value);
+          const out = (fr.value || []).map(x => [p + '/' + x.Name, +x.Length, x.TimeLastModified]);
+          const subs = await Promise.all((dr.value || []).map(sub => ls(p + '/' + sub.Name)));
+          return out.concat(...subs);
         }
         return await ls(folder);
         """
@@ -407,6 +428,7 @@ enum PDFQuality: String, CaseIterable, Identifiable {
         try FileManager.default.moveItem(at: tmp, to: dest)
         // Änderungsdatum wie auf dem Server → beim nächsten Mal erkennt der Zwischenspeicher „unverändert“
         try? FileManager.default.setAttributes([.modificationDate: item.modified], ofItemAtPath: dest.path)
+        OneNoteCloud.touch(dest) // setAttributes setzt auch das Zugriffsdatum zurück – sonst räumt der 30-Tage-Check die Datei weg
     }
     func download(_ d: WKDownload, decideDestinationUsing r: URLResponse, suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
         completionHandler(downloads[ObjectIdentifier(d)]?.0)
