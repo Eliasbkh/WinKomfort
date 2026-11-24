@@ -62,6 +62,8 @@ struct FileItem: Identifiable, Hashable, Sendable {
         didSet { UserDefaults.standard.set(folderSizes, forKey: "explorerFolderSizes"); computeFolderSizes() }
     }
     private var sizeTask: Task<Void, Never>?
+    @Published private(set) var volumesTick = 0 // USB-Stick rein/raus → Seitenleiste neu
+    private var mountTokens: [NSObjectProtocol] = []
     private var mdq: NSMetadataQuery?
     private var mdqToken: NSObjectProtocol?
     private var deepTask: DispatchWorkItem?
@@ -85,6 +87,10 @@ struct FileItem: Identifiable, Hashable, Sendable {
         self.url = url
         grid = style != .windows
         reload()
+        let nc = NSWorkspace.shared.notificationCenter
+        for n in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
+            mountTokens.append(nc.addObserver(forName: n, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.volumesTick += 1 } })
+        }
     }
 
     var visible: [FileItem] {
@@ -181,7 +187,10 @@ struct FileItem: Identifiable, Hashable, Sendable {
         reloadPending = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in MainActor.assumeIsolated { self?.reloadPending = false; self?.reload() } }
     }
-    func stop() { watcher?.cancel(); watcher = nil; stopQuery(); sizeTask?.cancel() }
+    func stop() {
+        watcher?.cancel(); watcher = nil; stopQuery(); sizeTask?.cancel()
+        mountTokens.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }; mountTokens = []
+    }
 
     // Ordnergrößen nacheinander im Hintergrund berechnen; beim Ordnerwechsel abbrechen
     private func computeFolderSizes() {
@@ -809,6 +818,7 @@ struct ExplorerView: View {
     }
 
     private func sidebar(grouped: Bool) -> some View {
+        _ = model.volumesTick // neu zeichnen, wenn Laufwerke kommen oder gehen
         let standard = Places.standard(), volumes = Places.volumes()
         return List {
             Section(grouped ? L("Orte", "Places") : "") {
@@ -819,10 +829,31 @@ struct ExplorerView: View {
                 .listRowBackground(model.recents ? RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(0.18)) : nil)
                 ForEach(standard) { placeRow($0) }
             }
-            if !volumes.isEmpty { Section(L("Geräte", "Devices")) { ForEach(volumes) { placeRow($0) } } }
+            if !volumes.isEmpty {
+                Section(L("Geräte", "Devices")) {
+                    ForEach(volumes) { v in
+                        HStack(spacing: 4) {
+                            placeRow(v)
+                            if v.symbol == "externaldrive" {
+                                Button { eject(v) } label: { Image(systemName: "eject.fill").font(.caption) }
+                                    .buttonStyle(.borderless).help(L("Auswerfen", "Eject")).accessibilityLabel(L("\(v.title) auswerfen", "Eject \(v.title)"))
+                            }
+                        }
+                    }
+                }
+            }
         }
         .listStyle(.sidebar).scrollContentBackground(.hidden)
     }
+    // Sicher auswerfen (wie im Finder); danach zurück in den Benutzerordner, falls man gerade darin war
+    private func eject(_ v: Place) {
+        if model.url.path.hasPrefix(v.url.path) { model.open(FileManager.default.homeDirectoryForCurrentUser) }
+        Task.detached {
+            do { try NSWorkspace.shared.unmountAndEjectDevice(at: v.url) }
+            catch { await MainActor.run { Toast.show(L("„\(v.title)“ wird noch benutzt", "“\(v.title)” is still in use"), symbol: "externaldrive.badge.exclamationmark") } }
+        }
+    }
+
     private func placeRow(_ p: Place) -> some View {
         let on = !model.recents && model.url.standardizedFileURL == p.url.standardizedFileURL
         return Button { model.open(p.url) } label: {
