@@ -7,6 +7,15 @@ import WebKit
 import ImageIO
 import UniformTypeIdentifiers
 
+// Kleines Protokoll für Fehlersuche (rotiert bei 1 MB) – ~/Library/Logs/WinKomfort.log
+func wkLog(_ text: String) {
+    let url = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0].appendingPathComponent("Logs/WinKomfort.log")
+    if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size > 1_000_000 { try? FileManager.default.removeItem(at: url) }
+    let line = "\(ISO8601DateFormatter().string(from: Date())) \(text)\n"
+    if let h = try? FileHandle(forWritingTo: url) { h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close() }
+    else { try? Data(line.utf8).write(to: url) }
+}
+
 enum OneNoteCloud {
     struct Target {
         let host: String        // https://firma.sharepoint.com
@@ -71,6 +80,9 @@ enum OneNoteCloud {
 
     @MainActor static func export(_ scope: OneNotePDF.Scope, _ t: Target) async -> Result<URL, Failure> {
         let session = SPSession.shared
+        let started = Date()
+        wkLog("OneNote: Start \(scope) \(t.section)")
+        defer { wkLog("OneNote: Ende nach \(Int(Date().timeIntervalSince(started))) s") }
         do {
             try await session.login(host: t.host, site: t.site)
             let sectionFolder = (t.section as NSString).deletingLastPathComponent
@@ -123,6 +135,12 @@ enum OneNoteCloud {
                 return out
             }
             guard indexes.contains(where: { $0 != nil }) else { throw Failure(text: L("OneNote-Datei konnte nicht gelesen werden", "Couldn't read the OneNote file")) }
+            // Abschnitte, die der Umwandler nicht lesen konnte, nicht stillschweigend weglassen
+            let skipped = zip(sections, indexes).filter { $0.1 == nil }.map { (($0.0 as NSString).lastPathComponent as NSString).deletingPathExtension }
+            if !skipped.isEmpty {
+                wkLog("OneNote: übersprungen \(skipped)")
+                Toast.show(L("Nicht lesbar, übersprungen: \(skipped.joined(separator: ", "))", "Couldn't read, skipped: \(skipped.joined(separator: ", "))"), symbol: "exclamationmark.triangle")
+            }
 
             // Seitenreihenfolge, bei „Diese Seite“ nur die passende Seite
             var pages = indexes.compactMap { $0 }.flatMap(pageOrder)
@@ -146,6 +164,7 @@ enum OneNoteCloud {
             try await PageRenderer().render(pages, root: work.resolvingSymlinksInPath(), to: out)
             return .success(out)
         } catch let e as Failure {
+            wkLog("OneNote: Fehler \(e.text)")
             return .failure(e)
         } catch {
             return .failure(Failure(text: error.localizedDescription))
@@ -301,8 +320,15 @@ enum PDFQuality: String, CaseIterable, Identifiable {
     private var loginWindow: NSWindow?
     private var downloads: [ObjectIdentifier: (URL, CheckedContinuation<Void, Error>)] = [:]
 
+    // Laden mit Zeitlimit – eine hängende Anmeldeseite darf den Export nie blockieren
     private func load(_ url: URL) async {
-        await withCheckedContinuation { c in loaded = c; web.load(URLRequest(url: url)) }
+        await withCheckedContinuation { c in
+            loaded = c
+            web.load(URLRequest(url: url))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
+                MainActor.assumeIsolated { if let l = self?.loaded { self?.loaded = nil; wkLog("OneNote: Laden dauerte zu lange: \(url.host ?? "")"); l.resume() } }
+            }
+        }
     }
     func webView(_ w: WKWebView, didFinish n: WKNavigation!) { loaded?.resume(); loaded = nil }
     func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: Error) { loaded?.resume(); loaded = nil }
@@ -318,9 +344,11 @@ enum PDFQuality: String, CaseIterable, Identifiable {
     // Einmalig sichtbar anmelden; danach reicht das gespeicherte Anmelde-Cookie (wird bei Bedarf still erneuert)
     func login(host: String, site: String) async throws {
         if await signedIn(host, site) { return }
+        wkLog("OneNote: Anmeldung prüfen \(host)\(site)")
         await load(URL(string: host + site)!)
         for _ in 0..<20 where !(await signedIn(host, site)) { try await Task.sleep(nanoseconds: 300_000_000) } // stille Weiterleitung abwarten
-        if await signedIn(host, site) { return }
+        if await signedIn(host, site) { wkLog("OneNote: still angemeldet"); return }
+        wkLog("OneNote: Anmeldefenster nötig")
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 680), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         w.title = L("Bei Microsoft anmelden – für OneNote als PDF", "Sign in to Microsoft – for OneNote to PDF")
         w.contentView = web
