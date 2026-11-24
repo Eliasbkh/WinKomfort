@@ -16,7 +16,7 @@ Windows-Komfort für macOS als Menüleisten-App – jede Funktion einzeln schalt
 - **Fenster wechseln wie Alt-Tab** (⌥⇥, ⌥⇧⇥ rückwärts): kurz tippen = letztes Fenster, halten = Übersicht mit Live-Vorschau
 - **Finder wie Explorer**: ⌘X schneidet Dateien aus, ⌘V verschiebt sie; neue Textdatei im offenen Ordner (⌃⌥⌘N)
 - **Zwischenablage-Verlauf** (⌃⌥V): letzte 50 Texte und 10 Bilder, nur im Arbeitsspeicher, Passwörter aus Passwort-Managern werden nie gespeichert
-- **OneNote als PDF** (⌃⌥P in OneNote): Seite, Abschnitt oder ganzes Notizbuch als eine PDF in „Downloads“. Lädt die Original-Abschnitte mit deiner Microsoft-Anmeldung im Hintergrund (zwischengespeichert, nur Geändertes wird neu geladen), wandelt sie lokal um und baut eine kleine PDF – ganzes Notizbuch in ~15 s, eingefügte Arbeitsblätter vollständig. Größe wählbar (Sehr klein / Klein / Ausgewogen / Hoch). Notbehelf ohne Cloud: Seiten in OneNote einzeln sichern
+- **OneNote als PDF** (⌃⌥P in OneNote): Seite, Abschnitt oder ganzes Notizbuch als eine PDF in „Downloads“. Lädt die Original-Abschnitte mit deiner Microsoft-Anmeldung im Hintergrund (zwischengespeichert, nur Geändertes wird neu geladen), wandelt sie lokal um und baut eine kleine PDF – ganzes Notizbuch in ~9 s (beim ersten Mal mit Download ~20 s), eingefügte Arbeitsblätter vollständig. Größe wählbar (Sehr klein / Klein / Ausgewogen / Hoch). Notbehelf ohne Cloud: Seiten in OneNote einzeln sichern
 - **Game Mode** (⌃⌥G, automatisch bei Spielen): Hintergrund-Apps gedrosselt, Nicht stören, Bildschirm bleibt an, Dock optional ausgeblendet – alles beim Beenden zurück
 - **KI-Befehle** (⌃⌥K, Apple Intelligence auf dem Gerät): „halt den Mac eine Stunde wach“, „Game Mode an“, „zeig Downloads“ … Dieselben Befehle als Links für Kurzbefehle/Siri: `winkomfort://gamemode/on`, `winkomfort://awake/60`, `winkomfort://explorer/Downloads` (Links nur für harmlose Befehle – freie KI-Sätze und Apps öffnen gehen nur in WinKomfort selbst)
 - **Maus wie unter Windows**: eigene Scrollrichtung und -geschwindigkeit für die Maus, Trackpad bleibt unverändert
@@ -27,7 +27,7 @@ Windows-Komfort für macOS als Menüleisten-App – jede Funktion einzeln schalt
 - **Text-Kürzel** (wie TextExpander): „;mail“ → deine E-Mail-Adresse – in jeder App, nie in Passwortfeldern (Allgemein › Text-Kürzel)
 - **Siri & Kurzbefehle**: fertige Kurzbefehle mit einem Klick hinzufügen („Hey Siri, Game Mode an“)
 - **Dock**: Position, Größe und Vergrößerung direkt unter Schreibtisch & Dock
-- **Explorer** (⌃⌥E, im Finder: gleicher Ordner): eigener Dateimanager in drei Stilen – GNOME, KDE Dolphin, Windows 11 – mit Live-Vorschau in den Einstellungen, Quick Look (Leertaste), Tabs (⌘T), geteilter Ansicht (F3), Suche in allen Unterordnern, „Zuletzt benutzt“, Öffnen mit, ZIP, Pfad kopieren
+- **Explorer** (⌃⌥E, im Finder: gleicher Ordner): eigener Dateimanager in drei Stilen – GNOME, KDE Dolphin, Windows 11 – mit Live-Vorschau in den Einstellungen, Quick Look (Leertaste), Tabs (⌘T), geteilter Ansicht (F3), Suche in allen Unterordnern, „Zuletzt benutzt“, Ordnergrößen, Laufwerke auswerfen, Pfeiltasten im Raster, Öffnen mit, ZIP, Pfad kopieren
 - **Fenster einrasten per Tastatur** (⌃⌥←/→/↑/↓): linke/rechte Hälfte, maximieren, zurück bzw. minimieren
 - **Fenster anheften** (⌃⌘P): Fenster bleibt immer im Vordergrund (Live-Kopie, braucht einmal „Bildschirmaufnahme“)
 - **Wach bleiben:** Bildschirm an lassen oder nur den Mac wach halten, für 30 Min bis unbegrenzt
