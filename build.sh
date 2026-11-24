@@ -43,4 +43,7 @@ else
   codesign --force -s - "$APP"
 fi
 ditto -c -k --keepParent "$APP" "build/WinKomfort-$V.zip"
+# DMG zum Herunterladen (App + Verknüpfung zu „Programme“); das Auto-Update nutzt weiter die signierte ZIP
+DMG=$(mktemp -d); ditto "$APP" "$DMG/WinKomfort.app"; ln -s /Applications "$DMG/Applications"
+hdiutil create -quiet -ov -volname WinKomfort -srcfolder "$DMG" -format UDZO build/WinKomfort.dmg; rm -rf "$DMG"
 echo "✅ $APP (Version $V)"

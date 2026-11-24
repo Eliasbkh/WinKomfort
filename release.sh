@@ -8,5 +8,5 @@ V="$1"; [ -n "$V" ] || { echo "Nutzung: ./release.sh 1.0.1 \"Was ist neu\""; exi
 ./build.sh "$V"
 ZIP="build/WinKomfort-$V.zip"
 swift sign.swift sign "$ZIP" > "$ZIP.sig"
-gh release create "v$V" "$ZIP" "$ZIP.sig" --repo Eliasbkh/WinKomfort \
+gh release create "v$V" "$ZIP" "$ZIP.sig" build/WinKomfort.dmg --repo Eliasbkh/WinKomfort \
   --title "WinKomfort $V" --notes "${2:-Verbesserungen und Fehlerbehebungen}"
