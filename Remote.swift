@@ -9,7 +9,7 @@ import ScreenCaptureKit
 
 @MainActor final class Remote: ObservableObject {
     static let shared = Remote()
-    enum State: Equatable { case off, waiting, connected, failed(String) }
+    enum State: Equatable { case off, waiting, asking(String), connected, failed(String) }
     @Published private(set) var state = State.off
     @Published private(set) var url = ""
     @Published private(set) var screenOn = false
@@ -49,7 +49,7 @@ import ScreenCaptureKit
         release()
         listener?.cancel(); listener = nil
         conns.values.forEach { $0.close() }
-        conns = [:]; active = nil; key = []; url = ""
+        conns = [:]; active = nil; key = []; url = ""; token = ""
         state = .off
     }
     private func accept(_ c: NWConnection) {
@@ -62,20 +62,36 @@ import ScreenCaptureKit
         conns[ObjectIdentifier(r)] = nil
         if active === r { active = nil; release(); stopScreen(); if listener != nil { state = .waiting } }
     }
-    // Erste echte (entschlüsselbare) Nachricht: verbunden. Ein zweites Gerät wird abgewiesen.
-    fileprivate func authenticated(_ r: RemoteConn) -> Bool {
-        if let a = active, a !== r { return false }
-        if active == nil { active = r; state = .connected; sendInfo() }
+    // Erste echte (entschlüsselbare) Nachricht: am Mac nachfragen (ein abfotografierter QR-Code reicht so nicht).
+    // Nach der Erlaubnis darf dasselbe Handy mit seinem Merkwort wieder verbinden. Ein zweites Gerät wird abgewiesen.
+    // Grenze: gegen ein manipuliertes WLAN, das die Seite selbst fälscht, schützt das nicht – deshalb der Hinweis im Fenster.
+    private var token = ""
+    fileprivate func authenticated(_ r: RemoteConn, _ d: [String: Any]) -> Bool {
+        if let a = active { return a === r }
+        active = r
+        if !token.isEmpty, d["k"] as? String == token, d["t"] as? String == "hi" { approve() } else { state = .asking(r.peer) }
         return true
     }
+    func approve() {
+        guard active != nil else { return }
+        if token.isEmpty {
+            var g = SystemRandomNumberGenerator()
+            token = (0..<16).map { _ in String(format: "%02x", UInt8.random(in: 0...255, using: &g)) }.joined()
+        }
+        state = .connected
+        sendInfo()
+    }
+    // Ablehnen: alles aus, der alte QR-Code gilt nicht mehr
+    func deny() { stop(); start() }
     private func sendInfo() {
         let apps = Launcher.shared.keys.filter { $0.kind != .command && $0.kind != .remap }.map { ["id": $0.id.uuidString, "name": Launcher.shared.title($0)] }
-        active?.send(json: ["t": "info", "name": Host.current().localizedName ?? "Mac", "apps": apps, "lang": L("de", "en")])
+        active?.send(json: ["t": "info", "name": Host.current().localizedName ?? "Mac", "apps": apps, "lang": L("de", "en"), "k": token])
     }
 
     // MARK: Befehle
     private func num(_ d: [String: Any], _ k: String) -> Double { let v = (d[k] as? NSNumber)?.doubleValue ?? 0; return v.isFinite ? v : 0 }
     fileprivate func handle(_ d: [String: Any]) {
+        guard state == .connected else { return } // erst nach der Erlaubnis am Mac
         switch d["t"] as? String {
         case "move": move(CGPoint(x: pos.x + min(max(num(d, "x"), -400), 400), y: pos.y + min(max(num(d, "y"), -400), 400)))
         case "click": click(right: d["r"] as? Bool ?? false, count: min(max(Int(num(d, "n")), 1), 2))
@@ -187,6 +203,10 @@ import ScreenCaptureKit
     private var rx: RemoteChannel?, tx: RemoteChannel?
     init(_ c: NWConnection, key: [UInt8]) { self.c = c; self.key = key }
 
+    var peer: String {
+        if case .hostPort(let h, _) = c.endpoint { return "\(h)".split(separator: "%").first.map(String.init) ?? "?" }
+        return "?"
+    }
     func start() {
         c.stateUpdateHandler = { [weak self] s in MainActor.assumeIsolated { switch s { case .failed, .cancelled: self?.close(); default: break } } }
         c.start(queue: .main)
@@ -258,7 +278,7 @@ import ScreenCaptureKit
             return
         }
         guard let plain = rx!.open(p), let d = (try? JSONSerialization.jsonObject(with: Data(plain))) as? [String: Any] else { close(); return }
-        guard Remote.shared.authenticated(self) else { close(); return }
+        guard Remote.shared.authenticated(self, d) else { close(); return }
         ok = true
         Remote.shared.handle(d)
     }
@@ -381,6 +401,16 @@ struct RemoteView: View {
     var body: some View {
         VStack(spacing: 16) {
             switch r.state {
+            case .asking(let ip):
+                Image(systemName: "iphone.gen3.badge.exclamationmark").font(.system(size: 52, weight: .light)).foregroundStyle(.secondary).accessibilityHidden(true)
+                Text(L("Dieses Handy verbinden?", "Connect this phone?")).font(.title2.weight(.semibold))
+                Text(L("\(ip) möchte deinen Mac steuern. Erlaube es nur, wenn du gerade selbst gescannt hast.", "\(ip) wants to control your Mac. Only allow it if you just scanned the code yourself."))
+                    .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Button(L("Ablehnen", "Deny")) { r.deny() }
+                    Button(L("Erlauben", "Allow")) { r.approve() }.buttonStyle(.borderedProminent)
+                }
+                .controlSize(.large)
             case .connected:
                 Image(systemName: r.screenOn ? "rectangle.on.rectangle" : "checkmark.circle").font(.system(size: 56, weight: .light)).foregroundStyle(r.screenOn ? Color.accentColor : .green).accessibilityHidden(true)
                 Text(r.screenOn ? L("Dein Handy ist ein Bildschirm", "Your phone is a display") : L("Handy verbunden", "Phone connected")).font(.title2.weight(.semibold))
