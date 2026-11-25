@@ -12,7 +12,7 @@ import Vision
         p.terminationHandler = { _ in
             defer { try? FileManager.default.removeItem(at: file) }
             guard let img = NSImage(contentsOf: file)?.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return } // abgebrochen
-            let slow = DispatchWorkItem { Toast.show(L("Lese … (beim ersten Mal dauert es etwas)", "Reading… (takes a moment the first time)"), symbol: "viewfinder", seconds: 30) }
+            let slow = DispatchWorkItem { MainActor.assumeIsolated { Toast.show(L("Lese … (beim ersten Mal dauert es etwas)", "Reading… (takes a moment the first time)"), symbol: "viewfinder", seconds: 30) } }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: slow)
             let text = qr ? codes(img) : read(img)
             DispatchQueue.main.async {
