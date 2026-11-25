@@ -54,6 +54,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
     @Published private(set) var url: URL
     @Published private(set) var items: [FileItem] = []
     @Published var selection: Set<URL> = []
+    @Published var batch: [FileItem]?
     @Published var grid: Bool
     @Published var query = "" { didSet { if query != oldValue { scheduleDeepSearch() } } }
     @Published private(set) var deepHits: [FileItem] = [] // Treffer in Unterordnern (macOS-Suchindex)
@@ -321,7 +322,25 @@ struct FileItem: Identifiable, Hashable, Sendable {
             renaming = FileItem(url: target, name: target.lastPathComponent, isDir: true, isPackage: false, size: nil, modified: nil, kind: "")
         } catch { fail(error) }
     }
-    func startRename() { if let i = selectedItems.first, selectedItems.count == 1 { renaming = i } }
+    func startRename() {
+        if selectedItems.count > 1 { batch = selectedItems } else if let i = selectedItems.first { renaming = i }
+    }
+    // Alle auf einmal: erst auf Zwischennamen, dann auf die neuen – so kollidiert nichts, und nie wird etwas überschrieben
+    func renameAll(_ items: [FileItem], _ new: [String]) {
+        var done: [(URL, URL)] = []
+        do {
+            let pairs: [(URL, URL, URL)] = Swift.zip(items, new).filter { $0.0.url.lastPathComponent != $0.1 }.map { i, n in (i.url, i.url.deletingLastPathComponent().appendingPathComponent(n), i.url.deletingLastPathComponent().appendingPathComponent(".wk-\(UUID().uuidString)")) }
+            for p in pairs { try FileManager.default.moveItem(at: p.0, to: p.2); done.append((p.0, p.2)) }
+            for (k, p) in pairs.enumerated() { try FileManager.default.moveItem(at: p.2, to: p.1); done[k] = (p.0, p.1) }
+            selection = Set(pairs.map(\.1))
+        } catch {
+            // alles zurück, wieder über Zwischennamen (bei vertauschten Namen wäre das Ziel sonst belegt)
+            let tmp = done.map { ($0.0, $0.1, $0.0.deletingLastPathComponent().appendingPathComponent(".wk-\(UUID().uuidString)")) }
+            for t in tmp { try? FileManager.default.moveItem(at: t.1, to: t.2) }
+            for t in tmp { try? FileManager.default.moveItem(at: t.2, to: t.0) }
+            fail(error)
+        }
+    }
     func rename(_ item: FileItem, to name: String) {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty, clean != item.url.lastPathComponent, !clean.contains("/") else { return }
@@ -458,7 +477,7 @@ final class ExplorerWindow: NSWindow {
 
     // Tasten zentral abfangen, damit sie in Raster und Liste gleich wirken – nicht, während man tippt
     override func sendEvent(_ e: NSEvent) {
-        if e.type == .keyDown, let m = model, !(firstResponder is NSText), MainActor.assumeIsolated({ m.renaming == nil }),
+        if e.type == .keyDown, let m = model, !(firstResponder is NSText), MainActor.assumeIsolated({ m.renaming == nil && m.batch == nil }),
            MainActor.assumeIsolated({ handle(e, m) }) { return }
         if e.type == .leftMouseDown, let m = model, MainActor.assumeIsolated({ listBand(e, m) }) { return }
         super.sendEvent(e)
@@ -655,6 +674,7 @@ struct ExplorerView: View {
         }
         .frame(minWidth: preview ? nil : 620, minHeight: preview ? nil : 380)
         .onChange(of: model.searchFocus) { _, _ in model.searching = true; searchFocused = true }
+        .sheet(isPresented: Binding(get: { model.batch != nil }, set: { if !$0 { model.batch = nil } })) { if let b = model.batch { BatchRenameSheet(items: b, model: model) } }
         .sheet(item: $model.renaming) { item in RenameSheet(item: item) { model.rename(item, to: $0) } }
         .alert(L("Das ging nicht", "That didn't work"), isPresented: Binding(get: { model.error != nil && !model.items.isEmpty }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
@@ -746,7 +766,7 @@ struct ExplorerView: View {
                 iconButton("scissors", L("Ausschneiden", "Cut")) { model.copy(cut: true) }.disabled(model.selection.isEmpty)
                 iconButton("doc.on.doc", L("Kopieren", "Copy")) { model.copy(cut: false) }.disabled(model.selection.isEmpty)
                 iconButton("doc.on.clipboard", L("Einfügen", "Paste")) { model.paste() }
-                iconButton("character.cursor.ibeam", L("Umbenennen", "Rename")) { model.startRename() }.disabled(model.selection.count != 1)
+                iconButton("character.cursor.ibeam", L("Umbenennen", "Rename")) { model.startRename() }.disabled(model.selection.isEmpty)
                 iconButton("trash", L("Löschen", "Delete")) { model.trash() }.disabled(model.selection.isEmpty)
                 Divider().frame(height: 18).padding(.horizontal, 6)
                 sortMenu
@@ -1016,7 +1036,7 @@ struct ExplorerView: View {
         Divider()
         Button(L("Ausschneiden", "Cut")) { ensure(item); model.copy(cut: true) }
         Button(L("Kopieren", "Copy")) { ensure(item); model.copy(cut: false) }
-        Button(L("Umbenennen …", "Rename…")) { model.selection = [item.url]; model.startRename() }
+        Button(L("Umbenennen …", "Rename…")) { ensure(item); model.startRename() }
         Button(L("Als ZIP komprimieren", "Compress to ZIP")) { ensure(item); model.zip() }
         Button(L("Pfad kopieren", "Copy Path")) { ensure(item); model.copyPath() }
         Divider()
@@ -1055,6 +1075,47 @@ func sameVolume(_ urls: [URL], _ dest: URL) -> Bool {
     func vol(_ u: URL) -> URL? { (try? u.resourceValues(forKeys: [.volumeURLKey]))?.volume }
     guard let d = vol(dest) else { return false }
     return urls.allSatisfy { vol($0) == d }
+}
+
+struct BatchRenameSheet: View {
+    let items: [FileItem]
+    let model: ExplorerModel
+    final class Box: ObservableObject { @Published var replace = false; @Published var a = ""; @Published var b = "" }
+    @StateObject private var s = Box()
+    @Environment(\.dismiss) private var dismiss
+    private var old: [String] { items.map(\.url.lastPathComponent) }
+    private var new: [String] { RenameLogic.names(old, mode: s.replace ? .replace : .number, a: s.a, b: s.b) }
+    private var problem: String? {
+        guard !s.a.isEmpty else { return "" }
+        guard Set(items.map { $0.url.deletingLastPathComponent() }).count == 1 else { return L("Nur Dateien aus einem Ordner", "Only files from one folder") }
+        let dir = items[0].url.deletingLastPathComponent()
+        switch RenameLogic.problem(old, new, taken: Set((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])) {
+        case .empty?: return L("Ein Name wäre leer", "A name would be empty")
+        case .slash?: return L("„/“ und „:“ sind nicht erlaubt", "“/” and “:” aren't allowed")
+        case .twice?: return L("Zwei Dateien hießen gleich", "Two files would have the same name")
+        case .exists?: return L("Eine Datei mit diesem Namen gibt es schon", "A file with that name already exists")
+        case nil: return old == new ? "" : nil
+        }
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(L("\(items.count) Dateien umbenennen", "Rename \(items.count) files")).font(.headline)
+            Picker("", selection: $s.replace) { Text(L("Durchnummerieren", "Number")).tag(false); Text(L("Ersetzen", "Replace")).tag(true) }.pickerStyle(.segmented).labelsHidden()
+            TextField(s.replace ? L("Suchen nach", "Find") : L("Neuer Name", "New name"), text: $s.a)
+            if s.replace { TextField(L("Ersetzen durch", "Replace with"), text: $s.b) }
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(zip(old, new).prefix(4).enumerated()), id: \.offset) { _, p in Text("\(p.0)  →  \(s.a.isEmpty ? p.0 : p.1)").font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
+                if items.count > 4 { Text("…").foregroundStyle(.secondary) }
+            }
+            if let p = problem, !p.isEmpty { Text(p).font(.callout).foregroundStyle(.red) }
+            HStack {
+                Spacer()
+                Button(L("Abbrechen", "Cancel"), role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(L("Umbenennen", "Rename")) { model.renameAll(items, new); dismiss() }.keyboardShortcut(.defaultAction).disabled(problem != nil)
+            }
+        }
+        .padding(20).frame(width: 440)
+    }
 }
 
 struct RenameSheet: View {

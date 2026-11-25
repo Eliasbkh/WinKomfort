@@ -10,7 +10,7 @@ import AppKit
         "sys:hideOthers": "Andere ausblenden,Hide others", "sys:quit": "Beenden,Quit", "sys:missionControl": "Alle Fenster,Mission Control", "sys:showDesktop": "Schreibtisch,Desktop",
         "sys:lock": "Sperren,Lock", "sys:displayOff": "Bildschirm aus,Display off", "sys:screenshotArea": "Screenshot,Bildschirmfoto,Ausschnitt", "sys:screenshotFull": "Screenshot,Bildschirmfoto",
         "sys:dark": "Dunkelmodus,Dark mode,Hell", "sys:mute": "Stumm,Ton,Mute", "sys:volumeUp": "Lauter,Volume", "sys:volumeDown": "Leiser,Volume", "sys:playPause": "Pause,Play,Wiedergabe",
-        "sys:nextTrack": "Nächster Titel,Next", "sys:previousTrack": "Vorheriger Titel,Previous", "hot:explorer": "Explorer,Dateien,Files", "hot:remote": "Fernbedienung,Handy,Remote,Phone",
+        "sys:ocr": "OCR,Text kopieren,Texterkennung", "sys:qrScan": "QR", "sys:pickColor": "Farbe,Pipette,Color", "sys:micMute": "Mikrofon,Microphone,Mute", "sys:cleaning": "Putzen,Reinigen,Clean", "sys:nextTrack": "Nächster Titel,Next", "sys:previousTrack": "Vorheriger Titel,Previous", "hot:explorer": "Explorer,Dateien,Files", "hot:remote": "Fernbedienung,Handy,Remote,Phone",
         "hot:note": "Notiz,Schnellnotiz,Quick note", "hot:tasks": "Task-Manager,Taskmanager", "mode:clip": "Zwischenablage,Clipboard,Verlauf,History", "mode:emoji": "Emoji,Smiley", "hot:snapLeft": "Links,Left", "hot:snapRight": "Rechts,Right", "hot:snapMax": "Maximieren,Maximize", "win:center": "Zentrieren,Center", "hot:gameMode": "Game Mode,Spielmodus",
         "hot:onenote": "OneNote PDF", "hot:ask": "KI,AI", "pane:phone": "Galaxy Buds,Samsung",
     ]

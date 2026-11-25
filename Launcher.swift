@@ -171,6 +171,7 @@ struct LauncherSection: View {
 enum SystemAction: String, CaseIterable {
     case fullscreen, minimize, closeWindow, hide, hideOthers, quit, missionControl, appWindows, showDesktop
     case lock, displayOff, screenshotArea, screenshotFull, dark, mute, volumeUp, volumeDown, playPause, nextTrack, previousTrack
+    case ocr, qrScan, pickColor, micMute, cleaning
 
     var title: String {
         switch self {
@@ -194,6 +195,11 @@ enum SystemAction: String, CaseIterable {
         case .playPause: L("Wiedergabe/Pause", "Play/pause")
         case .nextTrack: L("Nächster Titel", "Next track")
         case .previousTrack: L("Vorheriger Titel", "Previous track")
+        case .ocr: L("Text vom Bildschirm kopieren", "Copy text from screen")
+        case .qrScan: L("QR-Code vom Bildschirm lesen", "Scan QR code on screen")
+        case .pickColor: L("Farbe vom Bildschirm aufnehmen", "Pick color from screen")
+        case .micMute: L("Mikrofon ein/aus", "Toggle microphone")
+        case .cleaning: L("Putzmodus", "Cleaning mode")
         }
     }
     var symbol: String {
@@ -215,6 +221,11 @@ enum SystemAction: String, CaseIterable {
         case .playPause: "playpause"
         case .nextTrack: "forward"
         case .previousTrack: "backward"
+        case .ocr: "text.viewfinder"
+        case .qrScan: "qrcode.viewfinder"
+        case .pickColor: "eyedropper"
+        case .micMute: "mic.slash"
+        case .cleaning: "bubbles.and.sparkles"
         }
     }
 
@@ -251,6 +262,11 @@ enum SystemAction: String, CaseIterable {
         case .playPause: return Self.media(16)
         case .nextTrack: return Self.media(17)
         case .previousTrack: return Self.media(18)
+        case .ocr: Tools.capture(qr: false); return true
+        case .qrScan: Tools.capture(qr: true); return true
+        case .pickColor: Tools.pickColor(); return true
+        case .micMute: Tools.toggleMic(); return true
+        case .cleaning: CleaningMode.start(); return true
         }
     }
     private static func window() -> AXUIElement? {

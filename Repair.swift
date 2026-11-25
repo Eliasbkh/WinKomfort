@@ -25,6 +25,8 @@ import SwiftUI
         if let drag = features.first(where: { $0.id == "drag" }), isOn(drag) { TapDragFix.stop(); TapDragFix.start() }
         MouseScroll.stop(); MouseScroll.update()
         Snippets.stop(); Snippets.update()
+        InputExtras.update()
+        AutoQuit.update()
         DockReveal.stop(); DockReveal.start()
         ClipHistory.shared.start()
         SystemMonitor.shared.update()

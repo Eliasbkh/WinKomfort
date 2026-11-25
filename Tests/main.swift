@@ -207,5 +207,13 @@ let heute = Date(timeIntervalSince1970: 1795608000) // 25.11.2026 12:00 UTC
 sc("Tage", "\(SlashLogic.days("24.12.", today: heute, cal: utc) ?? -1) \(SlashLogic.days("1.1.", today: heute, cal: utc) ?? -1) \(SlashLogic.days("31.2.", today: heute, cal: utc) == nil) \(SlashLogic.days("24.11.2026", today: heute, cal: utc) ?? 0)", "29 37 true -1")
 sc("JSON", (SlashLogic.json("{\"a\":1}") ?? "").replacingOccurrences(of: "\n", with: ""), "{  \"a\" : 1}")
 
+// Mehrere umbenennen
+sc("Nummerieren", "\(RenameLogic.names(["b.jpg", "a.png", "ohne"], mode: .number, a: "Urlaub", b: ""))", "[\"Urlaub 01.jpg\", \"Urlaub 02.png\", \"Urlaub 03\"]")
+sc("Ersetzen", "\(RenameLogic.names(["IMG_1.jpg", "x.txt"], mode: .replace, a: "IMG_", b: "Foto "))", "[\"Foto 1.jpg\", \"x.txt\"]")
+sc("Doppelter Name", "\(RenameLogic.problem(["a", "b"], ["c", "C"], taken: ["a", "b"])!)", "twice")
+sc("Gibt es schon", "\(RenameLogic.problem(["a"], ["z"], taken: ["a", "Z"])!)", "exists")
+sc("Tauschen erlaubt", "\(RenameLogic.problem(["a", "b"], ["b", "a"], taken: ["a", "b"]) == nil)", "true")
+sc("Schrägstrich", "\(RenameLogic.problem(["a"], ["x/y"], taken: [])!)", "slash")
+
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }

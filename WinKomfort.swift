@@ -147,6 +147,9 @@ let features: [Feature] = [
                     Pref(domain: "com.apple.dock", key: "autohide-delay", on: ["-float", "0"]),
                     Pref(domain: "com.apple.dock", key: "autohide-time-modifier", on: ["-float", "0.12"])],
             restart: ["Dock"]),
+    Feature(id: "dragany", group: groups[1], title: "Fenster überall anfassen (⌃⌘ ziehen)",
+            hint: "⌃⌘ halten und irgendwo im Fenster ziehen. Offene Apps erst nach einem Neustart.",
+            prefs: [Pref(domain: "NSGlobalDomain", key: "NSWindowShouldDragOnGesture", on: yes)]),
     Feature(id: "snap", group: groups[1], title: "Fenster-Snapping mit Vorschau",
             hint: "An Rand oder nach oben ziehen → Vorschau → einrasten. Per Tastatur: fn ⌃ + Pfeiltasten.",
             prefs: [Pref(domain: "com.apple.WindowManager", key: "EnableTilingByEdgeDrag", on: yes),
@@ -1767,148 +1770,6 @@ struct WelcomeView: View {
     }
     NSApp.activate(ignoringOtherApps: true)
     w.makeKeyAndOrderFront(nil)
-}
-
-// MARK: - Task-Manager (⌃⇧⎋ wie bei Windows)
-
-struct TaskRow: Identifiable {
-    let id: pid_t
-    let name: String
-    let icon: NSImage?
-    let cpu: Double
-    let mem: Double
-}
-
-@MainActor final class TaskModel: ObservableObject {
-    static let shared = TaskModel()
-    @Published var rows: [TaskRow] = []
-    @Published var selection: Set<pid_t> = []
-    @Published var sortOrder = [KeyPathComparator(\TaskRow.cpu, order: .reverse)]
-    @Published var background = false { didSet { selection = []; refresh() } }
-    private var timer: Timer?
-
-    var sorted: [TaskRow] { rows.sorted(using: sortOrder) }
-
-    // Läuft nur, solange das Fenster offen ist
-    func start() {
-        refresh()
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
-            MainActor.assumeIsolated { TaskModel.shared.refresh() }
-        }
-    }
-    func stop() { timer?.invalidate(); timer = nil }
-
-    func refresh() {
-        var kids: [pid_t: [pid_t]] = [:], parent: [pid_t: pid_t] = [:], cpu: [pid_t: Double] = [:], rss: [pid_t: Double] = [:]
-        for line in sh(["/bin/ps", "-axo", "pid=,ppid=,%cpu=,rss="]).split(separator: "\n") {
-            let f = line.split(separator: " ")
-            guard f.count == 4, let pid = pid_t(f[0]), let ppid = pid_t(f[1]) else { continue }
-            kids[ppid, default: []].append(pid)
-            parent[pid] = ppid
-            cpu[pid] = Double(f[2]) ?? 0
-            rss[pid] = Double(f[3]) ?? 0
-        }
-        // shortcut: zählt Kindprozesse mit (z. B. Browser-Tabs), aber keine XPC-Dienste – ganz genau ist die Aktivitätsanzeige
-        func total(_ p: pid_t, _ m: [pid_t: Double]) -> Double {
-            (m[p] ?? 0) + (kids[p] ?? []).reduce(0) { $0 + total($1, m) }
-        }
-        let apps = NSWorkspace.shared.runningApplications
-        let regular = Set(apps.filter { $0.activationPolicy == .regular }.map(\.processIdentifier))
-        // Helfer offener Apps (Browser-Tabs …) zählen zu ihrer App – beenden würde sie abstürzen lassen
-        func belongsToApp(_ p: pid_t) -> Bool {
-            var cur = parent[p]
-            while let c = cur, c > 1 { if regular.contains(c) { return true }; cur = parent[c] }
-            return false
-        }
-        let shown = apps.filter { a in
-            if !background { return a.activationPolicy == .regular }
-            let id = a.bundleIdentifier ?? ""
-            let path = (a.bundleURL ?? a.executableURL)?.path ?? "/System"
-            let system = ["/System/", "/usr/", "/Library/Apple/", "/sbin/", "/bin/"].contains { path.hasPrefix($0) }
-            return a.activationPolicy != .regular && !system && !id.hasPrefix("com.apple.") && id != Bundle.main.bundleIdentifier
-                && !belongsToApp(a.processIdentifier)
-        }
-        rows = shown.map { a in
-            TaskRow(id: a.processIdentifier, name: a.localizedName ?? "?", icon: a.icon,
-                    cpu: total(a.processIdentifier, cpu), mem: total(a.processIdentifier, rss) * 1024)
-        }
-        let alive = Set(rows.map(\.id))
-        selection = selection.filter { alive.contains($0) }
-    }
-
-    // Fremde Hintergrund-Apps, die gerade spürbar Strom ziehen
-    func endHogs() {
-        let hogs = rows.filter { $0.cpu >= 3 }
-        guard !hogs.isEmpty else {
-            alert("Keine Stromfresser gefunden", "Gerade braucht keine Hintergrund-App mehr als 3 % CPU.")
-            return
-        }
-        guard alert(tr("%lld Stromfresser beenden?", hogs.count),
-                    hogs.map { "• \($0.name) – \($0.cpu.formatted(.number.precision(.fractionLength(0)))) % CPU" }.joined(separator: "\n")
-                    + "\n\n" + tr("Sie werden normal beendet und starten beim nächsten Mal wieder, falls sie Autostart haben."),
-                    ["Beenden", "Abbrechen"]) else { return }
-        end(Set(hogs.map(\.id)), force: false)
-    }
-
-    func end(_ ids: Set<pid_t>, force: Bool) {
-        for id in ids {
-            guard let a = NSRunningApplication(processIdentifier: id) else { continue }
-            if force { a.forceTerminate() } else { a.terminate() }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { TaskModel.shared.refresh() } }
-    }
-}
-
-struct TaskView: View {
-    @ObservedObject var m = TaskModel.shared
-    var body: some View {
-        VStack(spacing: 0) {
-            Picker("Anzeige", selection: $m.background) {
-                Text("Apps").tag(false)
-                Text("Hintergrund").tag(true)
-            }
-            .pickerStyle(.segmented).labelsHidden().fixedSize().padding(10)
-            Table(m.sorted, selection: $m.selection, sortOrder: $m.sortOrder) {
-                TableColumn("Name", value: \.name) { r in
-                    HStack {
-                        if let i = r.icon { Image(nsImage: i).resizable().frame(width: 16, height: 16) }
-                        Text(r.name)
-                    }
-                }
-                TableColumn("CPU", value: \.cpu) { r in Text(r.cpu.formatted(.number.precision(.fractionLength(1))) + " %").monospacedDigit() }
-                    .width(70)
-                TableColumn("Arbeitsspeicher", value: \.mem) { r in
-                    Text(ByteCountFormatter.string(fromByteCount: Int64(r.mem), countStyle: .memory)).monospacedDigit()
-                }
-                .width(120)
-            }
-            .contextMenu(forSelectionType: pid_t.self) { ids in
-                Button("Task beenden") { m.end(ids, force: false) }
-                Button("Sofort beenden (erzwingen)") { m.end(ids, force: true) }
-            }
-            HStack {
-                Text(m.rows.isEmpty && m.background ? "Keine fremden Hintergrund-Apps aktiv"
-                     : "\(m.rows.count) \(m.background ? tr("Hintergrund-Apps") : tr("Apps")) · alle 2 s aktualisiert")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if m.background { Button("Stromfresser beenden …") { m.endHogs() } }
-                Button("Aktivitätsanzeige") {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
-                }
-                Button("Sofort beenden") { m.end(m.selection, force: true) }.disabled(m.selection.isEmpty)
-                Button("Task beenden") { m.end(m.selection, force: false) }
-                    .keyboardShortcut(.defaultAction).disabled(m.selection.isEmpty)
-            }
-            .padding(12)
-        }
-        .frame(minWidth: 540, minHeight: 420)
-    }
-}
-
-@MainActor func openTaskManager() {
-    showWindow("tasks", "Task-Manager", onClose: { MainActor.assumeIsolated { TaskModel.shared.stop() } }) { TaskView() }
-    TaskModel.shared.start()
 }
 
 // Globale Tastenkürzel – selbst festlegbar unter Einstellungen → Tastenkürzel
@@ -3630,6 +3491,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DockReveal.start()
         DockIcon.setup()
         AppUsage.shared.setup()
+        AutoQuit.update()
+        InputExtras.update()
         Awake.shared.lidCleanup()
         FolderHandler.setup()
         BudsMic.update()
@@ -4004,6 +3867,16 @@ struct SettingsRoot: View {
     }
 }
 
+// Schalter für InputExtras
+struct ExtraToggle: View {
+    let key: String, title: String, hint: String
+    @AppStorage private var on: Bool
+    init(key: String, title: String, hint: String) { self.key = key; self.title = title; self.hint = hint; _on = AppStorage(wrappedValue: false, key) }
+    var body: some View {
+        Toggle(isOn: $on) { Text(title); Text(hint) }.onChange(of: on) { _, _ in InputExtras.update(prompt: true) }
+    }
+}
+
 struct FeatureTab: View {
     @ObservedObject var store: Store
     let group: String
@@ -4018,7 +3891,7 @@ struct FeatureTab: View {
                     .accessibilityLabel("Control antippen öffnet das Startmenü")
                 }
                 if group == groups[0] { MouseSettings() }
-                if group == groups[4] { DockSettings() }
+                if group == groups[4] { DockSettings(); ExtraToggle(key: "dockMinimize", title: L("Klick aufs Dock-Symbol minimiert", "Click Dock icon to minimize"), hint: L("Wie die Windows-Taskleiste: Ist die App schon vorne, verschwinden ihre Fenster ins Dock.", "Like the Windows taskbar: if the app is already in front, its windows minimize.")) }
                 if group == groups[1] {
                     Toggle(isOn: store.closeQuits) { Text("Schließen beendet die App"); Text(tr(closeHint)) }
                         .accessibilityLabel("Schließen beendet die App")

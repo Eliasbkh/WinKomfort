@@ -130,6 +130,15 @@ import CoreServices
         Command(name: "buds", hint: L("Modus", "mode"), text: L("Galaxy Buds umschalten", "Switch Galaxy Buds mode"), symbol: "earbuds") { a in
             Buds.enabled ? Buds.modes.filter { a.isEmpty || SearchRank.match(a, $0.1) != nil || SearchRank.match(a, $0.2) != nil }.map { m in go("Buds: " + L(m.1, m.2)) { Buds.shared.setMode(m.0) } } : []
         },
+        Command(name: "ocr", hint: "", text: L("Text vom Bildschirm kopieren", "Copy text from screen"), symbol: "text.viewfinder") { _ in [go(L("Bereich wählen", "Select an area")) { Tools.capture(qr: false) }] },
+        Command(name: "scan", hint: "", text: L("QR-Code vom Bildschirm lesen", "Scan QR code on screen"), symbol: "qrcode.viewfinder") { _ in [go(L("Bereich wählen", "Select an area")) { Tools.capture(qr: true) }] },
+        Command(name: "pipette", hint: "", text: L("Farbe vom Bildschirm aufnehmen", "Pick color from screen"), symbol: "eyedropper") { _ in [go(L("Farbe wählen", "Pick a color")) { Tools.pickColor() }] },
+        Command(name: "mic", hint: "", text: L("Mikrofon ein/aus", "Toggle microphone"), symbol: "mic.slash") { _ in [go(L("Mikrofon umschalten", "Toggle microphone")) { Tools.toggleMic() }] },
+        Command(name: "clean", hint: "", text: L("Putzmodus: Bildschirm schwarz, Tastatur gesperrt", "Cleaning mode: black screen, keyboard locked"), symbol: "bubbles.and.sparkles") { _ in [go(L("Putzmodus starten (Esc 2 s halten beendet)", "Start cleaning mode (hold Esc 2 s to exit)")) { CleaningMode.start() }] },
+        Command(name: "ram", hint: "", text: L("Speicher ansehen und aufräumen", "View and clean up memory"), symbol: "memorychip") { _ in
+            let m = MemoryInfo.read(), f = { (b: Double) in ByteCountFormatter.string(fromByteCount: Int64(b), countStyle: .memory) }
+            return [go(L("Belegt \(f(m.used)) von \(f(m.total))", "Used \(f(m.used)) of \(f(m.total))"), L("↩ Task-Manager", "↩ Task Manager")) { openTaskManager() }]
+        },
         Command(name: "clip", hint: "", text: L("Zwischenablage-Verlauf", "Clipboard history"), symbol: "doc.on.clipboard") { _ in [] },
         Command(name: "emoji", hint: "", text: L("Emoji suchen", "Search emoji"), symbol: "face.smiling") { _ in [] },
         Command(name: "help", hint: "", text: L("Alle /Befehle", "All /commands"), symbol: "questionmark.circle") { _ in [] },

@@ -71,6 +71,8 @@ struct MouseSettings: View {
             }
         }
         .onChange(of: speed) { _, _ in MouseScroll.update(prompt: true) }
+        ExtraToggle(key: "mouseBack", title: L("Maustasten vor und zurück", "Mouse back and forward buttons"), hint: L("Auch in Safari, Finder und Explorer.", "Also in Safari, Finder and Explorer."))
+        ExtraToggle(key: "quitGuard", title: L("⌘Q nur doppelt", "Press ⌘Q twice to quit"), hint: L("Schützt davor, eine App aus Versehen zu beenden.", "Prevents quitting an app by accident."))
         Toggle(isOn: $monitor) {
             Text(L("CPU und Speicher in der Menüleiste", "CPU and memory in the menu bar"))
             Text(L("Wie iStat/Stats – klicken öffnet den Task-Manager. Misst alle 3 s, kaum Energiebedarf.", "Like iStat/Stats – click opens Task Manager. Measures every 3 s, negligible energy use."))

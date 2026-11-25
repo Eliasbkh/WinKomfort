@@ -15,11 +15,25 @@ import AppKit
         picks = d.dictionary(forKey: "searchPicks") as? [String: String] ?? [:]
     }
     func setup() {
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didDeactivateApplicationNotification, object: nil, queue: .main) { n in
+            if let p = (n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier { MainActor.assumeIsolated { AppUsage.shared.touch(p) } }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { n in
+            if let p = (n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier { MainActor.assumeIsolated { AppUsage.shared.seen[p] = nil } }
+        }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { n in
             let app = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             guard app?.activationPolicy == .regular, app?.processIdentifier != getpid(), let p = app?.bundleURL?.path else { return }
             MainActor.assumeIsolated { AppUsage.shared.used(p) }
         }
+    }
+    // Wann war die App zuletzt vorne? Unbekannt: seit ihrem Start bzw. seit WinKomfort läuft (nie länger geraten)
+    private var seen: [pid_t: Date] = [:]
+    private let began = Date()
+    func touch(_ p: pid_t) { seen[p] = Date() }
+    func idleMinutes(_ p: pid_t) -> Int {
+        guard let a = NSRunningApplication(processIdentifier: p), !a.isActive else { return 0 }
+        return Int(Date().timeIntervalSince(seen[p] ?? max(began, a.launchDate ?? began)) / 60)
     }
     private func used(_ path: String) {
         guard path != last else { return }
