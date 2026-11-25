@@ -208,7 +208,7 @@ private struct PlanTab: View {
                                         VStack(alignment: .leading, spacing: 1) { Text(l.subject).fontWeight(.medium).lineLimit(1); Text(Plan.clock(l.start) + (l.room.isEmpty ? "" : " · " + l.room) + (l.week == 0 ? "" : l.week == 1 ? " · A" : " · B")).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                                         Spacer(minLength: 0)
                                     }
-                                    .padding(7).frame(maxWidth: .infinity).background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8)).contentShape(Rectangle())
+                                    .padding(7).frame(maxWidth: .infinity).frame(height: 48).background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8)).contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
                             }

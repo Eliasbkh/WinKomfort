@@ -1232,8 +1232,13 @@ struct NoteTab: View {
 // (ScreenCaptureKit, nur dieses eine Fenster, höchstens 15 Bilder/s und nur bei Änderungen) in ein eigenes, schwebendes Fenster an dieselbe Stelle.
 // Klick darauf → das echte Fenster kommt nach vorne. Wechselst du weg, liegt die Kopie wieder obenauf.
 
-@_silgen_name("_AXUIElementGetWindow")
-func _AXUIElementGetWindow(_ element: AXUIElement, _ id: UnsafeMutablePointer<CGWindowID>) -> AXError
+// Nicht öffentlich: erst zur Laufzeit suchen. Fehlt sie in einem künftigen macOS, fällt nur diese Funktion weg – fest eingebunden startete die App nicht mehr
+private let axWindowID: (@convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError)? =
+    dlsym(UnsafeMutableRawPointer(bitPattern: -2), "_AXUIElementGetWindow").map { unsafeBitCast($0, to: (@convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError).self) }
+func _AXUIElementGetWindow(_ element: AXUIElement, _ id: UnsafeMutablePointer<CGWindowID>) -> AXError { axWindowID?(element, id) ?? .failure }
+// Antworten fremder Apps nie blind umdeuten
+func axPoint(_ v: CFTypeRef) -> CGPoint? { var p = CGPoint.zero; return CFGetTypeID(v) == AXValueGetTypeID() && AXValueGetValue(v as! AXValue, .cgPoint, &p) ? p : nil }
+func axSize(_ v: CFTypeRef) -> CGSize? { var s = CGSize.zero; return CFGetTypeID(v) == AXValueGetTypeID() && AXValueGetValue(v as! AXValue, .cgSize, &s) ? s : nil }
 
 final class PinnedWindow: NSObject, SCStreamOutput, SCStreamDelegate {
     let windowID: CGWindowID
@@ -1271,10 +1276,7 @@ final class PinnedWindow: NSObject, SCStreamOutput, SCStreamDelegate {
 
     // Rahmen des echten Fensters in Bildschirmkoordinaten (AppKit: Ursprung unten links)
     func frame() -> NSRect? {
-        var p = CGPoint.zero, s = CGSize.zero
-        guard let pv = UIAuto.attr(ax, kAXPositionAttribute), let sv = UIAuto.attr(ax, kAXSizeAttribute) else { return nil }
-        AXValueGetValue(pv as! AXValue, .cgPoint, &p)
-        AXValueGetValue(sv as! AXValue, .cgSize, &s)
+        guard let p = UIAuto.attr(ax, kAXPositionAttribute).flatMap(axPoint), let s = UIAuto.attr(ax, kAXSizeAttribute).flatMap(axSize) else { return nil }
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         return NSRect(x: p.x, y: primaryHeight - p.y - s.height, width: s.width, height: s.height)
     }
@@ -2653,10 +2655,7 @@ struct SwitcherView: View {
     }
 
     private static func frame(_ w: AXUIElement) -> CGRect? {
-        guard let p = UIAuto.attr(w, kAXPositionAttribute), let s = UIAuto.attr(w, kAXSizeAttribute) else { return nil }
-        var pos = CGPoint.zero, size = CGSize.zero
-        AXValueGetValue(p as! AXValue, .cgPoint, &pos)
-        AXValueGetValue(s as! AXValue, .cgSize, &size)
+        guard let pos = UIAuto.attr(w, kAXPositionAttribute).flatMap(axPoint), let size = UIAuto.attr(w, kAXSizeAttribute).flatMap(axSize) else { return nil }
         return CGRect(origin: pos, size: size)
     }
 
@@ -3472,6 +3471,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1)
         let d = UserDefaults.standard
         d.register(defaults: ["autoUpdate": true, "startMenu": true])
+        // Dreimal hintereinander gleich nach dem Start abgestürzt → nur Menü und Updates, damit eine Reparatur ankommen kann
+        let early = d.integer(forKey: "earlyCrashes")
+        d.set(early + 1, forKey: "earlyCrashes")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { UserDefaults.standard.set(0, forKey: "earlyCrashes") }
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in UserDefaults.standard.set(0, forKey: "earlyCrashes") } // normal beendet ist kein Absturz
+        if early >= 3 {
+            wkLog("Sicherer Modus nach \(early) Abstürzen beim Start")
+            Toast.show(L("WinKomfort läuft im sicheren Modus und sucht nach einem Update. Beenden und neu öffnen versucht es wieder normal.", "WinKomfort is in safe mode and checking for an update. Quit and reopen to try normally again."), symbol: "lifepreserver", seconds: 8)
+            DockIcon.setup()
+            Task { await Updater.shared.loop() }
+            return
+        }
         if !d.bool(forKey: "didSetup") {
             try? SMAppService.mainApp.register() // beim ersten Start: automatisch bei Anmeldung starten
             d.set(true, forKey: "didSetup")

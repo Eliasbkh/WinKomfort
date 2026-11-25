@@ -169,7 +169,7 @@ struct DiagramEditor: View {
                 TextEditor(text: Binding(get: { text }, set: { t.value = $0; UserDefaults.standard.set($0, forKey: key) })).font(.system(.body, design: .monospaced)).autocorrectionDisabled().padding(6)
                 Text(kind == .nsd ? L("wenn … sonst … · solange … · für … · wiederhole … bis …, eingerückt", "if … else … · while … · for … · repeat … until …, indented") : L("Klasse < Oberklasse: -attribut: Typ, +methode()", "Class < Parent: -field: Type, +method()")).font(.caption).foregroundStyle(.secondary).padding(10)
             }
-            .frame(minWidth: 240, idealWidth: 300)
+            .frame(minWidth: 220, idealWidth: 300, maxWidth: 360)
             VStack(spacing: 0) {
                 ScrollView([.horizontal, .vertical]) { picture.padding(20) }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
@@ -181,7 +181,7 @@ struct DiagramEditor: View {
     }
     private var ok: Bool { kind == .nsd ? TechLogic.nsd(text) != nil : TechLogic.uml(text) != nil }
     @ViewBuilder private var picture: some View {
-        if kind == .nsd, let b = TechLogic.nsd(text) { NSDView(blocks: b).frame(width: 460) }
+        if kind == .nsd, let b = TechLogic.nsd(text) { NSDView(blocks: b).frame(width: 420) }
         else if kind == .uml, let c = TechLogic.uml(text) { UMLView(classes: c) }
         else { Text(L("Links tippen, hier entsteht die Zeichnung.", "Type on the left; the drawing appears here.")).foregroundStyle(.secondary) }
     }

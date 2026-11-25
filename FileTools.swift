@@ -26,7 +26,7 @@ enum FileTools {
             c.setFillColor(.white); c.fill(r); c.draw(img, in: r)
             img = c.makeImage() ?? img
         }
-        let out = free(u, u.deletingPathExtension().lastPathComponent + suffix, type.preferredFilenameExtension ?? "jpg")
+        let out = free(u, u.deletingPathExtension().lastPathComponent + suffix, type == .jpeg ? "jpg" : type.preferredFilenameExtension ?? "png")
         guard let d = CGImageDestinationCreateWithURL(out as CFURL, type.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(d, img, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
         guard CGImageDestinationFinalize(d) else { try? FileManager.default.removeItem(at: out); return nil }

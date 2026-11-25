@@ -18,7 +18,11 @@ Windows-Komfort für macOS als Menüleisten-App – jede Funktion einzeln schalt
 - **Zwischenablage-Verlauf** (⌃⌥V): letzte 50 Texte und 10 Bilder, nur im Arbeitsspeicher, Passwörter aus Passwort-Managern werden nie gespeichert
 - **OneNote als PDF** (⌃⌥P in OneNote): Seite, Abschnitt oder ganzes Notizbuch als eine PDF in „Downloads“. Lädt die Original-Abschnitte mit deiner Microsoft-Anmeldung im Hintergrund (zwischengespeichert, nur Geändertes wird neu geladen), wandelt sie lokal um und baut eine kleine PDF – ganzes Notizbuch in ~9 s (beim ersten Mal mit Download ~20 s), eingefügte Arbeitsblätter vollständig. Größe wählbar (Sehr klein / Klein / Ausgewogen / Hoch). Notbehelf ohne Cloud: Seiten in OneNote einzeln sichern
 - **Game Mode** (⌃⌥G, automatisch bei Spielen): Hintergrund-Apps gedrosselt, Nicht stören, Bildschirm bleibt an, Dock optional ausgeblendet – alles beim Beenden zurück
-- **KI-Befehle** (⌃⌥K, Apple Intelligence auf dem Gerät): „halt den Mac eine Stunde wach“, „Game Mode an“, „zeig Downloads“ … Dieselben Befehle als Links für Kurzbefehle/Siri: `winkomfort://gamemode/on`, `winkomfort://awake/60`, `winkomfort://explorer/Downloads` (Links nur für harmlose Befehle – freie KI-Sätze und Apps öffnen gehen nur in WinKomfort selbst)
+- **KI-Assistent** (⌃⌥K, Apple Intelligence auf dem Gerät): fragen, sprechen, Bilder/PDF/Office anhängen, Kalender, Erinnerungen, Dateien, Bildschirm, Mac steuern, Gedächtnis. Internet (Wikipedia, Wetter) nur auf Wunsch. Harmlose Befehle auch als Links: `winkomfort://gamemode/on`, `winkomfort://awake/60`, `winkomfort://explorer/Downloads`
+- **Schule** (⌃⌥S): Stundenplan mit A/B-Wochen, Hausaufgaben, Noten (Punkte oder 1–6), Lernkarten, Lernmodus gegen Ablenkung
+- **Technik** in der Suche: `/subnet`, `/kv`, `/nsd` (Struktogramm), `/uml`, `/sql`, `/regex`, `/float`, `/ohm`, `/hash`, `/unix`
+- **Ablage** (⌃⌥D oder beim Ziehen wackeln) und **Umwandeln** im Explorer (JPEG/PNG, verkleinern, PDF zusammenfügen)
+- **Absturzschutz**: nach drei Abstürzen direkt beim Start nur Menü und Updates
 - **Maus wie unter Windows**: eigene Scrollrichtung und -geschwindigkeit für die Maus, Trackpad bleibt unverändert
 - **Systemanzeige**: CPU und RAM in der Menüleiste (Klick = Task-Manager)
 - **Schreibtisch & Dock**: Ecke unten rechts zeigt den Schreibtisch, Symbole/Widgets ausblenden, Laufwerke auf dem Schreibtisch, Dock ohne „Zuletzt benutzt“ und ohne Hüpfen

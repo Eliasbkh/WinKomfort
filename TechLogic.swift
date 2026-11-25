@@ -209,13 +209,13 @@ enum TechLogic {
                     }
                     let a = body()
                     out.append(.branch(rest, a, tail())); end()
-                case "solange", "while", "für", "fuer", "for": out.append(.loop((w == "while" || w == "solange" ? "solange " : "für ") + rest, body())); end()
+                case "solange", "while", "für", "fuer", "for": out.append(.loop(String(l.text.prefix(w.count)) + " " + rest, body())); end()
                 case "wiederhole", "do", "repeat":
                     let b = body()
                     var cond = rest
                     if i < lines.count, lines[i].depth >= min {
                         let (w2, r2) = word(lines[i].text)
-                        if ["bis", "until"].contains(w2) { cond = "bis " + r2; i += 1 } else if ["solange", "while"].contains(w2) { cond = "solange " + r2; i += 1 }
+                        if ["bis", "until"].contains(w2) { cond = String(lines[i].text.prefix(w2.count)) + " " + r2; i += 1 } else if ["solange", "while"].contains(w2) { cond = String(lines[i].text.prefix(w2.count)) + " " + r2; i += 1 }
                     }
                     out.append(.until(cond, b))
                 default: out.append(.step(l.text))
