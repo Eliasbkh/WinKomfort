@@ -382,5 +382,10 @@ sc("Uhrzeit", "\(Plan.minutes("7:35")!) \(Plan.minutes("13")!) \(Plan.minutes("2
 let half = try JSONDecoder().decode(Plan.Book.self, from: Data(#"{"lessons":[{"kaputt":1}],"points":false}"#.utf8)), full = try JSONDecoder().decode(Plan.Book.self, from: JSONEncoder().encode(bk))
 sc("Alte oder kaputte Daten", "\(half.points) \(half.lessons.count) \(full == bk)", "false 0 true")
 
+func ev(_ d: String, _ a: String, _ b: String, _ s: String, _ x: String = "") -> String { "BEGIN:VEVENT\r\nDTSTART;TZID=Europe/Berlin:\(d)T\(a)00\r\nDTEND;TZID=Europe/Berlin:\(d)T\(b)00\r\nSUMMARY:\(s)\r\nLOCATION:A1\r\n\(x)END:VEVENT\r\n" }
+let icsText = ["20261102", "20261109", "20261116", "20261123"].map { ev($0, "0735", "0820", "Mathe") }.joined() + ["20261103", "20261117"].map { ev($0, "0800", "0845", "Kunst\r\n  AG") }.joined() + ev("20261104", "0800", "0845", "Vertretung") + ev("20261105", "0800", "0845", "Weg", "STATUS:CANCELLED\r\n") + "BEGIN:VEVENT\nDTSTART;VALUE=DATE:20261106\nDTEND;VALUE=DATE:20261107\nSUMMARY:Ferien\nEND:VEVENT\n" + ev("20261106", "0900", "0945", "Sport", "RRULE:FREQ=WEEKLY;COUNT=20\r\n")
+sc("Kalenderdatei", "\(Plan.ics(icsText).map { "\($0.day) \(Plan.clock($0.start)) \($0.subject) \($0.week)" }) \(Plan.ics("Unsinn").count)", "[\"2 7:35 Mathe 0\", \"3 8:00 Kunst AG 1\", \"6 9:00 Sport 0\"] 0")
+
+sc("Riesige Eingabe", "\(Calc.evaluate(String(repeating: "-", count: 300_000) + "1") == nil) \(Calc.evaluate("--2+3") ?? 0)", "true 5.0")
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }

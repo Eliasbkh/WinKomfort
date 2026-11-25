@@ -4,6 +4,7 @@ import Foundation
 // Eigener Parser statt NSExpression – der stürzt bei unfertigen Eingaben wie „2+“ ab.
 enum Calc {
     static func evaluate(_ input: String) -> Double? {
+        guard input.utf8.count < 500 else { return nil } // der Parser ruft sich selbst auf: sehr lange Eingaben („-----…“) sprengten den Stapel
         let s = input.replacingOccurrences(of: ",", with: ".").replacingOccurrences(of: "×", with: "*")
             .replacingOccurrences(of: "÷", with: "/").replacingOccurrences(of: " ", with: "")
         // Nur Rechnungen, keine einzelnen Zahlen (sonst wäre jede Suche nach „2024“ ein Rechenergebnis)

@@ -98,4 +98,40 @@ enum Plan {
             return nil
         }
     }
+
+    // MARK: Kalenderdatei (.ics, z. B. aus WebUntis) → Stundenplan
+    static func ics(_ text: String, _ cal: Calendar = ActLogic.cal) -> [Lesson] {
+        // gefaltete Zeilen zusammensetzen
+        let t = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\n ", with: "").replacingOccurrences(of: "\n\t", with: "")
+        func plain(_ s: String) -> String { s.replacingOccurrences(of: #"\,"#, with: ",").replacingOccurrences(of: #"\;"#, with: ";").replacingOccurrences(of: #"\n"#, with: " ").trimmingCharacters(in: .whitespaces) }
+        func date(_ line: String) -> Date? {
+            guard let v = line.split(separator: ":").last.map(String.init), v.count >= 15 else { return nil } // ganztägig zählt nicht
+            let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyyMMdd'T'HHmmss"
+            f.timeZone = v.hasSuffix("Z") ? TimeZone(identifier: "UTC") : cal.timeZone
+            return f.date(from: String(v.prefix(15)))
+        }
+        struct Key: Hashable { let day, start, end: Int, subject, room: String }
+        var weeks: [Key: Set<Int>] = [:], every = Set<Key>(), all = Set<Int>(), fixed: [Key: Int] = [:]
+        for ev in t.components(separatedBy: "BEGIN:VEVENT").dropFirst().prefix(5000) {
+            var a: Date?, b: Date?, sum = "", loc = "", rule = "", off = false
+            for l in ev.components(separatedBy: "END:VEVENT")[0].split(separator: "\n").map(String.init) {
+                if l.hasPrefix("DTSTART") { a = date(l) } else if l.hasPrefix("DTEND") { b = date(l) }
+                else if l.hasPrefix("SUMMARY"), let c = l.firstIndex(of: ":") { sum = plain(String(l[l.index(after: c)...])) }
+                else if l.hasPrefix("LOCATION"), let c = l.firstIndex(of: ":") { loc = plain(String(l[l.index(after: c)...])) }
+                else if l.hasPrefix("RRULE") { rule = l } else if l.hasPrefix("STATUS:CANCELLED") { off = true }
+            }
+            guard !off, let a, let b, !sum.isEmpty, b > a, b.timeIntervalSince(a) < 6 * 3600, cal.isDate(a, inSameDayAs: b) else { continue }
+            func m(_ d: Date) -> Int { cal.component(.hour, from: d) * 60 + cal.component(.minute, from: d) }
+            let k = Key(day: cal.component(.weekday, from: a), start: m(a), end: m(b), subject: String(sum.prefix(60)), room: String(loc.prefix(30)))
+            let w = isoWeek(a, cal)
+            if rule.contains("FREQ=WEEKLY") { if rule.contains("INTERVAL=2") { fixed[k] = w % 2 } else { every.insert(k) } }
+            weeks[k, default: []].insert(w); all.insert(w)
+        }
+        let alternating = all.count >= 3
+        // Einzelne Vertretungen fallen heraus, wenn die Datei mehrere Wochen umfasst
+        return weeks.filter { every.contains($0.key) || fixed[$0.key] != nil || !alternating || $0.value.count >= 2 }.map { k, w in
+            let odd = fixed[k] ?? (alternating && !every.contains(k) && Set(w.map { $0 % 2 }).count == 1 && w.count * 2 >= all.count - 1 ? w.first.map { $0 % 2 } : nil)
+            return Lesson(day: k.day, start: k.start, end: k.end, subject: k.subject, room: k.room, week: odd.map { $0 == 1 ? 1 : 2 } ?? 0)
+        }.sorted { ($0.day, $0.start, $0.subject) < ($1.day, $1.start, $1.subject) }
+    }
 }

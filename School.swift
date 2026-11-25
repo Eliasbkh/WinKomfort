@@ -222,7 +222,13 @@ private struct PlanTab: View {
                 }
                 .padding(16)
             }
-            if s.book.lessons.contains(where: { $0.week > 0 }) { Divider(); Picker(L("A-Woche", "A week"), selection: $s.book.aWeekOdd) { Text(L("ungerade Kalenderwochen", "odd weeks")).tag(true); Text(L("gerade Kalenderwochen", "even weeks")).tag(false) }.frame(maxWidth: 340).padding(10) }
+            Divider()
+            HStack {
+                Button(L("Aus Kalenderdatei (.ics) …", "From calendar file (.ics)…")) { load() }.help(L("Zum Beispiel aus WebUntis exportiert", "For example exported from WebUntis"))
+                Spacer()
+                if s.book.lessons.contains(where: { $0.week > 0 }) { Picker(L("A-Woche", "A week"), selection: $s.book.aWeekOdd) { Text(L("ungerade Kalenderwochen", "odd weeks")).tag(true); Text(L("gerade Kalenderwochen", "even weeks")).tag(false) }.frame(maxWidth: 340) }
+            }
+            .padding(10)
         }
         .sheet(isPresented: Binding(get: { edit.value != nil }, set: { if !$0 { edit.value = nil } })) {
             if let l = edit.value { LessonSheet(l: l, isNew: isNew.value ?? true, subjects: Plan.subjects(s.book)) { r in
@@ -231,6 +237,18 @@ private struct PlanTab: View {
                 edit.value = nil
             } cancel: { edit.value = nil } }
         }
+    }
+}
+extension PlanTab {
+    fileprivate func load() {
+        let p = NSOpenPanel(); p.allowedContentTypes = [UTType(filenameExtension: "ics") ?? .calendarEvent, .calendarEvent]
+        guard p.runModal() == .OK, let u = p.url, let d = try? Data(contentsOf: u), d.count < 20_000_000 else { return }
+        let l = Plan.ics(String(decoding: d, as: UTF8.self))
+        guard !l.isEmpty else { Toast.show(L("Darin habe ich keine Unterrichtsstunden gefunden", "No classes found in that file"), symbol: "calendar.badge.exclamationmark", seconds: 3); return }
+        let a = NSAlert(); a.messageText = L("\(l.count) Stunden übernehmen?", "Import \(l.count) classes?")
+        a.informativeText = s.book.lessons.isEmpty ? L("Fächer: ", "Subjects: ") + Array(Set(l.map(\.subject))).sorted().prefix(12).joined(separator: ", ") : L("Dein jetziger Stundenplan mit \(s.book.lessons.count) Stunden wird ersetzt.", "Your current timetable with \(s.book.lessons.count) classes will be replaced.")
+        a.addButton(withTitle: L("Übernehmen", "Import")); a.addButton(withTitle: L("Abbrechen", "Cancel"))
+        if a.runModal() == .alertFirstButtonReturn { s.book.lessons = l; s.book.aWeekOdd = true }
     }
 }
 private struct LessonSheet: View {
