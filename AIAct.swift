@@ -39,9 +39,9 @@ enum AIMemory {
     }
     private static let store = EKEventStore()
 
-    static func handle(_ q: String, _ e: AIEngine, others: [AIConversation], status: @escaping @MainActor (String) -> Void) async throws -> Outcome? {
+    static func handle(_ q: String, others: [AIConversation], status: @escaping @MainActor (String) -> Void) async throws -> Outcome? {
         let c = ActLogic.candidates(q)
-        guard !c.isEmpty, let kind = try await choose(q, c, Assistant.available ? .apple : e) else { return nil }
+        guard !c.isEmpty, let kind = try await choose(q, c) else { return nil }
         wkLog("KI-Aktion → \(kind.rawValue)") // nur die Art, nie der Inhalt
         switch kind {
         case .mac:
@@ -95,9 +95,9 @@ enum AIMemory {
         }
     }
     // Mehrere Deutungen oder eine normale Frage? Das Modell entscheidet nur zwischen den Treffern
-    private static func choose(_ q: String, _ c: [ActLogic.Kind], _ e: AIEngine) async throws -> ActLogic.Kind? {
+    private static func choose(_ q: String, _ c: [ActLogic.Kind]) async throws -> ActLogic.Kind? {
         let list = c.enumerated().map { "\($0.offset + 1) = \($0.element.help)" }.joined(separator: "\n")
-        let r = try await AIRun.answer(e, [AITurn(user: true, text: "Möglichkeiten:\n\(list)\n0 = nichts davon, eine allgemeine Frage oder Bitte (erklären, schreiben, übersetzen, Wissen)\n\nEingabe des Nutzers: „\(q)“\n\nNummer:")],
+        let r = try await AIRun.answer([AITurn(user: true, text: "Möglichkeiten:\n\(list)\n0 = nichts davon, eine allgemeine Frage oder Bitte (erklären, schreiben, übersetzen, Wissen)\n\nEingabe des Nutzers: „\(q)“\n\nNummer:")],
                                        system: "Du ordnest eine Eingabe genau einer Möglichkeit zu. Antworte nur mit der Nummer.", tools: false, show: { _ in })
         return ActLogic.choice(r, c)
     }

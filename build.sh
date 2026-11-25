@@ -36,7 +36,6 @@ cat > "$APP/Contents/Info.plist" <<EOF
     <key>CFBundleTypeName</key><string>Ordner</string><key>CFBundleTypeRole</key><string>Viewer</string>
     <key>LSHandlerRank</key><string>Alternate</string><key>LSItemContentTypes</key><array><string>public.folder</string></array>
   </dict></array>
-  <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
   <key>NSCalendarsFullAccessUsageDescription</key><string>Damit der Assistent deine Termine zeigen und auf deinen Klick neue eintragen kann.</string>
   <key>NSRemindersFullAccessUsageDescription</key><string>Damit der Assistent deine Erinnerungen zeigen und auf deinen Klick neue anlegen kann.</string>
   <key>NSContactsUsageDescription</key><string>Damit der Assistent Nummern und Geburtstage aus deinen Kontakten findet.</string>

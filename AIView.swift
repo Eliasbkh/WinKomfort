@@ -115,7 +115,6 @@ struct AIView: View {
     @FocusState private var focused: Bool
     @StateObject private var sidebar = TextBox<Bool>()
     @StateObject private var over = TextBox<Bool>()
-    @StateObject private var setup = TextBox<Bool>()
     @StateObject private var memory = TextBox<Bool>()
     @StateObject private var wipe = TextBox<Bool>()
     @Environment(\.accessibilityReduceMotion) private var still
@@ -135,7 +134,6 @@ struct AIView: View {
         .onDrop(of: [.fileURL, .image], isTargeted: Binding(get: { over.value ?? false }, set: { over.value = $0 })) { drop($0) }
         .overlay { if over.value == true { RoundedRectangle(cornerRadius: 12).strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [8, 6])).padding(6).allowsHitTesting(false) } }
         .alert(c.problem ?? "", isPresented: Binding(get: { c.problem != nil }, set: { if !$0 { c.problem = nil } })) { Button("OK") { c.problem = nil } }
-        .sheet(isPresented: Binding(get: { setup.value ?? false }, set: { setup.value = $0 })) { AISetup { setup.value = false } }
         .sheet(isPresented: Binding(get: { memory.value ?? false }, set: { memory.value = $0 })) { AIMemoryView { memory.value = false } }
         .confirmationDialog(L("Alle Unterhaltungen löschen?", "Delete all conversations?"), isPresented: Binding(get: { wipe.value ?? false }, set: { wipe.value = $0 })) {
             Button(L("Alle löschen", "Delete all"), role: .destructive) { c.deleteAll() }
@@ -190,24 +188,10 @@ struct AIView: View {
             tool("sidebar.left", L("Verlauf", "History")) { sidebar.value = !(sidebar.value ?? true) }
             Text(c.conv.title.isEmpty ? L("Neue Unterhaltung", "New conversation") : c.conv.title).fontWeight(.semibold).lineLimit(1)
             Spacer()
-            Menu {
-                Picker("", selection: $c.engine) {
-                    Text(L("Apple, auf diesem Mac", "Apple, on this Mac")).tag(AIEngine.apple)
-                    ForEach(c.models, id: \.self) { m in if case .local(_, let n) = m { Text(n + L(", auf diesem Mac", ", on this Mac")).tag(m) } }
-                    if !AISettings.server.model.isEmpty { Text(AISettings.server.model + L(", im Internet", ", online")).tag(AIEngine.own) }
-                }
-                .pickerStyle(.inline).labelsHidden()
-                Divider()
-                Button(L("Was ich mir gemerkt habe …", "What I remember…")) { memory.value = true }
-                Button(L("Größeres Modell einrichten …", "Set up a larger model…")) { setup.value = true }
-            } label: { Text(modelName) }
-            .menuStyle(.borderlessButton).fixedSize().help(L("Modell", "Model"))
+            tool("brain", L("Was ich mir gemerkt habe", "What I remember")) { memory.value = true }
             tool("square.and.pencil", L("Neue Unterhaltung (⌘N)", "New conversation (⌘N)")) { c.reset(); focused = true }.keyboardShortcut("n")
         }
         .padding(.horizontal, 10).frame(height: 44)
-    }
-    private var modelName: String {
-        switch c.engine { case .apple: "Apple"; case .local(_, let n): n; case .own: AISettings.server.model }
     }
 
     // MARK: Leer
@@ -359,8 +343,7 @@ struct AIView: View {
         .padding(14)
     }
     private var privacy: String {
-        c.engine == .own ? L("Fragen und Anhänge gehen an deinen Anbieter", "Questions and attachments go to your provider")
-            : c.web ? L("Nur Suchbegriffe verlassen den Mac", "Only search terms leave the Mac") : L("Bleibt auf deinem Mac", "Stays on your Mac")
+        c.web ? L("Nur Suchbegriffe verlassen den Mac", "Only search terms leave the Mac") : L("Bleibt auf deinem Mac", "Stays on your Mac")
     }
 }
 
@@ -372,43 +355,5 @@ private struct AITile: ButtonStyle {
         var body: some View {
             c.label.background(.primary.opacity(c.isPressed ? 0.12 : h.value == true ? 0.08 : 0.045), in: RoundedRectangle(cornerRadius: 10)).onHover { h.value = $0 }
         }
-    }
-}
-
-// Größeres Modell: lokal (Ollama/LM Studio) oder eigener Zugang
-struct AISetup: View {
-    let close: () -> Void
-    @StateObject private var s = TextBox<AIServer>()
-    @StateObject private var key = TextBox<String>()
-    private var server: AIServer { s.value ?? AISettings.server }
-    private var valid: Bool { AILogic.serverURL(server.url) != nil && !server.model.trimmingCharacters(in: .whitespaces).isEmpty }
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(L("Größeres Modell", "Larger model")).font(.title3.weight(.semibold))
-            Text(rich(L("**Auf dem Mac:** Läuft Ollama oder LM Studio, erscheinen deren Modelle von selbst in der Auswahl. Nichts verlässt den Mac.", "**On your Mac:** if Ollama or LM Studio is running, its models show up in the menu. Nothing leaves your Mac."))).fixedSize(horizontal: false, vertical: true)
-            Divider()
-            Text(rich(L("**Im Internet:** eigener Zugang bei einem Anbieter. Fragen und Anhänge gehen dann dorthin und können Geld kosten.", "**Online:** your own account with a provider. Questions and attachments are sent there and may cost money."))).fixedSize(horizontal: false, vertical: true)
-            Form {
-                Picker(L("Anbieter", "Provider"), selection: Binding(get: { server.url }, set: { u in var x = server; x.url = u; x.name = AISettings.presets.first { $0.1 == u }?.0 ?? ""; s.value = x })) {
-                    ForEach(AISettings.presets, id: \.1) { Text($0.0).tag($0.1) }
-                    if !AISettings.presets.contains(where: { $0.1 == server.url }) { Text(server.url.isEmpty ? L("Bitte wählen", "Choose one") : server.url).tag(server.url) }
-                }
-                TextField(L("Adresse", "Address"), text: Binding(get: { server.url }, set: { var x = server; x.url = $0; s.value = x }))
-                TextField(L("Modell", "Model"), text: Binding(get: { server.model }, set: { var x = server; x.model = $0; s.value = x }), prompt: Text(L("Name wie beim Anbieter", "Name as listed by the provider")))
-                SecureField(L("Schlüssel", "API key"), text: Binding(get: { key.value ?? "" }, set: { key.value = $0 }), prompt: Text(L("bleibt im Schlüsselbund", "kept in the keychain")))
-            }
-            if !server.url.isEmpty, AILogic.serverURL(server.url) == nil { Text(L("Die Adresse muss mit https:// beginnen.", "The address must start with https://.")).font(.caption).foregroundStyle(.red) }
-            HStack {
-                if !AISettings.server.url.isEmpty { Button(L("Zugang entfernen", "Remove access"), role: .destructive) { AISettings.server = AIServer(); AIKey.save(""); if AIChat.shared.engine == .own { AIChat.shared.engine = .apple }; close() } }
-                Spacer()
-                Button(L("Abbrechen", "Cancel"), action: close).keyboardShortcut(.cancelAction)
-                Button(L("Benutzen", "Use")) { // neue Adresse ohne neuen Schlüssel: alten nicht dorthin schicken
-                    if server.url != AISettings.server.url || !(key.value ?? "").isEmpty { AIKey.save((key.value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)) }
-                    AISettings.server = server; AIChat.shared.engine = .own; close()
-                }
-                .keyboardShortcut(.defaultAction).disabled(!valid)
-            }
-        }
-        .padding(20).frame(width: 460)
     }
 }

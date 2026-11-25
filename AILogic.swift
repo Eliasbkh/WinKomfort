@@ -242,31 +242,6 @@ enum AILogic {
         return out
     }
 
-    // MARK: Server-Antwort (OpenAI-Format): eine Zeile des Datenstroms
-    struct Delta: Equatable { var text = "", done = false; var calls: [Call] = [] }
-    struct Call: Equatable { var index = 0, id = "", name = "", args = "" }
-    static func delta(_ line: String) -> Delta? {
-        guard line.hasPrefix("data:") else { return nil }
-        let body = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
-        if body == "[DONE]" { return Delta(done: true) }
-        guard let j = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any], let c = (j["choices"] as? [[String: Any]])?.first, let d = c["delta"] as? [String: Any] else { return nil }
-        let calls = (d["tool_calls"] as? [[String: Any]] ?? []).map { t -> Call in
-            let f = t["function"] as? [String: Any]
-            return Call(index: t["index"] as? Int ?? 0, id: t["id"] as? String ?? "", name: f?["name"] as? String ?? "", args: f?["arguments"] as? String ?? "")
-        }
-        return Delta(text: d["content"] as? String ?? "", calls: calls)
-    }
-    // Adresse eines eigenen Servers: verschlüsselt oder auf diesem Mac, sonst läge der Schlüssel offen im Netz
-    static func serverURL(_ s: String) -> URL? {
-        guard let u = URL(string: s.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "/"))), let h = u.host, !h.isEmpty else { return nil }
-        return u.scheme == "https" || (u.scheme == "http" && ["localhost", "127.0.0.1"].contains(h)) ? u : nil
-    }
-    // Denkschritte mancher Modelle nicht mit anzeigen
-    static func withoutThinking(_ s: String) -> String {
-        guard let a = s.range(of: "<think>") else { return s }
-        guard let b = s.range(of: "</think>") else { return String(s[..<a.lowerBound]) }
-        return (s[..<a.lowerBound] + s[b.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
     // Office-XML → Text
     static func xmlText(_ x: String) -> String {
         var t = x.replacingOccurrences(of: "</(a:p|w:p|row|si)>", with: "\n", options: .regularExpression).replacingOccurrences(of: "</(c|a:tc)>", with: "\t", options: .regularExpression)

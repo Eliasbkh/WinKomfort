@@ -324,9 +324,6 @@ sc("Rechnen-Werkzeug", "\(AILogic.calculate("4837*291")) \(AILogic.calculate("x^
 sc("Rechnung in der Frage", "\(AILogic.facts("Was ist 4837*291?")) \(AILogic.facts("Löse x^2-5x+6=0 bitte")) \(AILogic.facts("Was war am 24.12.2025 um 10:30?")) \(AILogic.facts("Wer war 1871-1890 Kanzler?").count) \(AILogic.facts("Hallo, wie geht es dir?"))", "[\"4837*291 = 1407567\"] [\"x^2-5x+6=0 → x = 2 oder x = 3\"] [] 1 []")
 sc("Verrechnet", "\(AILogic.wrongSums("Also 12 · 12 = 140 und 3 + 4 = 7, 150 / 2 = 75 km")) \(AILogic.wrongSums("4837 · 291 = 1.407.567; 10 / 3 = 3,33; 2 + 3 = 5 * 1")) \(AILogic.wrongSums("3x + 4 = 10; x = 5; 2 · 2,5 = 5"))", "[\"12 · 12 = 144\"] [] []")
 sc("Suchbegriff", AILogic.topic("Olaf Scholz", "Wer ist aktuell Bundeskanzler von Deutschland?", before: "") + "|" + AILogic.topic("Westfälischer Friede", "Was regelte der Westfälische Frieden?", before: ""), "bundeskanzler deutschland|Westfälischer Friede")
-sc("Datenstrom", "\(AILogic.delta("data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}")!.text) \(AILogic.delta("data: [DONE]")!.done) \(AILogic.delta(": ping") == nil) \(AILogic.delta("data: kaputt") == nil)", "Hi true true true")
-sc("Serveradresse", "\(AILogic.serverURL("http://127.0.0.1:11434/v1/")!) \(AILogic.serverURL("http://boese.de/v1") == nil) \(AILogic.serverURL("https://api.x.de/v1") != nil) \(AILogic.serverURL("http://localhost.boese.de") == nil)", "http://127.0.0.1:11434/v1 true true true")
-sc("Denken weg", AILogic.withoutThinking("<think>hm</think>Ja") + AILogic.withoutThinking("A<think>hm"), "JaA")
 sc("Office", AILogic.xmlText("<a:p><a:t>A &amp; B</a:t></a:p><a:p>C</a:p>"), "A & B\nC\n")
 
 // Assistent: Absicht, Zeit, Titel
