@@ -4,7 +4,7 @@ import Foundation
 enum ActLogic {
     enum Kind: String, CaseIterable {
         case mac // alte WinKomfort-Befehle (App öffnen, Lautstärke, Fenster …)
-        case timer, reminderNew, eventNew, calendar, reminders, files, screen, status, weather, contact, remember, forget, past, music
+        case timer, reminderNew, eventNew, calendar, reminders, files, screen, status, weather, contact, remember, forget, past, music, homework, lessons, grades
         var help: String {
             switch self {
             case .mac: "etwas am Mac tun: App öffnen, Lautstärke, Dunkelmodus, Fenster anordnen, Bildschirm aus, wach halten, Game Mode, Ordner zeigen"
@@ -21,6 +21,9 @@ enum ActLogic {
             case .remember: "sich dauerhaft etwas über den Nutzer merken"
             case .forget: "Gemerktes vergessen"
             case .past: "in früheren Gesprächen nachsehen"
+            case .homework: "eine Hausaufgabe oder Klausur aufschreiben"
+            case .lessons: "im eigenen Stundenplan oder den eigenen Hausaufgaben nachsehen"
+            case .grades: "den eigenen Notenschnitt nachsehen"
             case .music: "Musik abspielen, anhalten oder weiterschalten"
             }
         }
@@ -28,6 +31,9 @@ enum ActLogic {
     private static let patterns: [(Kind, String)] = [
         (.remember, #"\bmerke? dir\b|\bremember (that|this)\b"#),
         (.forget, #"\bvergiss\b|\bforget\b"#),
+        (.homework, #"(hausaufgabe|\bha\b|klausur|klassenarbeit).*(\bauf\b|seite|\bs\.|nr|bis|am|notier|schreib|trag|merk)|(notier|schreib|trag).*(hausaufgabe|\bha\b|klausur)"#),
+        (.lessons, #"stundenplan|nächste stunde|welche[rsn]? (fach|fächer|stunden?|unterricht|hausaufgaben?)|was hab(e)? ich .*(fächer|unterricht|schule|stunde)|wann hab(e)? ich|hausaufgaben.*(auf|offen|noch)|timetable|next class|homework"#),
+        (.grades, #"notenschnitt|durchschnittsnote|\bmein(e|en)? (noten|schnitt|punkte)|grade average"#),
         (.timer, #"\btimer\b|countdown|\bweck mich in\b"#),
         (.reminderNew, #"erinner(e|st)?( du)? mich|remind me|(erinnerung|aufgabe|to-?do).*(erstell|anleg|hinzu|an\b)|(erstell|leg|setz).*(erinnerung|aufgabe|to-?do)"#),
         (.eventNew, #"(trag|leg|erstell|plan|setz|schreib|add|create|schedule)\w* .*(termin|kalender|treffen|event|meeting|calendar|\bein\b$)|\btermin .*(ein|anlegen|erstellen|machen|hinzufügen)\b"#),
@@ -187,7 +193,8 @@ enum ActLogic {
     // Ort in der Frage: „Wetter morgen in Köln“
     static func place(_ q: String) -> String? {
         let s = when(q)?.rest ?? q
-        guard let (m, _) = find(#"\b(?:in|für|bei|for)\s+([A-ZÄÖÜ][\p{L}.\-]+(?: (?:am |an der |im |in der )?[A-ZÄÖÜ][\p{L}\-]+)*)"#, s), let r = Range(m.range(at: 1), in: s), s[r].first?.isUppercase == true else { return nil }
+        // Groß geschrieben = Ort; „wohne“ gehört nicht dazu
+        guard let m = try? NSRegularExpression(pattern: #"\b(?:in|für|bei|for)\s+(\p{Lu}[\p{L}.\-]+(?: (?:am |an der |im |in der )?\p{Lu}[\p{L}\-]+)*)"#).firstMatch(in: s, range: NSRange(s.startIndex..., in: s)), let r = Range(m.range(at: 1), in: s) else { return nil }
         return String(s[r])
     }
 }

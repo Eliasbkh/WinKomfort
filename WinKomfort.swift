@@ -1676,7 +1676,8 @@ struct WelcomeView: View {
         ("macwindow", .indigo, "Fenster wie bei Windows", "Einrasten, anheften, Schließen beendet die App."),
         ("dock.rectangle", .teal, "Dock wie die Taskleiste", "Kommt zuverlässig – auch über Vollbild-Apps."),
         ("folder.fill", .cyan, "Explorer", "Dateimanager im Stil von GNOME, Dolphin oder Windows 11 – mit ⌃⌥E."),
-        ("sparkles", .purple, "KI-Befehle & Game Mode", "Einfach schreiben, was passieren soll (⌃⌥K). Spiele laufen ungestört."),
+        ("sparkles", .purple, "KI-Assistent", "Fragen, sprechen, Bilder und Dateien verstehen – mit ⌃⌥K. Bleibt auf dem Mac."),
+        ("graduationcap.fill", .indigo, "Schule", "Stundenplan, Hausaufgaben, Noten und Lernkarten – mit ⌃⌥S."),
     ]
     var body: some View {
         VStack(spacing: 0) {
@@ -1774,11 +1775,11 @@ struct WelcomeView: View {
 
 // Globale Tastenkürzel – selbst festlegbar unter Einstellungen → Tastenkürzel
 enum HotAction: String, CaseIterable, Identifiable {
-    case search, switcher, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, newFile, tasks, onenote, explorer, gameMode, ask, remote, aiText
+    case search, switcher, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, newFile, tasks, onenote, explorer, gameMode, ask, remote, aiText, shelf, school
     var id: UInt32 {
         switch self {
         case .tasks: 1; case .search: 2; case .note: 3; case .pin: 4; case .clipboard: 5
-        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9; case .switcher: 10; case .newFile: 12; case .onenote: 13; case .explorer: 14; case .gameMode: 15; case .ask: 16; case .remote: 17; case .aiText: 18
+        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9; case .switcher: 10; case .newFile: 12; case .onenote: 13; case .explorer: 14; case .gameMode: 15; case .ask: 16; case .remote: 17; case .aiText: 18; case .shelf: 19; case .school: 20
         }
     }
     var title: String {
@@ -1795,7 +1796,9 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .gameMode: "Game Mode ein/aus"
         case .remote: "Handy-Fernbedienung"
         case .aiText: "KI für markierten Text"
-        case .ask: "KI-Befehl (Apple Intelligence)"
+        case .ask: "KI fragen"
+        case .shelf: "Ablage ein-/ausblenden"
+        case .school: "Schule öffnen"
         case .snapLeft: "Fenster: linke Hälfte"
         case .snapRight: "Fenster: rechte Hälfte"
         case .snapMax: "Fenster: maximieren"
@@ -1815,6 +1818,8 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .explorer: Shortcut(code: kVK_ANSI_E, mods: controlKey | optionKey, key: "E")
         case .gameMode: Shortcut(code: kVK_ANSI_G, mods: controlKey | optionKey, key: "G")
         case .aiText: Shortcut(code: kVK_ANSI_A, mods: controlKey | optionKey, key: "A")
+        case .shelf: Shortcut(code: kVK_ANSI_D, mods: controlKey | optionKey, key: "D")
+        case .school: Shortcut(code: kVK_ANSI_S, mods: controlKey | optionKey, key: "S")
         case .remote: Shortcut(code: kVK_ANSI_R, mods: controlKey | optionKey, key: "R")
         case .ask: Shortcut(code: kVK_ANSI_K, mods: controlKey | optionKey, key: "K")
         case .snapLeft: Shortcut(code: kVK_LeftArrow, mods: controlKey | optionKey)
@@ -1855,6 +1860,8 @@ enum HotAction: String, CaseIterable, Identifiable {
             SearchPanel.show()
             SearchModel.shared.query = "/"
         case .ask: AIPanel.toggle()
+        case .shelf: Shelf.shared.toggle()
+        case .school: School.open()
         case .snapLeft: Snap.run(.left)
         case .snapRight: Snap.run(.right)
         case .snapMax: Snap.run(.max)
@@ -3504,6 +3511,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         GameMode.shared.setup()
         Repair.setup()
         MouseScroll.update()
+        Shelf.shared.setup()
         Snippets.update()
         SystemMonitor.shared.update()
         Task { await Updater.shared.loop() }
@@ -3663,7 +3671,10 @@ struct MenuContent: View {
             if awake.mode != nil { Button("Wach bleiben beenden") { awake.stop() } }
         }
         Divider()
+        if let l = School.shared.menuLine { Button(l) { School.open("heute") } }
         Button("Suche …") { SearchPanel.show() }
+        Button(L("KI fragen …", "Ask AI…")) { AIPanel.show() }
+        Button(L("Schule …", "School…")) { School.open() }
         Button("Explorer …") { openExplorer() }
         Button("Schnellnotiz") { QuickNote.shared.toggle() }
         if !Pins.shared.pinned.isEmpty { Button("Alle angehefteten Fenster lösen") { Pins.shared.unpinAll() } }
@@ -3684,12 +3695,15 @@ struct MenuContent: View {
 // Einstellungsfenster wie bei Systemapps: AppKit-Tabs im Toolbar-Stil, Inhalt in SwiftUI
 // Seiten wie in den Systemeinstellungen: farbige Symbolkachel, Titel, Suchbegriffe
 enum Pane: String, CaseIterable, Identifiable {
-    case general, input, shortcuts, windows, desktop, finder, explorer, phone, gamemode, screenshots, notifications, menubar, animations, autostarts, cleanup
+    case general, ai, school, tools, shortcuts, input, windows, desktop, animations, menubar, notifications, finder, explorer, screenshots, phone, gamemode, autostarts, cleanup
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .general: "Allgemein"
+        case .ai: L("KI-Assistent", "AI Assistant")
+        case .school: L("Schule", "School")
+        case .tools: L("Werkzeuge", "Tools")
         case .input: "Eingabe"
         case .shortcuts: "Tastenkürzel"
         case .windows: "Fenster"
@@ -3709,6 +3723,9 @@ enum Pane: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .general: "gearshape.fill"
+        case .ai: "sparkles"
+        case .school: "graduationcap.fill"
+        case .tools: "wrench.and.screwdriver.fill"
         case .input: "hand.tap.fill"
         case .shortcuts: "command"
         case .windows: "macwindow"
@@ -3729,6 +3746,9 @@ enum Pane: String, CaseIterable, Identifiable {
     var tint: Color {
         switch self {
         case .general: .gray
+        case .ai: .purple
+        case .school: .indigo
+        case .tools: .orange
         case .input: .blue
         case .shortcuts: .gray
         case .windows: .indigo
@@ -3761,6 +3781,9 @@ enum Pane: String, CaseIterable, Identifiable {
         if let g = group { t += features.filter { $0.group == g }.flatMap { [$0.title, $0.hint] } }
         switch self {
         case .general: t += ["Anmelden Start Updates Version Bedienungshilfen Wach bleiben Bildschirm Ruhezustand Zwischenablage Verlauf Kopieren Einfügen Text-Kürzel Snippets Textbausteine Siri Kurzbefehle Shortcuts KI Selbsttest Reparieren Protokoll Sprache Englisch Deutsch OneNote PDF Größe"]
+        case .ai: t += ["KI AI Assistent Chat Siri Kurzbefehle Sprechen Mikrofon Kalender Erinnerungen Kontakte Wikipedia Wetter Gedächtnis Assistant Voice"]
+        case .school: t += ["Stundenplan Hausaufgaben Noten Lernkarten Lernmodus Fokus Mathe Technik Timetable Homework Grades Study Focus"]
+        case .tools: t += ["Wach bleiben Bildschirm Ruhezustand Zuklappen Zwischenablage Verlauf Ablage Text-Kürzel Snippets Textbaustein OneNote PDF Awake Clipboard Shelf"]
         case .shortcuts: t += HotAction.allCases.map(\.title) + ["Kürzel Tastatur Hotkey Startmenü"]
         case .desktop: t += ["Dock Position Größe Vergrößerung Taskleiste Ecke Schreibtisch Symbole Widgets Laufwerke"]
         case .input: t += ["Startmenü Control Suche Tastenkürzel Trackpad Ziehen Maus Scrollen Scrollrichtung Mausrad Tempo CPU RAM Speicher Auslastung Menüleiste"]
@@ -3776,6 +3799,11 @@ enum Pane: String, CaseIterable, Identifiable {
         default: break
         }
         return (t + t.map { tr($0) }).joined(separator: " ")
+    }
+    // Überschriften der Seitenleiste
+    static var sections: [(String, [Pane])] {
+        [("", [.general, .ai, .school, .tools]), (L("Bedienung", "Controls"), [.shortcuts, .input, .windows]), (L("Oberfläche", "Interface"), [.desktop, .animations, .menubar, .notifications]),
+         (L("Dateien", "Files"), [.finder, .explorer, .screenshots]), (L("Geräte und Spiele", "Devices and games"), [.phone, .gamemode]), (L("Mac pflegen", "Maintenance"), [.autostarts, .cleanup])]
     }
 }
 
@@ -3805,9 +3833,12 @@ struct SettingsRoot: View {
     @ObservedObject var nav = SettingsNav.shared
     var body: some View {
         NavigationSplitView {
-            List(nav.visible, selection: $nav.pane) { pane in
-                NavigationLink(value: pane) {
-                    Label { Text(tr(pane.title)) } icon: { PaneIcon(pane: pane) }
+            List(selection: $nav.pane) {
+                ForEach(Pane.sections, id: \.0) { s in
+                    let p = s.1.filter(nav.visible.contains)
+                    if !p.isEmpty {
+                        Section { ForEach(p) { pane in NavigationLink(value: pane) { Label { Text(tr(pane.title)) } icon: { PaneIcon(pane: pane) } } } } header: { if !s.0.isEmpty { Text(s.0) } }
+                    }
                 }
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 215, max: 260)
@@ -3816,6 +3847,9 @@ struct SettingsRoot: View {
             Group {
                 switch nav.pane ?? .general {
                 case .general: GeneralTab(store: Store.shared)
+                case .ai: AITab()
+                case .school: SchoolPane()
+                case .tools: ToolsTab()
                 case .notifications: NotificationsTab()
                 case .menubar: MenuBarTab()
                 case .animations: AnimationTab()
@@ -3913,11 +3947,8 @@ struct FeatureTab: View {
 
 struct GeneralTab: View {
     @ObservedObject var store: Store
-    @ObservedObject var awake = Awake.shared
     @ObservedObject var updater = Updater.shared
     @AppStorage("autoUpdate") var autoUpdate = true
-    @AppStorage("clipHistory") var clipHistory = true
-    @AppStorage("onenoteQuality") var onenoteQuality = PDFQuality.compact.rawValue
     @AppStorage("language") var language = "auto" // auch von L() in Explorer.swift gelesen
     var body: some View {
         Form {
@@ -3934,46 +3965,6 @@ struct GeneralTab: View {
                     }
                 }
             }
-            Section {
-                LabeledContent("Status", value: awake.status)
-                ForEach([Awake.Mode.display, .system], id: \.self) { m in
-                    LabeledContent(tr(m.rawValue)) {
-                        Menu("Starten") {
-                            ForEach(Awake.durations, id: \.0) { d in Button(tr(d.0)) { awake.start(m, minutes: d.1) } }
-                        }
-                        .fixedSize()
-                        .accessibilityLabel("\(tr(m.rawValue)) starten")
-                    }
-                }
-                HStack {
-                    Button("Bildschirm jetzt aus – Mac arbeitet weiter") { sh(["/usr/bin/pmset", "displaysleepnow"]) }
-                    Spacer()
-                    if awake.mode != nil { Button("Beenden") { awake.stop() } }
-                }
-                if Awake.ruleInstalled { Button(L("Erlaubnis fürs Zuklappen entfernen …", "Remove lid permission…")) { awake.removeRule() } }
-            } header: { Text("Wach bleiben") } footer: {
-                Text(L("„Bildschirm aus“ läuft auch zugeklappt weiter, dafür fragt macOS einmal nach deinem Passwort. Zugeklappt endet es von selbst nach der Zeit, bei 20 % Akku oder wenn WinKomfort beendet wird. Nicht in der Tasche benutzen: Der Mac kann heiß werden.",
-                       "“Display off” also keeps working with the lid closed; macOS asks for your password once for that. With the lid closed it ends by itself after the time, at 20% battery or when WinKomfort quits. Don't use it in a bag: the Mac can get hot."))
-            }
-            Section {
-                Toggle("Zwischenablage-Verlauf (\(HotAction.clipboard.current?.display ?? tr("Kürzel aus")))", isOn: $clipHistory)
-                    .onChange(of: clipHistory) { ClipHistory.shared.start() }
-                Button("Verlauf jetzt leeren") { ClipHistory.shared.clear() }
-            } header: { Text("Zwischenablage") } footer: {
-                Text("Merkt sich die letzten 50 Texte und 10 Bilder – nur im Arbeitsspeicher, nach dem Neustart ist alles weg. Passwörter aus Passwort-Managern werden nie gespeichert.")
-                    .foregroundStyle(.secondary)
-            }
-            Section {
-                Picker(L("Größe der PDF", "PDF size"), selection: $onenoteQuality) {
-                    ForEach(PDFQuality.allCases) { Text($0.title).tag($0.rawValue) }
-                }
-            } header: { Text("OneNote → PDF (\(HotAction.onenote.current?.display ?? "–"))") } footer: {
-                Text(L("Lädt die Original-Abschnitte mit deiner Microsoft-Anmeldung (einmalig) und baut die PDF im Hintergrund – OneNote kannst du dabei weiter benutzen. „Klein“ hält Bilder bei etwa 120 dpi: gut lesbar, viel kleiner.",
-                       "Downloads the original sections with your Microsoft sign-in (once) and builds the PDF in the background – you can keep using OneNote. “Small” keeps images at about 120 dpi: readable, much smaller."))
-                    .foregroundStyle(.secondary)
-            }
-            SnippetsSection()
-            SiriSection()
             RepairSection()
             Section {
                 Button("Einführung erneut zeigen …") { openWelcome() }

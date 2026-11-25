@@ -350,7 +350,9 @@
 
 /* Neu: Game Mode, KI, Schreibtisch & Dock */
 "Game Mode ein/aus" = "Game Mode on/off";
-"KI-Befehl (Apple Intelligence)" = "AI command (Apple Intelligence)";
+"KI fragen" = "Ask AI";
+"Ablage ein-/ausblenden" = "Show/hide shelf";
+"Schule öffnen" = "Open School";
 "Game Mode" = "Game Mode";
 "Schreibtisch & Dock" = "Desktop & Dock";
 "Schreibtisch" = "Desktop";
@@ -373,8 +375,10 @@
 "Mit KI ausführen: „%@“" = "Do with AI: “%@”";
 "Apple Intelligence – direkt auf dem Mac" = "Apple Intelligence – right on your Mac";
 "Dateimanager im Stil von GNOME, Dolphin oder Windows 11 – mit ⌃⌥E." = "A file manager in the style of GNOME, Dolphin or Windows 11 – with ⌃⌥E.";
-"KI-Befehle & Game Mode" = "AI commands & Game Mode";
-"Einfach schreiben, was passieren soll (⌃⌥K). Spiele laufen ungestört." = "Just type what should happen (⌃⌥K). Games run undisturbed.";
+"KI-Assistent" = "AI assistant";
+"Fragen, sprechen, Bilder und Dateien verstehen – mit ⌃⌥K. Bleibt auf dem Mac." = "Ask, speak, understand images and files – with ⌃⌥K. Stays on your Mac.";
+"Schule" = "School";
+"Stundenplan, Hausaufgaben, Noten und Lernkarten – mit ⌃⌥S." = "Timetable, homework, grades and flashcards – with ⌃⌥S.";
 "Anmelden Start Updates Version Bedienungshilfen Wach bleiben Bildschirm Ruhezustand Zwischenablage Verlauf Kopieren Einfügen Text-Kürzel Snippets Textbausteine Siri Kurzbefehle Shortcuts KI Selbsttest Reparieren Protokoll Sprache Englisch Deutsch OneNote PDF Größe" = "Login Start Updates Version Accessibility Stay awake Display Sleep Clipboard History Copy Paste Text snippets Snippets Siri Shortcuts AI Self-check Repair Log Language English German OneNote PDF Size";
 "Startmenü Control Suche Tastenkürzel Trackpad Ziehen Maus Scrollen Scrollrichtung Mausrad Tempo CPU RAM Speicher Auslastung Menüleiste" = "Start menu Control Search Shortcuts Trackpad Drag Mouse Scrolling Scroll direction Mouse wheel Speed CPU RAM Memory Load Menu bar";
 "Dock Position Größe Vergrößerung Taskleiste Ecke Schreibtisch Symbole Widgets Laufwerke" = "Dock Position Size Magnification Taskbar Corner Desktop Icons Widgets Drives";

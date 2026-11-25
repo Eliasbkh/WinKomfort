@@ -272,7 +272,7 @@ struct AIView: View {
                     }
                     if last, c.task == nil { tool("arrow.clockwise", L("Neu antworten", "Answer again")) { c.again() } }
                     if last, c.target != nil { Button(L("Markierung ersetzen", "Replace selection")) { c.replaceSelection() }.buttonStyle(.borderedProminent).keyboardShortcut(.return, modifiers: .command).padding(.leading, 6) }
-                    if last, c.task?.name == "cards", !AILogic.cards(m.text).isEmpty { Button(L("Als Tabelle", "As table")) { Export.table([L("Frage", "Question"), L("Antwort", "Answer")], AILogic.cards(m.text)) }.padding(.leading, 6) }
+                    if last, c.task?.name == "cards", !AILogic.cards(m.text).isEmpty { Button(L("Zu den Lernkarten", "Add to flashcards")) { School.shared.book.decks.append(Plan.Deck(name: L("KI-Karten ", "AI cards ") + Date().formatted(date: .abbreviated, time: .omitted), cards: AILogic.cards(m.text).map { Plan.Card(front: $0[0], back: $0[1]) })); School.open("karten") }.padding(.leading, 6); Button(L("Als Tabelle", "As table")) { Export.table([L("Frage", "Question"), L("Antwort", "Answer")], AILogic.cards(m.text)) } }
                 }
                 .foregroundStyle(.secondary)
             }

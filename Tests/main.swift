@@ -341,5 +341,46 @@ let nw = ActLogic.range("Was habe ich nächste Woche?", now: mi)
 sc("Zeitraum", "\(ActLogic.cal.component(.day, from: nw.from)) \(Int(nw.to.timeIntervalSince(nw.from) / 86400)) \(ActLogic.range("Was steht an?", now: mi).title)", "30 7 heute")
 sc("Auswahl", "\(ActLogic.choice("2", [.mac, .timer])!) \(ActLogic.choice("0", [.mac]) == nil) \(ActLogic.choice("7", [.mac]) == nil)", "timer true true")
 
+// TGI-Werkzeuge
+let n1 = TechLogic.net("192.168.1.77/26")!
+sc("Subnetz", "\(TechLogic.dotted(n1.network)) \(TechLogic.dotted(n1.broadcast)) \(n1.hosts) \(TechLogic.dotted(n1.first)) \(TechLogic.dotted(n1.last)) \(TechLogic.net("10.0.0.1 255.255.0.0")!.prefix) \(TechLogic.net("10.0.0.1 255.0.255.0") == nil) \(TechLogic.net("1.2.3/8") == nil) \(TechLogic.net("1.2.3.256/8") == nil)", "192.168.1.64 192.168.1.127 62 192.168.1.65 192.168.1.126 16 true true true")
+sc("Subnetz Rand", "\(TechLogic.net("1.2.3.4/32")!.hosts) \(TechLogic.net("1.2.3.4/31")!.hosts) \(TechLogic.net("1.2.3.4/0")!.hosts) \(TechLogic.dotted(TechLogic.net("1.2.3.4/0")!.broadcast))", "1 2 4294967294 255.255.255.255")
+sc("Teilen", "\(TechLogic.split(TechLogic.net("10.0.0.0/24")!, 4)!.map { TechLogic.dotted($0.network) + "/\($0.prefix)" })", "[\"10.0.0.0/26\", \"10.0.0.64/26\", \"10.0.0.128/26\", \"10.0.0.192/26\"]")
+sc("VLSM", "\(TechLogic.vlsm(TechLogic.net("192.168.0.0/24")!, [20, 100, 50])!.map { "\($0.0):" + TechLogic.dotted($0.1.network) + "/\($0.1.prefix)" }) \(TechLogic.vlsm(TechLogic.net("192.168.0.0/24")!, [200, 100]) == nil)", "[\"100:192.168.0.0/25\", \"50:192.168.0.128/26\", \"20:192.168.0.192/27\"] true")
+for seed in 0..<400 { // Vereinfachung muss für jede Funktion gleichwertig sein
+    var r = UInt64(seed) &* 6364136223846793005 &+ 1442695040888963407; r ^= r >> 29; r = r &* 0x94d049bb133111eb; r ^= r >> 31
+    let n = 1 + seed % 5, on = (0..<(1 << n)).filter { r >> UInt64($0) & 1 == 1 }, t = TechLogic.minimize(on, vars: n)
+    if (0..<(1 << n)).contains(where: { m in on.contains(m) != t.contains { m & $0.care == $0.value } }) { sc("KV \(seed)", "falsch", "gleich") }
+}
+sc("KV", TechLogic.dnf(TechLogic.minimize([0, 1, 2, 5, 6, 7], vars: 3), ["a", "b", "c"], always: false).components(separatedBy: " ∨ ").count.description + " " + TechLogic.dnf(TechLogic.minimize([1, 3], vars: 2), ["a", "b"], always: false) + " " + TechLogic.dnf(TechLogic.minimize([0, 1, 2, 3], vars: 2), ["a", "b"], always: false) + " " + TechLogic.dnf([], ["a"], always: false), "3 b 1 0")
+sc("IEEE", "\(TechLogic.ieee("-0,75")!.bits) \(TechLogic.ieee("1")!.hex) \(TechLogic.ieee("x") == nil)", "1 01111110 10000000000000000000000 0x3F800000 true")
+sc("Zweierkomplement", "\(TechLogic.twos(-5, 8)!) \(TechLogic.twos(127, 8)!) \(TechLogic.twos(128, 8) == nil)", "1111 1011 0111 1111 true")
+let om = TechLogic.ohm("U=12 R=470")!, o2 = TechLogic.ohm("5V 20mA")!, o3 = TechLogic.ohm("4,7kΩ 0,25W")!
+sc("Ohm", "\(TechLogic.si(om.i, "A")) \(TechLogic.si(o2.r, "Ω")) \(TechLogic.si(o2.p, "W")) \(TechLogic.si(o3.u, "V")) \(TechLogic.ohm("12V") == nil)", "25,53 mA 250 Ω 100 mW 34,28 V true")
+sc("Farbcode", "\(TechLogic.resistor("gelb violett rot gold")!) \(TechLogic.resistor("braun schwarz schwarz braun braun")!.ohm) \(TechLogic.resistor("rosa rot rot") == nil)", "(ohm: 4700.0, tol: \"5\") 1000.0 true")
+sc("Struktogramm", "\(TechLogic.nsd("Eingabe x\nwenn x > 0 dann\n  Ausgabe ja\nsonst\n  Ausgabe nein\nende\nsolange x < 5\n  x = x + 1\nFertig")!)".replacingOccurrences(of: String(reflecting: TechLogic.Block.self) + ".", with: ""), "[step(\"Eingabe x\"), branch(\"x > 0\", [step(\"Ausgabe ja\")], [step(\"Ausgabe nein\")]), loop(\"solange x < 5\", [step(\"x = x + 1\")]), step(\"Fertig\")]")
+sc("Struktogramm ohne Einrückung", "\(TechLogic.nsd("wenn a; b; sonst; c; ende; d")!)".replacingOccurrences(of: String(reflecting: TechLogic.Block.self) + ".", with: ""), "[branch(\"a\", [step(\"b\")], [step(\"c\")]), step(\"d\")]")
+sc("Struktogramm Klammern", "\(TechLogic.nsd("for (i = 0) { if (a) { b } else if (c) { d } else { e } } f")!)".replacingOccurrences(of: String(reflecting: TechLogic.Block.self) + ".", with: ""), "[loop(\"für i = 0\", [branch(\"a\", [step(\"b\")], [branch(\"c\", [step(\"d\")], [step(\"e\")])])]), step(\"f\")]")
+sc("Struktogramm bis", "\(TechLogic.nsd("wiederhole\n  x = x - 1\nbis x = 0")!) \(TechLogic.nsd("ende\nende") == nil)".replacingOccurrences(of: String(reflecting: TechLogic.Block.self) + ".", with: ""), "[until(\"bis x = 0\", [step(\"x = x - 1\")])] true")
+let cl = TechLogic.uml("Tier: -name: String, +fressen(a: int, b); Hund < Tier: bellen()")!
+sc("UML", "\(cl[0].fields) \(cl[0].methods) \(cl[1].parent!) \(cl[1].methods)", "[\"-name: String\"] [\"+fressen(a: int, b)\"] Tier [\"+bellen()\"]")
+sc("Regex teilen", "\(TechLogic.regex(#"/\d+/ a 12"#)!) \(TechLogic.regex("abc") == nil)", "(pattern: \"\\\\d+\", text: \"a 12\") true")
+sc("Ort nach Merken", ActLogic.place("ich in Köln wohne") ?? "-", "Köln")
+
+// Schule
+var bk = Plan.Book()
+bk.lessons = [Plan.Lesson(day: 4, start: 455, end: 500, subject: "Mathematik", room: "A1"), Plan.Lesson(day: 4, start: 1200, end: 1230, subject: "IT"), Plan.Lesson(day: 5, start: 480, end: 525, subject: "Deutsch", week: 1), Plan.Lesson(day: 5, start: 480, end: 525, subject: "Physik", week: 2)]
+sc("Stunde jetzt", "\(Plan.now(bk, mi).current?.subject ?? "-") \(Plan.lessons(bk, on: mi.addingTimeInterval(86400)).map(\.subject)) \(Plan.isoWeek(mi, ActLogic.cal))", "IT [\"Physik\"] 48")
+sc("Nächste Stunde", "\(ActLogic.cal.component(.day, from: Plan.nextDate(bk, subject: "Mathematik", after: mi)!)) \(Plan.nextDate(bk, subject: "Kunst", after: mi) == nil)", "2 true")
+sc("Fach erkennen", "\(Plan.subject(in: "Mathe S. 43 Nr. 2", bk) ?? "-") \(Plan.subject(in: "IT Projekt", bk) ?? "-") \(Plan.subject(in: "mit dem Hund", bk) ?? "-")", "Mathematik IT -")
+let gr = [Plan.Grade(subject: "IT", value: 12, weight: 2), Plan.Grade(subject: "IT", value: 9)]
+sc("Noten", "\(Plan.average(gr)!) \(Plan.needed(gr, goal: 12, weight: 1)) \(Plan.note(fromPoints: 11)) \(Plan.average([]) == nil) \(Plan.gradeValue("2+", false)!) \(Plan.gradeValue("16", true) == nil) \(Plan.gradeValue("1-", false)!) \(Plan.gradeValue("x", true) == nil)", "11.0 15.0 2.0 true 1.75 true 1.25 true")
+var kc = Plan.Card(front: "a", back: "b"); kc = Plan.answer(kc, right: true, now: mi); let k2 = Plan.answer(kc, right: false, now: mi)
+sc("Lernkarte", "\(kc.box) \(kc.due > mi) \(k2.box) \(k2.due <= mi) \(Plan.due(Plan.Deck(cards: [kc, k2]), mi).count)", "1 true 0 true 1")
+sc("Karten einfügen", "\(Plan.cards("a | b\nc\td e\nf;g\nleer\n|x").map { $0.front + "=" + $0.back })", "[\"a=b\", \"c=d e\", \"f=g\"]")
+sc("Uhrzeit", "\(Plan.minutes("7:35")!) \(Plan.minutes("13")!) \(Plan.minutes("25:00") == nil) \(Plan.clock(455))", "455 780 true 7:35")
+let half = try JSONDecoder().decode(Plan.Book.self, from: Data(#"{"lessons":[{"kaputt":1}],"points":false}"#.utf8)), full = try JSONDecoder().decode(Plan.Book.self, from: JSONEncoder().encode(bk))
+sc("Alte oder kaputte Daten", "\(half.points) \(half.lessons.count) \(full == bk)", "false 0 true")
+
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }

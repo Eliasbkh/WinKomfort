@@ -64,6 +64,7 @@ import SwiftUI
         case "plot": return PlotSpec.parse(a).map { AnyView(PlotView(spec: $0).padding(.horizontal, 12)) }
         case "chart": return SchoolLogic.chart(a).map { AnyView(ChartView(data: $0, kind: .bar).padding(.horizontal, 12)) }
         case "flow": return SchoolLogic.flow(a).map { AnyView(FlowView(flow: $0).padding(6)) }
+        case "kv": return TechCommands.kv(a).flatMap { k in k.vars.count > 1 ? AnyView(ScrollView([.horizontal, .vertical]) { KVView(vars: k.vars, on: Set(k.on), terms: k.terms).padding(10) }) : nil }
         case "truth": return SchoolLogic.truth(a).map { t in AnyView(ScrollView { TruthView(vars: t.vars, rows: t.rows, title: a) }) }
         default: return nil
         }
@@ -77,7 +78,7 @@ import SwiftUI
             return [go(L(t.de, t.en), (i.from.isEmpty ? "" : i.from + ": ") + short(i.text)) { AI.run(t, i.text, i.replace) }]
         }
     }
-    static let all: [Command] = base + aiCommands
+    static let all: [Command] = base + TechCommands.all + aiCommands
     private static let base: [Command] = [
         Command(name: "math", hint: "sqrt(x)/2", text: L("Formel schön setzen, rechnen, kopieren", "Typeset, calculate and copy a formula"), symbol: "x.squareroot", needsArg: true) { a in
             guard let n = MathExpr.parse(a) else { return [] }

@@ -52,6 +52,21 @@ enum AIMemory {
             guard let m = TimeParse.minutes(in: q.lowercased().replacingOccurrences(of: "timer", with: " ")), (1...1440).contains(m) else { return Outcome(text: L("Wie lange soll der Timer laufen? Zum Beispiel „Timer 10 Minuten“.", "How long? For example “timer 10 minutes”.")) }
             SearchTimer.shared.start(m)
             return Outcome(text: L("Timer läuft: \(m) Minuten.", "Timer running: \(m) minutes."))
+        case .homework:
+            guard let t = School.shared.add(q, exam: q.lowercased().range(of: "klausur|klassenarbeit", options: .regularExpression) != nil) else { return nil }
+            return Outcome(text: L("Notiert bis \(t.due.formatted(.dateTime.weekday(.wide).day().month())): ", "Noted for \(t.due.formatted(.dateTime.weekday(.wide).day().month())): ") + (t.subject.isEmpty ? "" : "**\(t.subject)** ") + t.text)
+        case .lessons:
+            let b = School.shared.book, open = b.tasks.filter { !$0.done }.sorted { $0.due < $1.due }
+            guard !b.lessons.isEmpty || !open.isEmpty else { return Outcome(text: L("Dein Stundenplan ist noch leer. Du findest ihn mit „/schule“ in der Suche.", "Your timetable is empty. Open it with “/school” in search.")) }
+            if q.lowercased().contains("hausaufgabe") || q.lowercased().contains("homework") { return Outcome(text: open.isEmpty ? L("Nichts offen.", "Nothing open.") : open.prefix(10).map { "- **\($0.subject.isEmpty ? L("Sonstiges", "Other") : $0.subject)** \($0.text), \($0.due.formatted(.dateTime.weekday(.wide).day().month()))" }.joined(separator: "\n")) }
+            if q.lowercased().contains("nächste stunde"), let l = Plan.now(b, Date()).next { return Outcome(text: "\(Plan.clock(l.start)): **\(l.subject)**" + (l.room.isEmpty ? "" : ", " + l.room)) }
+            if let f = Plan.subject(in: q, b), q.lowercased().contains("wann"), let d = Plan.nextDate(b, subject: f, after: Date()) { return Outcome(text: "**\(f)**: \(d.formatted(.dateTime.weekday(.wide).day().month()))" + (Plan.lessons(b, on: d).first { $0.subject == f }.map { ", " + Plan.clock($0.start) } ?? "")) }
+            let d = ActLogic.when(q)?.date ?? Date(), l = Plan.lessons(b, on: d)
+            return Outcome(text: l.isEmpty ? L("Da hast du keinen Unterricht.", "You have no classes then.") : l.map { "- \(Plan.clock($0.start)) – \(Plan.clock($0.end)) **\($0.subject)**" + ($0.room.isEmpty ? "" : ", " + $0.room) }.joined(separator: "\n"))
+        case .grades:
+            let b = School.shared.book
+            guard let o = Plan.overall(b) else { return Outcome(text: L("Noch keine Noten eingetragen (Suche: „/schule“).", "No grades yet (search: “/school”).")) }
+            return Outcome(text: L("Gesamt: **\(Plan.text(o, b.points))**", "Overall: **\(Plan.text(o, b.points))**") + "\n\n" + Plan.subjects(b).compactMap { n in Plan.average(b.grades.filter { $0.subject == n }).map { "- \(n): \(Plan.text($0, b.points))" } }.joined(separator: "\n"))
         case .music:
             let l = q.lowercased()
             SystemAction.media(l.contains("nächst") || l.contains("next") || l.contains("weiter") && !l.contains("weiterspiel") ? 17 : l.contains("vorige") || l.contains("zurück") || l.contains("previous") ? 18 : 16)

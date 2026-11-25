@@ -1041,10 +1041,26 @@ struct ExplorerView: View {
         Button(L("Kopieren", "Copy")) { ensure(item); model.copy(cut: false) }
         Button(L("Umbenennen …", "Rename…")) { ensure(item); model.startRename() }
         Button(L("Als ZIP komprimieren", "Compress to ZIP")) { ensure(item); model.zip() }
+        if FileTools.isImage(item.url) || FileTools.isPDF(item.url) { toolsMenu(item) }
+        Button(L("In die Ablage", "Add to Shelf")) { ensure(item); Shelf.shared.park(model.selectedItems.map(\.url)) }
+        if !item.opensAsFolder { Button(L("KI dazu fragen", "Ask AI about this")) { ensure(item); let u = model.selectedItems.filter { !$0.opensAsFolder }.map(\.url); AI.chat(""); AIChat.shared.attach(u) } }
         Button(L("Pfad kopieren", "Copy Path")) { ensure(item); model.copyPath() }
         Divider()
         Button(L("Im Finder zeigen", "Show in Finder")) { ensure(item); model.showInFinder() }
         Button(L("In den Papierkorb", "Move to Trash"), role: .destructive) { ensure(item); model.trash() }
+    }
+    private func toolsMenu(_ item: FileItem) -> some View {
+        Menu(L("Umwandeln", "Convert")) {
+            let sel = model.selection.contains(item.url) ? model.selectedItems.map(\.url) : [item.url], img = sel.filter(FileTools.isImage), pdf = sel.filter(FileTools.isPDF)
+            if !img.isEmpty {
+                Button(L("Als JPEG", "As JPEG")) { FileTools.run(img) { FileTools.convert($0, to: .jpeg) } }
+                Button(L("Als PNG", "As PNG")) { FileTools.run(img) { FileTools.convert($0, to: .png) } }
+                Button(L("Verkleinern (zum Hochladen)", "Shrink (for upload)")) { FileTools.run(img) { FileTools.convert($0, to: .jpeg, max: 1920, quality: 0.7, suffix: L(" klein", " small")) } }
+            }
+            if !pdf.isEmpty { Button(L("PDF verkleinern", "Shrink PDF")) { FileTools.run(pdf) { FileTools.shrink($0) } } }
+            let both = sel.filter { FileTools.isImage($0) || FileTools.isPDF($0) }
+            if both.count > 1 || !img.isEmpty { Button(both.count > 1 ? L("Zu einer PDF zusammenfügen", "Merge into one PDF") : L("Als PDF", "As PDF")) { FileTools.run([both[0]]) { _ in FileTools.merge(both) } } }
+        }
     }
     private func ensure(_ item: FileItem) { if !model.selection.contains(item.url) { model.selection = [item.url] } }
 
