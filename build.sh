@@ -9,7 +9,7 @@ cp Icon/WinKomfort.icns Icon/Explorer.png "$APP/Contents/Resources/" # Quelle: I
 python3 web/build.py "$APP/Contents/Resources/remote.html" # Handy-Oberfläche
 cp -R de.lproj en.lproj "$APP/Contents/Resources/" # Übersetzungen (Schlüssel = deutscher Text)
 # -target: sonst gilt die App nur für die macOS-Version dieses Macs (nicht für LSMinimumSystemVersion)
-swiftc -O -target arm64-apple-macos14.0 -swift-version 5 -parse-as-library WinKomfort.swift Explorer.swift ExplorerMouse.swift Search.swift SearchSlash.swift TaskManager.swift Tools.swift RenameLogic.swift AI.swift AILogic.swift MTPLogic.swift Phone.swift MathExpr.swift SchoolLogic.swift Studio.swift Sketch.swift Fun3D.swift SlashLogic.swift Convert.swift Emoji.swift SearchRank.swift SearchActions.swift AppUsage.swift OneNoteCloud.swift OneNoteOrder.swift GameMode.swift Assistant.swift MouseScroll.swift SystemMonitor.swift Repair.swift DockSettings.swift Snippets.swift TimeParse.swift FolderSize.swift Launcher.swift LaunchLogic.swift LidScript.swift RemoteCrypto.swift Remote.swift BudsProtocol.swift Buds.swift FolderHandler.swift PhoneTab.swift TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift -o "$APP/Contents/MacOS/WinKomfort"
+swiftc -O -target arm64-apple-macos14.0 -swift-version 5 -parse-as-library WinKomfort.swift Explorer.swift ExplorerMouse.swift Search.swift SearchSlash.swift TaskManager.swift Tools.swift RenameLogic.swift AI.swift AIEngine.swift AIView.swift AILogic.swift MTPLogic.swift Phone.swift MathExpr.swift SchoolLogic.swift Studio.swift Sketch.swift Fun3D.swift SlashLogic.swift Convert.swift Emoji.swift SearchRank.swift SearchActions.swift AppUsage.swift OneNoteCloud.swift OneNoteOrder.swift GameMode.swift Assistant.swift MouseScroll.swift SystemMonitor.swift Repair.swift DockSettings.swift Snippets.swift TimeParse.swift FolderSize.swift Launcher.swift LaunchLogic.swift LidScript.swift RemoteCrypto.swift Remote.swift BudsProtocol.swift Buds.swift FolderHandler.swift PhoneTab.swift TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift -o "$APP/Contents/MacOS/WinKomfort"
 # OneNote-Umwandler (Rust, Open Source aus Joplin – siehe onenote/LICENSE)
 (cd onenote && PATH="$HOME/.cargo/bin:$PATH" cargo build --release -q -p onenote-html)
 cp onenote/target/release/onenote-html "$APP/Contents/MacOS/"
@@ -36,6 +36,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
     <key>CFBundleTypeName</key><string>Ordner</string><key>CFBundleTypeRole</key><string>Viewer</string>
     <key>LSHandlerRank</key><string>Alternate</string><key>LSItemContentTypes</key><array><string>public.folder</string></array>
   </dict></array>
+  <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
   <key>NSBluetoothAlwaysUsageDescription</key><string>WinKomfort zeigt den Akku deiner Galaxy Buds und schaltet die Geräuschsteuerung um.</string>
   <key>NSLocalNetworkUsageDescription</key><string>Damit dein Handy den Mac im selben WLAN fernbedienen kann.</string>
   <key>NSAppleEventsUsageDescription</key><string>WinKomfort bittet den Finder, Apps beim Aufräumen in den Papierkorb zu legen und wiederherzustellen.</string>

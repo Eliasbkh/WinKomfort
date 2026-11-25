@@ -155,8 +155,8 @@ import SwiftUI
         Command(name: "wiki", hint: L("Suche", "query"), text: "Wikipedia", symbol: "book", needsArg: true) { web("Wikipedia", "https://de.wikipedia.org/w/index.php?search=", $0) },
         Command(name: "github", hint: L("Suche", "query"), text: "GitHub", symbol: "chevron.left.forwardslash.chevron.right", needsArg: true) { web("GitHub", "https://github.com/search?q=", $0) },
         Command(name: "maps", hint: L("Ort", "place"), text: "Google Maps", symbol: "map", needsArg: true) { web("Google Maps", "https://www.google.com/maps/search/", $0) },
-        Command(name: "ai", hint: L("Frage", "question"), text: L("KI auf deinem Mac fragen", "Ask the AI on your Mac"), symbol: "sparkles", needsArg: true) { a in
-            a.isEmpty ? [] : [go(L("Fragen: \(a)", "Ask: \(a)"), L("bleibt auf dem Mac", "stays on your Mac")) { AI.chat(a) }]
+        Command(name: "ai", hint: L("Frage", "question"), text: L("KI auf deinem Mac fragen", "Ask the AI on your Mac"), symbol: "sparkles") { a in
+            [go(a.isEmpty ? L("KI öffnen", "Open AI") : L("Fragen: \(a)", "Ask: \(a)"), AIChat.shared.offline ? L("bleibt auf dem Mac", "stays on your Mac") : L("geht an deinen Anbieter", "goes to your provider")) { AI.chat(a) }]
         },
         Command(name: "do", hint: L("Befehl", "command"), text: L("Mac per Satz steuern", "Control the Mac with a sentence"), symbol: "wand.and.rays", needsArg: true) { a in a.isEmpty ? [] : [go(L("Ausführen: \(a)", "Do: \(a)")) { Assistant.ask(a) }] },
         Command(name: "see", hint: L("Frage", "question"), text: L("KI sieht einen Bildschirmausschnitt an", "AI looks at part of your screen"), symbol: "eye") { a in

@@ -313,5 +313,21 @@ for n in [500, 512 * 3 - 12, MTPSession.chunk - 12, MTPSession.chunk] { // Grenz
 sc("Handy: kaputte Antworten", "\((try? ms.storages()) == nil) \((try? ms.run(0x1234)) == nil) \(try ms.info(7).name)", "true true Foto.jpg")
 sc("Handy: Namen", "\(MTPSession.safe("..")) \(MTPSession.safe("a/b")) \(MTPSession.unique("Foto.JPG", taken: ["foto.jpg", "Foto 2.jpg"]))", "_ a_b Foto 3.JPG")
 
+// KI: Anzeige, Dokumente, Werkzeuge
+sc("Markdown", "\(AILogic.blocks("# T\nHallo\nWelt\n\n- a\n  - b\n2. c\n> z\n---"))", "[main.AILogic.Block.heading(1, \"T\"), main.AILogic.Block.text(\"Hallo\\nWelt\"), main.AILogic.Block.item(0, \"•\", \"a\"), main.AILogic.Block.item(1, \"•\", \"b\"), main.AILogic.Block.item(0, \"2.\", \"c\"), main.AILogic.Block.quote(\"z\"), main.AILogic.Block.rule]".replacingOccurrences(of: "main.", with: String(reflecting: AILogic.self).components(separatedBy: ".")[0] + "."))
+sc("Tabelle und Code", "\(AILogic.blocks("| A | B |\n|---|:-:|\n| 1 |\n\n```py\nx = 1\n- y") == [.table([["A", "B"], ["1", ""]]), .code("py", "x = 1\n- y")])", "true")
+sc("Jahreszahl ist keine Liste", "\(AILogic.blocks("1648. war") == [.text("1648. war")])", "true")
+sc("LaTeX lesbar", AILogic.tidy(#"\(x^2-5x+6=0\) \frac{1}{2} \frac{a+b}{\sqrt{2}} \alpha \cdot x_1 $y^{-3}$ 5 $ und 7 $ a_b `x^2`"#), "x²-5x+6=0 1/2 (a+b)/(√2) α · x₁ y⁻³ 5 $ und 7 $ a_b `x^2`")
+let buch = (0..<400).map { "Absatz \($0) erzählt von Wetter und Wolken am Himmel über dem weiten Land." }.joined(separator: "\n") + "\nDie Zentripetalkraft hält den Körper auf der Kreisbahn."
+sc("Passende Stelle", "\(AILogic.relevant(buch, "Was ist die Zentripetalkraft?", budget: 2500).contains("Kreisbahn")) \(AILogic.relevant(buch, "xyz", budget: 2500).count <= 2600)", "true true")
+sc("Rechnen-Werkzeug", "\(AILogic.calculate("4837*291")) \(AILogic.calculate("x^2-5x+6=0")) \(AILogic.calculate("hallo welt("))", "1407567 x = 2 oder x = 3 Das lässt sich nicht berechnen.")
+sc("Rechnung in der Frage", "\(AILogic.facts("Was ist 4837*291?")) \(AILogic.facts("Löse x^2-5x+6=0 bitte")) \(AILogic.facts("Was war am 24.12.2025 um 10:30?")) \(AILogic.facts("Wer war 1871-1890 Kanzler?").count) \(AILogic.facts("Hallo, wie geht es dir?"))", "[\"4837*291 = 1407567\"] [\"x^2-5x+6=0 → x = 2 oder x = 3\"] [] 1 []")
+sc("Verrechnet", "\(AILogic.wrongSums("Also 12 · 12 = 140 und 3 + 4 = 7, 150 / 2 = 75 km")) \(AILogic.wrongSums("4837 · 291 = 1.407.567; 10 / 3 = 3,33; 2 + 3 = 5 * 1")) \(AILogic.wrongSums("3x + 4 = 10; x = 5; 2 · 2,5 = 5"))", "[\"12 · 12 = 144\"] [] []")
+sc("Suchbegriff", AILogic.topic("Olaf Scholz", "Wer ist aktuell Bundeskanzler von Deutschland?", before: "") + "|" + AILogic.topic("Westfälischer Friede", "Was regelte der Westfälische Frieden?", before: ""), "bundeskanzler deutschland|Westfälischer Friede")
+sc("Datenstrom", "\(AILogic.delta("data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}")!.text) \(AILogic.delta("data: [DONE]")!.done) \(AILogic.delta(": ping") == nil) \(AILogic.delta("data: kaputt") == nil)", "Hi true true true")
+sc("Serveradresse", "\(AILogic.serverURL("http://127.0.0.1:11434/v1/")!) \(AILogic.serverURL("http://boese.de/v1") == nil) \(AILogic.serverURL("https://api.x.de/v1") != nil) \(AILogic.serverURL("http://localhost.boese.de") == nil)", "http://127.0.0.1:11434/v1 true true true")
+sc("Denken weg", AILogic.withoutThinking("<think>hm</think>Ja") + AILogic.withoutThinking("A<think>hm"), "JaA")
+sc("Office", AILogic.xmlText("<a:p><a:t>A &amp; B</a:t></a:p><a:p>C</a:p>"), "A & B\nC\n")
+
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }
