@@ -215,5 +215,44 @@ sc("Gibt es schon", "\(RenameLogic.problem(["a"], ["z"], taken: ["a", "Z"])!)", 
 sc("Tauschen erlaubt", "\(RenameLogic.problem(["a", "b"], ["b", "a"], taken: ["a", "b"]) == nil)", "true")
 sc("Schrägstrich", "\(RenameLogic.problem(["a"], ["x/y"], taken: [])!)", "slash")
 
+// Mathe
+func tex(_ s: String) -> String { MathExpr.parse(s).map(MathExpr.latex) ?? "nil" }
+for (q, want) in [("a/b", "\\frac{a}{b}"), ("(a+b)/(2c)", "\\frac{a + b}{2c}"), ("sqrt(x^2+1)", "\\sqrt{x^{2} + 1}"), ("x_1^2", "x_{1}^{2}"), ("pi r^2", "\\pi r^{2}"), ("a+-b>=c", "a \\pm  b \\ge  c"), ("[[1,2],[3,4]]", "\\begin{pmatrix}1 & 2 \\\\ 3 & 4\\end{pmatrix}"),
+                  ("\\frac{1}{2}", "\\frac{1}{2}"), ("lim_(x->oo) 1/x", "\\lim_{x \\to  \\infty}\\frac{1}{x}"), ("sum_(n=1)^oo 1/n^2", "\\sum_{n = 1}^{\\infty}\\frac{1}{n^{2}}"), ("3,5x", "3{,}5x"), ("sin^2 x", "\\sin^{2} x"), ("(a", "nil"), ("", "nil"), ("^", "nil"), ("a//b", "nil")] { sc("Formel \(q)", tex(q), want) }
+func ev(_ s: String, _ v: [String: Double] = [:]) -> String { MathExpr.parse(s).flatMap { MathExpr.eval($0, v) }.map { "\(($0 * 1e6).rounded() / 1e6)" } ?? "nil" }
+for (q, want) in [("2+3*4", "14.0"), ("2^10", "1024.0"), ("-2^2", "-4.0"), ("sqrt(16)/2", "2.0"), ("5!", "120.0"), ("sin(pi/2)", "1.0"), ("sum_(n=1)^10 n", "55.0"), ("int_0^1 x^2 dx", "0.333333"), ("1/0", "nil"), ("|-3|", "3.0"), ("2(3+4)", "14.0"), ("ln(e^2)", "2.0"), ("12÷4", "3.0"), ("prod_(k=1)^5 k", "120.0"), ("root(3,27)", "3.0"), ("a+1", "nil")] { sc("Rechne \(q)", ev(q), want) }
+sc("Variable", ev("x^2+1", ["x": 3]), "10.0")
+func df(_ s: String) -> String { MathExpr.parse(s).flatMap { MathExpr.diff($0, "x") }.map(MathExpr.latex) ?? "nil" }
+for (q, want) in [("x^2", "2x"), ("3x^3+2x-5", "9x^{2} + 2"), ("sin(x)", "\\cos \\left(x\\right)"), ("e^(2x)", "2e^{2x}"), ("x*sin(x)", "\\sin \\left(x\\right) + x \\cos \\left(x\\right)"), ("ln(x)", "\\frac{1}{x}"), ("5", "0"), ("(2x+1)^3", "6\\left(2x + 1\\right)^{2}")] { sc("Ableitung \(q)", df(q), want) }
+// Ableitung numerisch gegenprüfen
+for q in ["x^3*ln(x)", "sin(x^2)/x", "sqrt(x^2+1)", "e^(x^2)*cos(x)", "(x+1)/(x-3)", "2^x"] {
+    let n = MathExpr.parse(q)!, d = MathExpr.diff(n, "x")!, x = 1.7, h = 1e-5
+    let num = (MathExpr.eval(n, ["x": x + h])! - MathExpr.eval(n, ["x": x - h])!) / (2 * h), sym = MathExpr.eval(d, ["x": x]) ?? .nan
+    sc("Ableitung stimmt: \(q)", "\(abs(num - sym) < 1e-5 * max(1, abs(num)))", "true")
+}
+func rt(_ s: String) -> String { let (a, b) = MathExpr.sides(MathExpr.parse(s)!)!; return "\(MathExpr.roots { x in MathExpr.eval(a, ["x": x]).flatMap { l in MathExpr.eval(b, ["x": x]).map { l - $0 } } })" }
+sc("Lösen", rt("x^2-5x+6=0"), "[2.0, 3.0]")
+sc("Doppelte Lösung", rt("x^2=2x-1"), "[1.0]")
+sc("Polstelle ist keine Lösung", rt("1/x=0"), "[]")
+sc("Keine Lösung", rt("x^2+1=0"), "[]")
+
+// Schule
+func near(_ a: Double?, _ b: Double) -> Bool { a.map { abs($0 - b) < 0.02 } ?? false }
+sc("Molmasse", "\(near(SchoolLogic.molarMass("H2O"), 18.015)) \(near(SchoolLogic.molarMass("Ca(OH)2"), 74.09)) \(near(SchoolLogic.molarMass("C6H12O6"), 180.16)) \(SchoolLogic.molarMass("Xx") == nil) \(SchoolLogic.molarMass("(H") == nil)", "true true true true true")
+sc("Formel schön", SchoolLogic.pretty("Ca(OH)2"), "Ca(OH)₂")
+let tt = SchoolLogic.truth("a und nicht b")!
+sc("Wahrheitstabelle", "\(tt.vars) \(tt.rows.map { $0.last! })", "[\"a\", \"b\"] [false, false, true, false]")
+sc("Implikation", "\(SchoolLogic.truth("a -> b")!.rows.map { $0.last! })", "[true, true, false, true]")
+sc("Rang & vor |", "\(SchoolLogic.truth("a | b & c")!.rows.map { $0.last! ? 1 : 0 })", "[0, 0, 0, 1, 1, 1, 1, 1]")
+sc("Unsinn", "\(SchoolLogic.truth("a und") == nil) \(SchoolLogic.truth("") == nil)", "true true")
+sc("Zahlensysteme", "\(SchoolLogic.bases("42")!)", "(dec: \"42\", bin: \"0010 1010\", hex: \"0x2A\", oct: \"0o52\")")
+sc("Hex und binär", "\(SchoolLogic.bases("0xff")!.dec) \(SchoolLogic.bases("0b101")!.dec) \(SchoolLogic.bases("xyz") == nil)", "255 5 true")
+sc("Diagramm", "\(SchoolLogic.chart("Mo 3, Di 5")!.map { "\($0.0)=\($0.1)" }) \(SchoolLogic.chart("Mathe: 1,7; Deutsch: 2")!.map { $0.1 }) \(SchoolLogic.chart("3 5 8")!.count) \(SchoolLogic.chart("a, b") == nil)", "[\"Mo=3.0\", \"Di=5.0\"] [1.7, 2.0] 3 true")
+let fl = SchoolLogic.flow("Start -> Ok?; Ok? -ja-> Ende; Ok? -nein-> Start")!
+sc("Dezimalkomma im Diagramm", "\(SchoolLogic.chart("Mathe 2, Deutsch 1,7, Info 1")!.map { $0.1 }) \(SchoolLogic.chart("3,5,8")!.count)", "[2.0, 1.7, 1.0] 3")
+sc("Ablaufplan", "\(fl.nodes) \(fl.edges.map(\.label)) \(SchoolLogic.levels(fl))", "[\"Start\", \"Ok?\", \"Ende\"] [\"\", \"ja\", \"nein\"] [0, 1, 2]")
+sc("Ablauf Kette", "\(SchoolLogic.flow("A -> B -> C")!.edges.count) \(SchoolLogic.flow("A") == nil) \(SchoolLogic.flow("-> B") == nil)", "2 true true")
+sc("Würfel", "\(SchoolLogic.dice("2d6")!) \(SchoolLogic.dice("")!) \(SchoolLogic.dice("w20")!) \(SchoolLogic.dice("99d6") == nil)", "(n: 2, sides: 6) (n: 1, sides: 6) (n: 1, sides: 20) true")
+
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }

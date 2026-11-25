@@ -495,9 +495,13 @@ struct SearchView: View {
     private var list: some View {
         ScrollViewReader { proxy in
             ScrollView {
+                Color.clear.frame(height: 0).id("oben")
                 if m.hits.isEmpty {
                     Text(m.mode == .clip && m.query.isEmpty ? L("Noch nichts kopiert", "Nothing copied yet") : L("Nichts gefunden", "Nothing found"))
                         .foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.top, 130)
+                }
+                if m.mode == .root, m.query.hasPrefix("/"), let p = SearchSlash.preview(m.query) {
+                    p.frame(maxWidth: .infinity).frame(height: 190).background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12)).padding(.horizontal, 10).padding(.top, 10)
                 }
                 LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(m.hits.enumerated()), id: \.element.id) { i, hit in
@@ -512,8 +516,8 @@ struct SearchView: View {
                 .padding(8)
             }
             .scrollIndicators(.never)
-            .onChange(of: m.selected) { _, i in if m.hits.indices.contains(i) { proxy.scrollTo(m.hits[i].id) } }
-            .onChange(of: m.query) { _, _ in if let f = m.hits.first { proxy.scrollTo(f.id, anchor: .top) } }
+            .onChange(of: m.selected) { _, i in if i == 0 { proxy.scrollTo("oben", anchor: .top) } else if m.hits.indices.contains(i) { proxy.scrollTo(m.hits[i].id) } }
+            .onChange(of: m.query) { _, _ in proxy.scrollTo("oben", anchor: .top) }
         }
         .frame(maxHeight: .infinity)
     }

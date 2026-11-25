@@ -1,6 +1,7 @@
 // /Befehle in der Suche: „/“ zeigt alle, Tab ergänzt, ↩ führt aus
 import AppKit
 import CoreServices
+import SwiftUI
 
 @MainActor enum SearchSlash {
     // Ergebnis einer Eingabe: was dasteht und was ↩ macht
@@ -28,7 +29,100 @@ import CoreServices
         a.isEmpty ? [] : [go(L("\(site): „\(a)“", "\(site): “\(a)”")) { if let u = URL(string: SearchWeb.url(base, a)) { NSWorkspace.shared.open(u) } }]
     }
 
+    private static func picture(_ title: String, _ sub: String = L("für OneNote, Word, Chats", "for OneNote, Word, chats"), _ work: @escaping @MainActor () -> Void) -> Row { go(title, sub, work) }
+    private static func num(_ v: Double) -> String { Calc.format((v * 1e8).rounded() / 1e8) }
+    private static func formula(_ n: MathNode) -> [Row] {
+        [picture(L("Formel als Bild kopieren", "Copy formula as image")) { MathRenderer.image(n) { if let i = $0 { Export.put(i, L("Formel", "Formula")) } else { Toast.show(L("Das ging nicht", "That didn't work"), symbol: "exclamationmark.triangle") } } },
+         copy(L("Als Formeltext kopieren", "Copy as equation text"), L("in OneNote/Word: Einfügen › Formel, dann ⌘V", "in OneNote/Word: Insert › Equation, then ⌘V"), MathExpr.unicode(n)),
+         copy(L("Als LaTeX kopieren", "Copy as LaTeX"), short(MathExpr.latex(n)), MathExpr.latex(n)),
+         copy(L("Als MathML kopieren", "Copy as MathML"), L("für Word", "for Word"), MathExpr.document(n))]
+    }
+    private static func solutions(_ a: String) -> (eq: MathNode, x: String, roots: [Double])? {
+        guard let n = MathExpr.parse(a) else { return nil }
+        let (l, r) = MathExpr.sides(n) ?? (n, .num("0")), v = MathExpr.variables(n)
+        guard v.count == 1, let x = v.first, x.count == 1 else { return nil }
+        return (MathExpr.sides(n) == nil ? .row([n, .op("="), .num("0")]) : n, x, MathExpr.roots { t in MathExpr.eval(l, [x: t]).flatMap { p in MathExpr.eval(r, [x: t]).map { p - $0 } } })
+    }
+    private static func derivative(_ a: String) -> (MathNode, MathNode)? {
+        guard var n = MathExpr.parse(a) else { return nil }
+        if let (_, r) = MathExpr.sides(n) { n = r }
+        let v = MathExpr.variables(n)
+        guard let x = v.contains("x") ? "x" : v.count == 1 ? v.first : nil, let d = MathExpr.diff(n, x) else { return nil }
+        return (n, d)
+    }
+    // Live-Vorschau über den Ergebnissen
+    static func preview(_ q: String) -> AnyView? {
+        guard let (name, a) = SlashLogic.split(q), !a.isEmpty else { return nil }
+        switch name {
+        case "math": return MathExpr.parse(a).map { n in
+            let v = MathExpr.eval(n).flatMap { $0.isFinite ? $0 : nil }
+            if let v, case .num = n { _ = v; return AnyView(MathPreview(node: n)) }
+            return AnyView(MathPreview(node: v.map { .row([n, .op(abs(($0 * 1e8).rounded() / 1e8 - $0) < 1e-12 ? "=" : "≈"), MathExpr.number(($0 * 1e6).rounded() / 1e6)]) } ?? n))
+        }
+        case "solve": return solutions(a).map { AnyView(MathPreview(node: $0.eq)) }
+        case "diff": return derivative(a).map { AnyView(MathPreview(node: .row([.script(.id("f"), sub: nil, sup: .op("′")), .paren("(", .id("x"), ")"), .op("="), $0.1]))) }
+        case "plot": return PlotSpec.parse(a).map { AnyView(PlotView(spec: $0).padding(.horizontal, 12)) }
+        case "chart": return SchoolLogic.chart(a).map { AnyView(ChartView(data: $0, kind: .bar).padding(.horizontal, 12)) }
+        case "flow": return SchoolLogic.flow(a).map { AnyView(FlowView(flow: $0).padding(6)) }
+        case "truth": return SchoolLogic.truth(a).map { t in AnyView(ScrollView { TruthView(vars: t.vars, rows: t.rows, title: a) }) }
+        default: return nil
+        }
+    }
+
     static let all: [Command] = [
+        Command(name: "math", hint: "sqrt(x)/2", text: L("Formel schön setzen, rechnen, kopieren", "Typeset, calculate and copy a formula"), symbol: "x.squareroot", needsArg: true) { a in
+            guard let n = MathExpr.parse(a) else { return [] }
+            var r = formula(n)
+            if let v = MathExpr.eval(n), v.isFinite { r.insert(copy(num(v), L("Ergebnis", "Result")), at: 1) }
+            return r
+        },
+        Command(name: "solve", hint: "x^2-4=0", text: L("Gleichung lösen", "Solve an equation"), symbol: "equal.circle", needsArg: true) { a in
+            guard let s = solutions(a) else { return [] }
+            if s.roots.isEmpty { return [copy(L("Keine reelle Lösung zwischen −100 und 100", "No real solution between −100 and 100"))] }
+            let all = s.roots.enumerated().map { i, v in (s.roots.count > 1 ? "\(s.x)\(SchoolLogic.pretty("a\(i + 1)").dropFirst())" : s.x) + " = " + num(v) }
+            return (s.roots.count > 1 ? [copy(all.joined(separator: "; "), L("numerisch, −100 bis 100", "numeric, −100 to 100"))] : []) + zip(all, s.roots).map { copy($0, s.roots.count == 1 ? L("numerisch, −100 bis 100", "numeric, −100 to 100") : "", num($1)) } + [formula(s.eq)[0]]
+        },
+        Command(name: "diff", hint: "x^2*sin(x)", text: L("Ableiten", "Differentiate"), symbol: "function", needsArg: true) { a in
+            guard let (_, d) = derivative(a) else { return [] }
+            return [copy("f′(x) = " + MathExpr.unicode(d), "", MathExpr.unicode(d))] + formula(.row([.script(.id("f"), sub: nil, sup: .op("′")), .paren("(", .id("x"), ")"), .op("="), d]))
+        },
+        Command(name: "plot", hint: "sin(x); x^2", text: L("Funktion zeichnen", "Plot functions"), symbol: "chart.xyaxis.line", needsArg: true) { a in
+            guard let p = PlotSpec.parse(a) else { return [] }
+            return [picture(L("Graph als Bild kopieren", "Copy graph as image")) { Export.copy(PlotView(spec: p), CGSize(width: 720, height: 460), L("Graph", "Graph")) },
+                    go(L("Im Fenster öffnen", "Open in window"), L("verschieben und zoomen", "pan and zoom")) { studioWindow("plot", a, PlotWindow(p)) },
+                    go(L("Wertetabelle kopieren", "Copy value table"), L("als Tabelle einfügbar", "pastes as a table")) { let t = p.table; Export.table(t.0, t.1) }]
+        },
+        Command(name: "chart", hint: "Mo 3, Di 5", text: L("Diagramm erstellen", "Make a chart"), symbol: "chart.bar", needsArg: true) { a in
+            guard let d = SchoolLogic.chart(a) else { return [] }
+            return [(ChartKind.bar, L("Balkendiagramm kopieren", "Copy bar chart")), (.line, L("Liniendiagramm kopieren", "Copy line chart")), (.pie, L("Kreisdiagramm kopieren", "Copy pie chart"))]
+                .map { k, t in picture(t) { Export.copy(ChartView(data: d, kind: k), CGSize(width: 640, height: 400), L("Diagramm", "Chart")) } } + [go(L("Als Tabelle kopieren", "Copy as table")) { Export.table([L("Name", "Name"), L("Wert", "Value")], d.map { [$0.0, Calc.format($0.1)] }) }]
+        },
+        Command(name: "flow", hint: "A -> B?; B? -ja-> C", text: L("Ablaufplan zeichnen", "Draw a flow chart"), symbol: "flowchart", needsArg: true) { a in
+            guard let f = SchoolLogic.flow(a) else { return [] }
+            return [picture(L("Ablaufplan als Bild kopieren", "Copy flow chart as image")) { Export.copy(FlowView(flow: f), FlowView.size(f), L("Ablaufplan", "Flow chart")) }]
+        },
+        Command(name: "sketch", hint: "", text: L("Skizze zeichnen und kopieren", "Draw and copy a sketch"), symbol: "scribble.variable") { _ in [go(L("Skizzenblock öffnen", "Open sketch pad")) { studioWindow("sketch", L("Skizze", "Sketch"), SketchView()) }] },
+        Command(name: "truth", hint: L("a und nicht b", "a and not b"), text: L("Wahrheitstabelle", "Truth table"), symbol: "tablecells", needsArg: true) { a in
+            guard let t = SchoolLogic.truth(a) else { return [] }
+            return [go(L("Als Tabelle kopieren", "Copy as table"), L("in OneNote als echte Tabelle", "pastes as a real table")) { Export.table(t.vars + [a], t.rows.map { $0.map { $0 ? "1" : "0" } }) },
+                    picture(L("Als Bild kopieren", "Copy as image")) { Export.copy(TruthView(vars: t.vars, rows: t.rows, title: a).fixedSize(), CGSize(width: CGFloat(t.vars.count) * 70 + max(CGFloat(a.count) * 9, 90), height: CGFloat(min(t.rows.count, 16)) * 24 + 50), L("Tabelle", "Table")) }]
+        },
+        Command(name: "bin", hint: "42, 0xff, 0b101", text: L("Dezimal, binär, hex umrechnen", "Convert number bases"), symbol: "01.square", needsArg: true) { a in
+            guard let b = SchoolLogic.bases(a) else { return [] }
+            return [copy(b.dec, "Dezimal"), copy(b.bin, L("Binär", "Binary")), copy(b.hex, "Hex"), copy(b.oct, "Oktal")]
+        },
+        Command(name: "mol", hint: "H2SO4", text: L("Molare Masse berechnen", "Molar mass"), symbol: "flask", needsArg: true) { a in
+            guard let m = SchoolLogic.molarMass(a), let f = SchoolLogic.formula(a) else { return [] }
+            let v = Calc.format((m * 1000).rounded() / 1000)
+            return [copy("M(\(SchoolLogic.pretty(a))) = \(v) g/mol"), copy(SchoolLogic.pretty(a), L("Formel mit Tiefstellung", "formula with subscripts"))] + f.map { e, n in
+                let x = SchoolLogic.elements.first { $0.s == e }!
+                return copy("\(n) × \(x.name) (\(e))", "\(Calc.format(x.m)) g/mol · \(Calc.format((x.m * Double(n) / m * 1000).rounded() / 10)) %")
+            }
+        },
+        Command(name: "element", hint: "Fe, Eisen", text: L("Periodensystem", "Periodic table"), symbol: "atom", needsArg: true) { a in
+            SchoolLogic.elements.enumerated().filter { _, e in e.s.lowercased() == a.lowercased() || Int(a) == SchoolLogic.elements.firstIndex { $0.s == e.s }! + 1 || a.count > 1 && SearchRank.fold(e.name).hasPrefix(SearchRank.fold(a)) }.prefix(5)
+                .map { i, e in copy("\(e.name) (\(e.s))", L("Ordnungszahl \(i + 1) · \(Calc.format(e.m)) u", "Atomic number \(i + 1) · \(Calc.format(e.m)) u")) }
+        },
         Command(name: "timer", hint: L("Minuten", "minutes"), text: L("Timer starten", "Start a timer"), symbol: "timer", needsArg: true) { a in
             guard let m = Int(a) ?? TimeParse.minutes(in: a), (1...1440).contains(m) else { return [] }
             return [go(L("Timer: \(m) Minuten", "Timer: \(m) minutes")) { SearchTimer.shared.start(m) }]
@@ -88,10 +182,14 @@ import CoreServices
             guard let r = SlashLogic.range(a) else { return [] }
             return [go(L("Zahl von \(r.lowerBound) bis \(r.upperBound)", "Number from \(r.lowerBound) to \(r.upperBound)")) { let n = Int.random(in: r); put("\(n)", toast: "\(n)", "dice") }]
         },
-        Command(name: "coin", hint: "", text: L("Münze werfen", "Flip a coin"), symbol: "circle.lefthalf.filled") { _ in [go(L("Münze werfen", "Flip a coin")) { Toast.show(Bool.random() ? L("Kopf", "Heads") : L("Zahl", "Tails"), symbol: "circle.lefthalf.filled", seconds: 3) }] },
-        Command(name: "pick", hint: "a, b, c", text: L("Zufällig auswählen", "Pick one at random"), symbol: "hand.point.up.left", needsArg: true) { a in
+        Command(name: "dice", hint: "2d6, d20", text: L("Würfeln in 3D", "Roll 3D dice"), symbol: "dice") { a in
+            guard let d = SchoolLogic.dice(a) else { return [] }
+            return [go(L("\(d.n) × W\(d.sides) würfeln", "Roll \(d.n)d\(d.sides)")) { studioWindow("dice", L("Würfel", "Dice"), resizable: false, DiceView(d.n, d.sides)) }]
+        },
+        Command(name: "coin", hint: "", text: L("Münze werfen", "Flip a coin"), symbol: "circle.lefthalf.filled") { _ in [go(L("Münze werfen", "Flip a coin")) { studioWindow("coin", L("Münze", "Coin"), resizable: false, CoinView()) }] },
+        Command(name: "wheel", hint: "a, b, c", text: L("Glücksrad drehen", "Spin the wheel"), symbol: "chart.pie", needsArg: true) { a in
             let o = a.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-            return o.count < 2 ? [] : [go(L("Eins von \(o.count) ziehen", "Pick one of \(o.count)")) { Toast.show(o.randomElement()!, symbol: "hand.point.up.left", seconds: 4) }]
+            return (2...24).contains(o.count) ? [go(L("Rad mit \(o.count) Feldern drehen", "Spin a wheel with \(o.count) fields")) { studioWindow("wheel", L("Glücksrad", "Wheel"), resizable: false, WheelView(o)) }] : []
         },
         Command(name: "days", hint: "24.12.", text: L("Tage bis zu einem Datum", "Days until a date"), symbol: "calendar", needsArg: true) { a in
             SlashLogic.days(a, today: Date()).map { [copy($0 < 0 ? L("vor \(-$0) Tagen", "\(-$0) days ago") : L("noch \($0) Tage", "\($0) days left"))] } ?? []
