@@ -3474,9 +3474,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Dreimal hintereinander gleich nach dem Start abgestürzt → nur Menü und Updates, damit eine Reparatur ankommen kann
         let early = d.integer(forKey: "earlyCrashes")
         d.set(early + 1, forKey: "earlyCrashes")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { UserDefaults.standard.set(0, forKey: "earlyCrashes") }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { UserDefaults.standard.set(0, forKey: "earlyCrashes") }
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in UserDefaults.standard.set(0, forKey: "earlyCrashes") } // normal beendet ist kein Absturz
         if early >= 3 {
+            d.set(0, forKey: "earlyCrashes") // der nächste Start versucht es wieder normal
             wkLog("Sicherer Modus nach \(early) Abstürzen beim Start")
             Toast.show(L("WinKomfort läuft im sicheren Modus und sucht nach einem Update. Beenden und neu öffnen versucht es wieder normal.", "WinKomfort is in safe mode and checking for an update. Quit and reopen to try normally again."), symbol: "lifepreserver", seconds: 8)
             DockIcon.setup()

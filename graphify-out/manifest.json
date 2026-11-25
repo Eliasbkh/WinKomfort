@@ -1,20 +1,20 @@
 {
   "WinKomfort.swift": {
-    "mtime": 1795465434.8095737,
-    "seen": 1795470398.746582,
-    "ast_hash": "61dab0b33e26b58cd28d3ad4c63c0f44",
+    "mtime": 1795615115.9179964,
+    "seen": 1795631337.553838,
+    "ast_hash": "155719f8522f91c7b46b2e68b1c4a9b4",
     "semantic_hash": ""
   },
   "build.sh": {
-    "mtime": 1795463263.60696,
-    "seen": 1795470398.746582,
-    "ast_hash": "beecd311e8027b193938624397aca04e",
+    "mtime": 1795616130.265393,
+    "seen": 1795631337.553838,
+    "ast_hash": "c7c22c14af044418e8fabbc33a2dca1f",
     "semantic_hash": ""
   },
   "release.sh": {
-    "mtime": 1795385214.6160538,
-    "seen": 1795420669.599963,
-    "ast_hash": "56d1aeb33d650ae87a588f706aee0d83",
+    "mtime": 1795536363.335976,
+    "seen": 1795599308.44506,
+    "ast_hash": "2e47a155cc265e5b2f26ae3b57500853",
     "semantic_hash": ""
   },
   "sign.swift": {
@@ -30,9 +30,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1795464811.1199384,
-    "seen": 1795470398.7465851,
-    "ast_hash": "c7c8274be4b1901afb70364a08fe4edb",
+    "mtime": 1795615115.9182568,
+    "seen": 1795631337.5539331,
+    "ast_hash": "899a2b221ce00bafcec2bd95fb11b572",
     "semantic_hash": ""
   },
   "Calc.swift": {
@@ -42,15 +42,15 @@
     "semantic_hash": ""
   },
   "TapDragLogic.swift": {
-    "mtime": 1795425269.0788357,
-    "seen": 1795460619.777513,
-    "ast_hash": "4dcaedb363e5dd91c03cee20d9a4aaf1",
+    "mtime": 1795535896.958039,
+    "seen": 1795599308.4449658,
+    "ast_hash": "84017b972d005f4d854f3d1755c7cdd6",
     "semantic_hash": ""
   },
   "Tests/main.swift": {
-    "mtime": 1795463274.1498203,
-    "seen": 1795470398.746581,
-    "ast_hash": "516569d725096f3ec3b54733577489a6",
+    "mtime": 1795615115.9183655,
+    "seen": 1795631337.553836,
+    "ast_hash": "21e46a8ed6ea20776924e23a2882e4e8",
     "semantic_hash": ""
   },
   "Shortcut.swift": {
@@ -66,9 +66,1383 @@
     "semantic_hash": ""
   },
   "SnapMath.swift": {
-    "mtime": 1795463212.7708015,
-    "seen": 1795470398.746579,
-    "ast_hash": "ecb0412f7f61355d20556425a4b19034",
+    "mtime": 1795608554.7528508,
+    "seen": 1795631337.553833,
+    "ast_hash": "453343d76b372b71ac47b3c5f8c78509",
+    "semantic_hash": ""
+  },
+  "Assistant.swift": {
+    "mtime": 1795498337.907755,
+    "seen": 1795499253.8545952,
+    "ast_hash": "22d7b0fb221ca3bafd15bb59217b10df",
+    "semantic_hash": ""
+  },
+  "DockSettings.swift": {
+    "mtime": 1795481542.6290379,
+    "seen": 1795498108.889622,
+    "ast_hash": "aac9d6c7b375b49f57fc8634af992fad",
+    "semantic_hash": ""
+  },
+  "Explorer.swift": {
+    "mtime": 1795609393.4561226,
+    "seen": 1795631337.55382,
+    "ast_hash": "4cf5ad909e648427ca850f0b62b28182",
+    "semantic_hash": ""
+  },
+  "FolderSize.swift": {
+    "mtime": 1795481356.801724,
+    "seen": 1795498108.889623,
+    "ast_hash": "7dc2e8ffedf478cbb78c20e1bcbd51fe",
+    "semantic_hash": ""
+  },
+  "GameMode.swift": {
+    "mtime": 1795526375.3065395,
+    "seen": 1795527037.454981,
+    "ast_hash": "c2d1c2868e93d77eb0d245cc522d4f40",
+    "semantic_hash": ""
+  },
+  "MouseScroll.swift": {
+    "mtime": 1795609363.0901341,
+    "seen": 1795631337.553826,
+    "ast_hash": "310901ded65c270b1c248aa7e7320138",
+    "semantic_hash": ""
+  },
+  "OneNoteCloud.swift": {
+    "mtime": 1795482622.7385087,
+    "seen": 1795498108.889625,
+    "ast_hash": "5443fd8e47911feeb39cab1e3d11b450",
+    "semantic_hash": ""
+  },
+  "OneNoteOrder.swift": {
+    "mtime": 1795478767.5188897,
+    "seen": 1795498108.889625,
+    "ast_hash": "9596eff2b269ae138ebd75cf63be9f84",
+    "semantic_hash": ""
+  },
+  "Repair.swift": {
+    "mtime": 1795609363.0902317,
+    "seen": 1795631337.5538292,
+    "ast_hash": "f360ad6029341684e81c284fb986b241",
+    "semantic_hash": ""
+  },
+  "Snippets.swift": {
+    "mtime": 1795608554.752947,
+    "seen": 1795631337.553834,
+    "ast_hash": "cefadef3d5db1b636fca9fd52740d8b2",
+    "semantic_hash": ""
+  },
+  "SystemMonitor.swift": {
+    "mtime": 1795480477.632866,
+    "seen": 1795498108.889629,
+    "ast_hash": "9ed923c1d82bd1e401456b8f64b3be7a",
+    "semantic_hash": ""
+  },
+  "TimeParse.swift": {
+    "mtime": 1795481293.0710633,
+    "seen": 1795498108.889631,
+    "ast_hash": "326535b68f66d50159e2da35461fe7ed",
+    "semantic_hash": ""
+  },
+  "onenote/.vscode/settings.json": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889632,
+    "ast_hash": "7ad560c6a47c75cad061b962cb6c7e0b",
+    "semantic_hash": ""
+  },
+  "onenote/Cargo.toml": {
+    "mtime": 1795476686.0,
+    "seen": 1795498108.889633,
+    "ast_hash": "6a115a12062cd1e6f965de12a0db43e4",
+    "semantic_hash": ""
+  },
+  "onenote/cli/Cargo.toml": {
+    "mtime": 1795476686.0,
+    "seen": 1795498108.889633,
+    "ast_hash": "40147838928aa8b3fe086a48ba81a5b1",
+    "semantic_hash": ""
+  },
+  "onenote/cli/src/main.rs": {
+    "mtime": 1795476686.0,
+    "seen": 1795498108.889633,
+    "ast_hash": "da3b8fb1bcba958587830216996422d7",
+    "semantic_hash": ""
+  },
+  "onenote/parser-macros/Cargo.toml": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896341,
+    "ast_hash": "0903682974e3bad146637e993dbe1228",
+    "semantic_hash": ""
+  },
+  "onenote/parser-macros/src/lib.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896341,
+    "ast_hash": "aac7b510c510771aa6255ad8ca1034a5",
+    "semantic_hash": ""
+  },
+  "onenote/parser-utils/Cargo.toml": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889635,
+    "ast_hash": "459053e280c199067f8cf1c02f45ab4d",
+    "semantic_hash": ""
+  },
+  "onenote/parser-utils/node_functions.js": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889635,
+    "ast_hash": "cdbeb2e5801156acdf7ea79d47741d61",
+    "semantic_hash": ""
+  },
+  "onenote/parser-utils/src/debug.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889635,
+    "ast_hash": "f9dcf467bcbc639dfcf8a1bb80354349",
+    "semantic_hash": ""
+  },
+  "onenote/parser-utils/src/errors.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889636,
+    "ast_hash": "089cb42b9b3019a234e1ab451e6e5744",
+    "semantic_hash": ""
+  },
+  "onenote/parser-utils/src/file_api/api.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889636,
+    "ast_hash": "ace5485ea4e05d3be793d63544a47cff",
+    "semantic_hash": ""
+  },
+  "onenote/parser-utils/src/file_api/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896372,
+    "ast_hash": "ca9d4fc2572177c0b9c6bbf28bd944e2",
+    "semantic_hash": ""
+  },
+  "onenote/parser-utils/src/file_api/native_driver.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896372,
+    "ast_hash": "f95f2e7f9225a829df2b36fd4aeb19cc",
+    "semantic_hash": ""
+  },
+  "onenote/parser-utils/src/file_api/wasm_driver.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889638,
+    "ast_hash": "293b435e52ca52d8bafe228a87cbe9ef",
+    "semantic_hash": ""
+  },
+  "onenote/parser-utils/src/lib.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889638,
+    "ast_hash": "bda091f68aa9af9bf9609aa4c47041fa",
+    "semantic_hash": ""
+  },
+  "onenote/parser-utils/src/log.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889638,
+    "ast_hash": "50601f728f63109c6dad1f9d63344af2",
+    "semantic_hash": ""
+  },
+  "onenote/parser-utils/src/parse.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889639,
+    "ast_hash": "8d904b7f3d15c0f5a7eee8e8403873fd",
+    "semantic_hash": ""
+  },
+  "onenote/parser-utils/src/reader.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889639,
+    "ast_hash": "408b72007e72c0b3fd91f6f92f29f234",
+    "semantic_hash": ""
+  },
+  "onenote/parser-utils/tests/derive_parse.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896399,
+    "ast_hash": "6db08a98f6bd4d45cc3ba71781479f6c",
+    "semantic_hash": ""
+  },
+  "onenote/parser/Cargo.toml": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896399,
+    "ast_hash": "de6436f15fe144dc3802aba009a9ce6e",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/bin/inspect.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889641,
+    "ast_hash": "49166775bd8acdd099c25f449233ebee",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb/data/binary_item.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889641,
+    "ast_hash": "9d36c1ed250ba92d61c2936b6d31c23c",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb/data/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889641,
+    "ast_hash": "044b41536db07605019eab0964907ad1",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb/data/object_types.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889642,
+    "ast_hash": "e5b4de7870100706756b998f7d9d20d0",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb/data/serial_number.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889642,
+    "ast_hash": "835322ba71dd3fedc347433a3279f8cd",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb/data/stream_object.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889643,
+    "ast_hash": "ba0c2333d30b5912c9b5c04804d442eb",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb/data_element/cell_manifest.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889643,
+    "ast_hash": "34359ce00282168f9cbe026641f358cb",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb/data_element/data_element_fragment.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889643,
+    "ast_hash": "bf3df828541d509af8e1cd5796d97238",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb/data_element/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896441,
+    "ast_hash": "9519bb3cfda567ef19ebc756cc8c3b88",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb/data_element/object_data_blob.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896441,
+    "ast_hash": "68c2b2e0d819ad0bfb081e82d0608e73",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb/data_element/object_group.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889645,
+    "ast_hash": "eee72e37a770b82c2b9882f47993f20b",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb/data_element/revision_manifest.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889645,
+    "ast_hash": "55761d823a2015bc0340deabe28086b8",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb/data_element/storage_index.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889645,
+    "ast_hash": "7c69ceeeb414ba9dc300f667e5c9557c",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb/data_element/storage_manifest.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889646,
+    "ast_hash": "6028eaef3785e86c58c1f520de57db84",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889646,
+    "ast_hash": "c719418f29a2ac375c36c7f6e017173e",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb_onestore/header.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889647,
+    "ast_hash": "1da5c061db92ea4ff0c37102293600f9",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb_onestore/mapping_table.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889647,
+    "ast_hash": "630e64e97eb7d868890b62abc303a291",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb_onestore/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889647,
+    "ast_hash": "2d3f6fef865fe848c91c3bd5b50da132",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb_onestore/object.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896482,
+    "ast_hash": "3fd22975d5e9122190e45efe05de93f6",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb_onestore/object_space.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896482,
+    "ast_hash": "2fd500f0e51770f5b2d2074d68be1558",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb_onestore/packaging.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889649,
+    "ast_hash": "765ef4b6e03686039e6b562a0632a64d",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb_onestore/revision.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889649,
+    "ast_hash": "3d6cb027604125ea5da09e8191eedd73",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/fsshttpb_onestore/revision_role.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889649,
+    "ast_hash": "b1f060728e11aaed61da397cab0b07a8",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/lib.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896499,
+    "ast_hash": "09f3643ff7e3da2513f6e975f7fdc26f",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/common/file_chunk_reference.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896499,
+    "ast_hash": "3026ef40492794527a575534aaf1eae8",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/common/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889651,
+    "ast_hash": "1ca4acf41dd54cafc6401def2dae389d",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/common/object_declaration_with_ref_count_body.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889651,
+    "ast_hash": "b6a383dded1255fc37b35b5f5ff8dcf8",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/common/object_space_object_stream_header.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889651,
+    "ast_hash": "e8ea97d92cceaa7070bb361b0ee72e07",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/file_node/file_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889652,
+    "ast_hash": "5bdbf9af535b454ede2babdeb817a8d8",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/file_node/file_node_chunk_reference.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889652,
+    "ast_hash": "4ec6110d66962ac6f002ad1742fc767c",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/file_node/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889653,
+    "ast_hash": "07d29b6777c563ed7345a1307938f868",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/file_structure/file_node_list.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889653,
+    "ast_hash": "41324ad75fa7ec241a615cc9b4048088",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/file_structure/file_node_list_fragment.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889654,
+    "ast_hash": "d59534c017a6ae031210870aea301061",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/file_structure/free_chunk_list_fragment.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889654,
+    "ast_hash": "a71b5603c53407660e7c1aa36b550b48",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/file_structure/header.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889654,
+    "ast_hash": "e9a4eeb0c192c1ffcf52a167aa17b4dd",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/file_structure/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889655,
+    "ast_hash": "5cae4b17300cb468487a48110c6dce88",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/file_structure/parse_context.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889655,
+    "ast_hash": "1ae059075b164bff69f7540aba088df6",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/file_structure/transaction_log_fragment.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889656,
+    "ast_hash": "fa80ea546f5221af9098faf0e7bb4087",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889656,
+    "ast_hash": "db52d1b20b59c95a8811c3feb2af1e90",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/objects/file_data_store.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889656,
+    "ast_hash": "e1cf16e9709950207d0006c9120b214d",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/objects/global_id_table.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889657,
+    "ast_hash": "c4be69929a24060ead8f88a498ed9754",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/objects/id_mapping.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889657,
+    "ast_hash": "c71685efe8f96181dacdfc8385854220",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/objects/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896582,
+    "ast_hash": "4173d5b137bf0b6476a3c40f208a8ad6",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/objects/object.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896582,
+    "ast_hash": "fbb76413bc17ff9b534bf0460a42e8ca",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/objects/object_group_list.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889659,
+    "ast_hash": "1a5a4f953eb8a4f7291027b1cc57fae3",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/objects/object_space.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889659,
+    "ast_hash": "d3c8195517d773ec9135cee02ca59d66",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/objects/parse_context.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.88966,
+    "ast_hash": "30c5add8d8bbb66461e5249ffab94146",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/objects/revision.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.88966,
+    "ast_hash": "6be309442bef294abe5e80bc0ce89f8b",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/objects/revision_manifest_list.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.88966,
+    "ast_hash": "3517d1efebec50709b56513374c56b08",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/objects/root_file_node_list.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896608,
+    "ast_hash": "85865db06e474d95b2fc25338dd58521",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/local_onestore/one_store_file.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896608,
+    "ast_hash": "b067aca3b36a72c1edd97ff7fe9a5f41",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/macros.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889662,
+    "ast_hash": "c6394a2a60acd290238c61f5f5902989",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889662,
+    "ast_hash": "7785fddbdbf5cbffc22bdb35d88995eb",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/author.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889662,
+    "ast_hash": "6831328c647b6f22564ad4cde2fa710e",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/charset.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889663,
+    "ast_hash": "1ac83894c99175ae4343926f04c2a650",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/color.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889663,
+    "ast_hash": "4df7335fb8323ac28f9f607fcba3a5fd",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/color_ref.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889664,
+    "ast_hash": "06843bcd3844a531dd32e3e20093f585",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/file_type.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889664,
+    "ast_hash": "63de578d460e1506e50c33d5f04af35f",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/ink_dimensions.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896651,
+    "ast_hash": "b7103a70b5385fd6608af2762760c008",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/layout_alignment.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896651,
+    "ast_hash": "b8e33bc7ac29fabd913250b2b43a8ec3",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896651,
+    "ast_hash": "e90110d8b1a564f64b4007401487df3a",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/note_tag.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889666,
+    "ast_hash": "bc2480b64e90356b799352c1de6e9753",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/note_tag_property_status.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889666,
+    "ast_hash": "a08e33b1a5a2bb65e6b8eb079dada186",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/note_tag_shape.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889667,
+    "ast_hash": "0804250005c7f42d9c51212ef0d6f70e",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/object_reference.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889667,
+    "ast_hash": "e21708a3e81ce7acd860d87509d1ff75",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/object_space_reference.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889667,
+    "ast_hash": "3719888877c504164d6aa14e0cff3a3b",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/outline_indent_distance.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889668,
+    "ast_hash": "537e555d75470c0579852aa022e949d5",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/page_size.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889668,
+    "ast_hash": "d648c886fdabaeb51d3c078fe9e54d19",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/paragraph_alignment.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896692,
+    "ast_hash": "ff526744258138e1027c4ee045222dd7",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/references.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896692,
+    "ast_hash": "6834cc22dfa7201e51fd09573ab8e6c5",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/simple.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896692,
+    "ast_hash": "34daa8921260f69bc2b1d7cf5b9ea3e1",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property/time.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.88967,
+    "ast_hash": "08f39d57828768a367c095d27bf5d24c",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/embedded_file_container.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.88967,
+    "ast_hash": "e05da2a0f5b52ac0d882e7ed23f4d605",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/embedded_file_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896708,
+    "ast_hash": "d36d248dfc28a3290bed8b9c46ead695",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/embedded_ink_container.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896708,
+    "ast_hash": "fb7ce99933f1ede624d0ec2e813c7103",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/iframe_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896708,
+    "ast_hash": "2cbde03649dc70d9fe913b9ddc071af1",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/image_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889672,
+    "ast_hash": "0c3282f6a04ebaa7e34913a4a9f5640b",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/ink_container.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889672,
+    "ast_hash": "a13a7d7cf403dd3323b2674256573aad",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/ink_data_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889673,
+    "ast_hash": "1400ffee6bf907758ba2437be27f9e3c",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/ink_stroke_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889673,
+    "ast_hash": "f97ff017ecf24f141593fd5d0aedd573",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889673,
+    "ast_hash": "3e903a97f4e7c71d0955584f0fffff11",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/note_tag_container.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889674,
+    "ast_hash": "a04d015acdf71b134bf8f5a53a0543ec",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/note_tag_shared_definition_container.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889674,
+    "ast_hash": "e936f2e5bc99eeedb6dbff436bab1d81",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/number_list_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889675,
+    "ast_hash": "8c05caf3720099d8b2272603f48d0d42",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/outline_element_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889675,
+    "ast_hash": "220a521df6239e89d7b1d6be8bbbec5c",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/outline_group.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889676,
+    "ast_hash": "6381517bf37986d3dd18111df5cd69a6",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/outline_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889676,
+    "ast_hash": "7082513c687609e38c50533f94cffd99",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/page_manifest_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889676,
+    "ast_hash": "7a6d22110db74d1a7a9e10a3899564f0",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/page_metadata.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889677,
+    "ast_hash": "802ec08725f136ee875af3472c670384",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/page_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889677,
+    "ast_hash": "d2f5f89a39e01fa08e9b09e58d00896b",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/page_series_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889678,
+    "ast_hash": "0a24d3060092a2050db0cc8ae5e3daf8",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/paragraph_style_object.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889678,
+    "ast_hash": "67ed6c0f5ef9a5027d1545ff5ba2eb84",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/picture_container.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889678,
+    "ast_hash": "481d9fdfe053be03124df7429d52532f",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/rich_text_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896792,
+    "ast_hash": "84ddd73c966b6463246f8c49cfbe0fad",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/section_metadata_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896792,
+    "ast_hash": "448590fc550612d08d58a9a321b2bbae",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/section_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.88968,
+    "ast_hash": "97dc8e59ce55aed1f86ccb133b52fc99",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/stroke_properties_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.88968,
+    "ast_hash": "3dd1863969a1a741e4e85b5c66c28d3b",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/table_cell_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.88968,
+    "ast_hash": "bddc30f176a29246a38bad3a193817ef",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/table_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896809,
+    "ast_hash": "50978fea8948ea543e8d25f934953b19",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/table_row_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896809,
+    "ast_hash": "90c07dea65fab2ac4c0436138bb0807f",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/title_node.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896818,
+    "ast_hash": "afced0e4a8a9b426802a5ebbf5b52bc3",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/one/property_set/toc_container.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896818,
+    "ast_hash": "16a7cea46c8c36d7ff3b375e8beca43a",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onenote/content.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896818,
+    "ast_hash": "a59e0e403a44790cdf47405f4715ff18",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onenote/embedded_file.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889683,
+    "ast_hash": "488a52554afbde7ee46b38759468faa8",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onenote/iframe.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889683,
+    "ast_hash": "a3d35686d434b1c1c4784e8def1086b0",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onenote/image.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889684,
+    "ast_hash": "5f7f9a9f76b1c5ff4ac90ab4a7401074",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onenote/ink.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889684,
+    "ast_hash": "a1289f390cc6286d83521a0e3ddc555e",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onenote/list.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889685,
+    "ast_hash": "f3c2a707cc6dd64bf19ac3182b4ea9e9",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onenote/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889685,
+    "ast_hash": "1274e8a4c09cfe5a226168249a8d7a9b",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onenote/note_tag.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889685,
+    "ast_hash": "480887cca67fe33e10877d6cc52b75f8",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onenote/notebook.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889686,
+    "ast_hash": "99cf5e804a0b78834fc2c4b69a3df939",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onenote/outline.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889686,
+    "ast_hash": "2d33ba7adc0784d27e8ebe56aeb5d1cb",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onenote/page.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889686,
+    "ast_hash": "256c3ea381a1ed388c503454eba98777",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onenote/page_content.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889687,
+    "ast_hash": "ddcdec45b4978ea98be72586b62ec98e",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onenote/page_series.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889687,
+    "ast_hash": "7d5d8cf93e05966a9c2d7c259857de22",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onenote/rich_text.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889688,
+    "ast_hash": "a650e41835d8f4637c3d672f3855f76c",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onenote/section.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889688,
+    "ast_hash": "3846daf0ac83c2fac8971727b880671b",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onenote/table.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889688,
+    "ast_hash": "09baeddba573ab57649edefcc4bdfee6",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onenote/text_region.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896892,
+    "ast_hash": "e6421dcf141a8a327fc82e4c72b6cf99",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onestore/mapping_table.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896892,
+    "ast_hash": "5ae020bbab46cb12939bc4ee07530d1a",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onestore/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896902,
+    "ast_hash": "da2815b0b009fbfe57f8668f38b4c411",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onestore/object.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896902,
+    "ast_hash": "18cbd8da2c64804148a67643081290f7",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/onestore/object_space.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896902,
+    "ast_hash": "43c412594d060582bbe0e4b085699e63",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/shared/cell_id.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896909,
+    "ast_hash": "cd43b089199358f87d4d3a0f885d41ca",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/shared/compact_id.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896909,
+    "ast_hash": "25206fdd39a73fe3e360d91eb87193fd",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/shared/compact_u64.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896918,
+    "ast_hash": "e6b1618382e42d5d0b8fa7ff0e11a99c",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/shared/exguid.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8896918,
+    "ast_hash": "437690202e23465412f81bf8d026c8b2",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/shared/file_data_ref.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889693,
+    "ast_hash": "a2ffc6d15c3b84f9529c942c1abf62ae",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/shared/guid.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889693,
+    "ast_hash": "1c8822e83287e17b4a014c4075b78fda",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/shared/jcid.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889694,
+    "ast_hash": "708bba02ca17fb8d24a82441e2f5c28c",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/shared/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889694,
+    "ast_hash": "68e385490d9e7791928732d3f36cae38",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/shared/multi_byte.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889695,
+    "ast_hash": "26efb859852017dbb09313e9992d27bf",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/shared/object_prop_set.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889695,
+    "ast_hash": "b9f7fd6206008aeae4308e25157ccb15",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/shared/object_stream_header.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889695,
+    "ast_hash": "7a885f646e628a974d87a9629892ccd9",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/shared/prop_set.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889696,
+    "ast_hash": "f8012ca0372d272e6e7a5ed4023a6df8",
+    "semantic_hash": ""
+  },
+  "onenote/parser/src/shared/property.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889696,
+    "ast_hash": "4de816e92f2629f8b6c0743b8472205c",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/Cargo.toml": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889697,
+    "ast_hash": "2ecf13c2715958a09eaac4fe2b1856ee",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/errors.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889697,
+    "ast_hash": "1a6dedbbf442bf4518d65d60db7b2951",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/lib.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889697,
+    "ast_hash": "43e4722e843575f9a74394fe6eb07eb1",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/notebook.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889698,
+    "ast_hash": "5e4a19fc2e3f183380810faeef5b9f5b",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/page/content.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889698,
+    "ast_hash": "d2a42b698213b20fe518ab277ae2f129",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/page/embedded_file.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889699,
+    "ast_hash": "27fdeeb13f2c3db07fe9dbc4ff6ece8b",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/page/image.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889699,
+    "ast_hash": "47b5a742151e4aeaf566a8fce282fafd",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/page/ink.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889699,
+    "ast_hash": "11ed9fd18e5c68999123d3703736da96",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/page/list.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8897002,
+    "ast_hash": "81a4e07e952d89169000b02c13b96f39",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/page/math.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8897002,
+    "ast_hash": "4dfafac14c4816cbb660c0ec6b6b87c6",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/page/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8897011,
+    "ast_hash": "203c60d180d0f67f905d5858af7afd93",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/page/note_tag.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8897011,
+    "ast_hash": "39ec3058c5283269883c76bb32cf0d9e",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/page/outline.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8897018,
+    "ast_hash": "0cc7f059ddc2352176fec6faa4ff5dce",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/page/rich_text.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8897018,
+    "ast_hash": "17323e4b0392ae460596e112ba548bd5",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/page/table.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8897018,
+    "ast_hash": "4480a55599e14045cef03095fd40d9f9",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/section.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8897028,
+    "ast_hash": "f1d5bf528906bcb30ecea25f96de3769",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/templates/errors.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8897028,
+    "ast_hash": "cd336e3ab4ae07c4e91f6bde582b612f",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/templates/mod.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8897028,
+    "ast_hash": "16c34396e2689b37aaf92abf029c0899",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/templates/notebook.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889704,
+    "ast_hash": "688ae0712e4839ea031e5886c31d692f",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/templates/page.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889704,
+    "ast_hash": "a265978bfb8f7f299fae9e72c3292f41",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/templates/section.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889705,
+    "ast_hash": "bfa918aff79bb2173628b76963cfd2ae",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/utils.rs": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889705,
+    "ast_hash": "f2af909d34e74914f9bdafdee22fbbc0",
+    "semantic_hash": ""
+  },
+  "onenote/README.md": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889708,
+    "ast_hash": "09195d6ead3881e9dac593916d4fd2f9",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/templates/errors.html": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889708,
+    "ast_hash": "64c426d37d30451dce41590d7c8fbbe4",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/templates/layout.html": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889709,
+    "ast_hash": "dc825543027431677b814b2adc719a0a",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/templates/notebook.html": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.889709,
+    "ast_hash": "8a335ff63b35b425ab5e6c3764c020cc",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/templates/page.html": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8897102,
+    "ast_hash": "24d501a079d7f2cb444dcd033084b0ee",
+    "semantic_hash": ""
+  },
+  "onenote/renderer/src/templates/section.html": {
+    "mtime": 499162500.0,
+    "seen": 1795498108.8897102,
+    "ast_hash": "5df7e820b15cfa0e785efa84825ae8a9",
+    "semantic_hash": ""
+  },
+  "Buds.swift": {
+    "mtime": 1795558660.9052417,
+    "seen": 1795599308.444951,
+    "ast_hash": "b6b4439f97f0e20071c56d47c0314a2f",
+    "semantic_hash": ""
+  },
+  "BudsProtocol.swift": {
+    "mtime": 1795556592.0042021,
+    "seen": 1795599308.4449532,
+    "ast_hash": "df317f521459d8b32ebaaf55bd85b02d",
+    "semantic_hash": ""
+  },
+  "FolderHandler.swift": {
+    "mtime": 1795608157.5061662,
+    "seen": 1795631337.5538208,
+    "ast_hash": "74eac18e17528a3cd7549804f8bccc5e",
+    "semantic_hash": ""
+  },
+  "LaunchLogic.swift": {
+    "mtime": 1795535896.9616294,
+    "seen": 1795599308.444958,
+    "ast_hash": "5f909692af4682e41ddcbda10a4482a1",
+    "semantic_hash": ""
+  },
+  "Launcher.swift": {
+    "mtime": 1795609363.09055,
+    "seen": 1795631337.553824,
+    "ast_hash": "9838e29cca53bd3ab25638b0c8fcc530",
+    "semantic_hash": ""
+  },
+  "LidScript.swift": {
+    "mtime": 1795600375.5040524,
+    "seen": 1795631337.5538251,
+    "ast_hash": "d758caf9ade6c7885aed566209c28fa0",
+    "semantic_hash": ""
+  },
+  "PhoneTab.swift": {
+    "mtime": 1795556769.3168738,
+    "seen": 1795599308.444962,
+    "ast_hash": "8a1ef4b2769e0c23cb748a11e2166dd9",
+    "semantic_hash": ""
+  },
+  "Remote.swift": {
+    "mtime": 1795608935.551585,
+    "seen": 1795631337.553828,
+    "ast_hash": "0d962436892824a5a17bf898f0af0303",
+    "semantic_hash": ""
+  },
+  "RemoteCrypto.swift": {
+    "mtime": 1795556362.7546911,
+    "seen": 1795599308.444963,
+    "ast_hash": "ad38e0dae04564a2cdb61173fd67e9a8",
+    "semantic_hash": ""
+  },
+  "web/build.py": {
+    "mtime": 1795556769.316262,
+    "seen": 1795599308.4450612,
+    "ast_hash": "0fa3dccd824bdcd74af95f4cff9b840e",
+    "semantic_hash": ""
+  },
+  "web/remote-crypto.js": {
+    "mtime": 1795556362.768345,
+    "seen": 1795599308.445062,
+    "ast_hash": "ec931e313b6676754268afba1535b94d",
+    "semantic_hash": ""
+  },
+  "web/remote.src.html": {
+    "mtime": 1795558987.2934136,
+    "seen": 1795599308.445067,
+    "ast_hash": "a76299f6ed8ccc97b2d64282e288708b",
+    "semantic_hash": ""
+  },
+  "AI.swift": {
+    "mtime": 1795615435.8908627,
+    "seen": 1795631337.55381,
+    "ast_hash": "191f0ec4dd488ad3965dbc3cde77b4ab",
+    "semantic_hash": ""
+  },
+  "AILogic.swift": {
+    "mtime": 1795615435.8907354,
+    "seen": 1795631337.553812,
+    "ast_hash": "00817233098eacb476275991c2a207fa",
+    "semantic_hash": ""
+  },
+  "AppUsage.swift": {
+    "mtime": 1795609363.0903049,
+    "seen": 1795631337.553813,
+    "ast_hash": "2119ed698bd4f272830208fbb8939618",
+    "semantic_hash": ""
+  },
+  "Convert.swift": {
+    "mtime": 1795608554.739536,
+    "seen": 1795631337.5538182,
+    "ast_hash": "3f2fb0799499f2e57b4038b6f6def1c0",
+    "semantic_hash": ""
+  },
+  "Emoji.swift": {
+    "mtime": 1795608554.7412086,
+    "seen": 1795631337.55382,
+    "ast_hash": "0d9710bfdf9346d6f3cfc7929d364c16",
+    "semantic_hash": ""
+  },
+  "ExplorerMouse.swift": {
+    "mtime": 1795608157.5064077,
+    "seen": 1795631337.5538208,
+    "ast_hash": "2685487378396f63c2cc7f97fbd9c28a",
+    "semantic_hash": ""
+  },
+  "Fun3D.swift": {
+    "mtime": 1795614908.3370185,
+    "seen": 1795631337.553822,
+    "ast_hash": "4a50878bcb62a99eaafb402171ea96a8",
+    "semantic_hash": ""
+  },
+  "MathExpr.swift": {
+    "mtime": 1795610378.9090455,
+    "seen": 1795631337.5538251,
+    "ast_hash": "5c79ab35a82028f58a581f1e43789e12",
+    "semantic_hash": ""
+  },
+  "RenameLogic.swift": {
+    "mtime": 1795609363.0763843,
+    "seen": 1795631337.5538292,
+    "ast_hash": "5fc2c6b214863564148d2b81edc1adca",
+    "semantic_hash": ""
+  },
+  "SchoolLogic.swift": {
+    "mtime": 1795614731.3770545,
+    "seen": 1795631337.5538292,
+    "ast_hash": "61d69475fd8cc812e49d500137a43857",
+    "semantic_hash": ""
+  },
+  "Search.swift": {
+    "mtime": 1795615115.9171824,
+    "seen": 1795631337.55383,
+    "ast_hash": "10f03d840d43287a2229a1f7669bfc88",
+    "semantic_hash": ""
+  },
+  "SearchActions.swift": {
+    "mtime": 1795615115.91729,
+    "seen": 1795631337.55383,
+    "ast_hash": "1962b6f7845098a45a4b31230b82fbb1",
+    "semantic_hash": ""
+  },
+  "SearchRank.swift": {
+    "mtime": 1795608157.4910452,
+    "seen": 1795631337.5538309,
+    "ast_hash": "2d1da33f562086a4190306e942fc34cc",
+    "semantic_hash": ""
+  },
+  "SearchSlash.swift": {
+    "mtime": 1795615115.9174187,
+    "seen": 1795631337.5538309,
+    "ast_hash": "31c200756b161c7a561f412d11b57569",
+    "semantic_hash": ""
+  },
+  "Sketch.swift": {
+    "mtime": 1795614731.3772876,
+    "seen": 1795631337.553832,
+    "ast_hash": "f47edca477f9f33239a340714ebd7bad",
+    "semantic_hash": ""
+  },
+  "SlashLogic.swift": {
+    "mtime": 1795608935.5385242,
+    "seen": 1795631337.553833,
+    "ast_hash": "4a4e4f80709a6841475ab3b8fbc10ed1",
+    "semantic_hash": ""
+  },
+  "Studio.swift": {
+    "mtime": 1795614731.3771956,
+    "seen": 1795631337.553834,
+    "ast_hash": "049adc6dd75b95a7e58cdc8c77d73c6c",
+    "semantic_hash": ""
+  },
+  "TaskManager.swift": {
+    "mtime": 1795609634.267381,
+    "seen": 1795631337.553836,
+    "ast_hash": "ae85454e4485c7a4e98dd1b1ab1a79aa",
+    "semantic_hash": ""
+  },
+  "Tools.swift": {
+    "mtime": 1795609678.358104,
+    "seen": 1795631337.553837,
+    "ast_hash": "7e977d20cf0da819d43440edbcaa508e",
+    "semantic_hash": ""
+  },
+  "Icon/Explorer.png": {
+    "mtime": 1795608157.4643679,
+    "seen": 1795631337.553937,
+    "ast_hash": "1a114dc2c3ad5173d81ba1be4a69eca5",
+    "semantic_hash": ""
+  },
+  "Icon/explorer.svg": {
+    "mtime": 1795608157.2278578,
+    "seen": 1795631337.553937,
+    "ast_hash": "174fddd9ec93dd1e17147825379b22db",
     "semantic_hash": ""
   }
 }
