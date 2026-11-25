@@ -193,5 +193,19 @@ sc("Emoji „feuer“", Emoji.search("feuer").first?.char ?? "-", "🔥")
 sc("Emoji englisch", Emoji.search("rocket").first?.char ?? "-", "🚀")
 sc("Drittel lückenlos", "\(SnapMath.fraction(CGRect(x: 0, y: 0, width: 1.0 / 3, height: 1), in: CGRect(x: 0, y: 0, width: 1000, height: 600)).maxX == SnapMath.fraction(CGRect(x: 1.0 / 3, y: 0, width: 1.0 / 3, height: 1), in: CGRect(x: 0, y: 0, width: 1000, height: 600)).minX)", "true")
 
+// /Befehle
+sc("/ zerlegen", "\(SlashLogic.split("/timer 5 min")!)", "(name: \"timer\", arg: \"5 min\")")
+sc("kein /Befehl", "\(SlashLogic.split("timer") == nil)", "true")
+sc("Farbe", "\(SlashLogic.color("#f80")!)", "(hex: \"#FF8800\", rgb: \"rgb(255, 136, 0)\", hsl: \"hsl(32, 100%, 50%)\")")
+sc("Farbe ungültig", "\(SlashLogic.color("#ggg") == nil)", "true")
+let pw = SlashLogic.password(24)
+sc("Passwort", "\(pw.count) \(pw.contains(where: \.isUppercase) && pw.contains(where: \.isLowercase) && pw.contains(where: \.isNumber)) \(SlashLogic.password(1).count) \(pw != SlashLogic.password(24))", "24 true 8 true")
+sc("Zählen", "\(SlashLogic.count("ein kurzer\nText"))", "(chars: 15, words: 3, lines: 2)")
+sc("Bereich", "\(SlashLogic.range("5-10")!) \(SlashLogic.range("6")!) \(SlashLogic.range("9-1") == nil)", "5...10 1...6 true")
+var utc = Calendar(identifier: .gregorian); utc.timeZone = TimeZone(identifier: "UTC")!
+let heute = Date(timeIntervalSince1970: 1795608000) // 25.11.2026 12:00 UTC
+sc("Tage", "\(SlashLogic.days("24.12.", today: heute, cal: utc) ?? -1) \(SlashLogic.days("1.1.", today: heute, cal: utc) ?? -1) \(SlashLogic.days("31.2.", today: heute, cal: utc) == nil) \(SlashLogic.days("24.11.2026", today: heute, cal: utc) ?? 0)", "29 37 true -1")
+sc("JSON", (SlashLogic.json("{\"a\":1}") ?? "").replacingOccurrences(of: "\n", with: ""), "{  \"a\" : 1}")
+
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }

@@ -6,7 +6,7 @@ import Carbon.HIToolbox
 // Sparsam: kein eigenes Indizieren; die Dateisuche läuft nur, während das Fenster offen ist, und stoppt nach dem ersten Ergebnis-Schwung.
 
 struct SearchHit: Identifiable {
-    enum Kind { case calc, app, file, web, ai, action, clip, emoji, snippet }
+    enum Kind { case calc, app, file, web, ai, action, clip, emoji, snippet, slash }
     let kind: Kind
     let title: String
     let subtitle: String
@@ -14,7 +14,8 @@ struct SearchHit: Identifiable {
     var symbol = "gearshape"
     var section = ""
     var accessory = ""
-    var id: String { "\(section)|\(kind)|\(path ?? title)" }
+    var index: Int? = nil // bei .slash: Ergebniszeile (nil = Befehl aus der Liste)
+    var id: String { "\(section)|\(kind)|\(index ?? -1)|\(path ?? title)" }
 }
 
 struct SearchAction: Identifiable {
@@ -38,7 +39,7 @@ struct SearchAction: Identifiable {
 
     var placeholder: String {
         switch mode {
-        case .root: L("Apps, Dateien und Befehle suchen …", "Search apps, files and commands…")
+        case .root: L("Suchen oder „/“ für Befehle …", "Search, or type “/” for commands…")
         case .clip: L("Zwischenablage durchsuchen …", "Search clipboard…")
         case .emoji: L("Emoji suchen …", "Search emoji…")
         }
@@ -82,7 +83,7 @@ struct SearchAction: Identifiable {
         // Bisherige Dateien, die noch passen, stehen lassen – sonst springt die Liste bei jedem Buchstaben
         files = q.count >= 2 ? files.filter { SearchRank.fold($0.title).contains(SearchRank.fold(q)) } : []
         rebuild()
-        guard q.count >= 2 else { return }
+        guard q.count >= 2, !q.hasPrefix("/") else { return }
         mdq.predicate = NSPredicate(format: "%K CONTAINS[cd] %@", NSMetadataItemFSNameKey, q)
         mdq.start()
     }
@@ -121,6 +122,7 @@ struct SearchAction: Identifiable {
             h += AppUsage.shared.frequent(all.filter { !favorites.contains($0.path) }, 7).map { app($0, L("Häufig benutzt", "Frequently used")) }
             return h + SearchActions.suggested
         }
+        if q.hasPrefix("/") { return SearchSlash.hits(query) }
         if let v = Calc.evaluate(q) { h.append(calc(Calc.format(v), q)) }
         if let c = Convert.evaluate(q) { h.append(calc("\(Calc.format(c.value)) \(c.unit)", q)) }
         let apps = StartModel.shared.match(q).prefix(6).map { app($0, L("Apps", "Apps")) }
@@ -200,6 +202,13 @@ struct SearchAction: Identifiable {
             guard let s = Snippets.load().first(where: { $0.id.uuidString == hit.path }) else { return }
             after { Snippets.type(s) }
         case .calc: copy(hit.title)
+        case .slash:
+            guard hit.index != nil else { complete(hit); return }
+            switch SearchSlash.act(query, hit) {
+            case .copy(let t)?: copy(t)
+            case .run(let work)?: after(work)
+            case nil: break
+            }
         case .ai:
             let q = query
             SearchPanel.hide()
@@ -207,6 +216,19 @@ struct SearchAction: Identifiable {
         case .web:
             if let u = URL(string: hit.path!) { NSWorkspace.shared.open(u) }
             SearchPanel.hide()
+        }
+    }
+
+    // Befehl aus der Liste: ohne Eingabe gleich ausführen, sonst „/name “ ergänzen
+    func complete(_ hit: SearchHit) {
+        switch hit.title {
+        case "/clip": enter(.clip)
+        case "/emoji": enter(.emoji)
+        case "/help": query = "/"
+        default:
+            let direct = hit.title == query.trimmingCharacters(in: .whitespaces)
+            query = hit.title + " "
+            if direct, hits.contains(where: { $0.index != nil }) { return }
         }
     }
 
@@ -246,6 +268,7 @@ struct SearchAction: Identifiable {
         case .app, .file, .web: L("Öffnen", "Open")
         case .calc: L("Kopieren", "Copy")
         case .clip, .emoji, .snippet: L("Einfügen", "Insert")
+        case .slash: hit.index == nil ? L("Auswählen", "Choose") : hit.accessory.isEmpty ? L("Ausführen", "Run") : L("Kopieren", "Copy")
         case .action, .ai: L("Ausführen", "Run")
         }
     }
@@ -263,6 +286,7 @@ struct SearchAction: Identifiable {
     func icon(_ hit: SearchHit) -> NSImage? {
         switch hit.kind {
         case .app, .file: StartModel.shared.icon(hit.path!)
+        case .slash: hit.path.map { StartModel.shared.icon($0) }
         case .clip: ClipHistory.shared.items.first { $0.id.uuidString == hit.path }?.image
         default: nil
         }
@@ -377,6 +401,7 @@ enum SearchWeb {
         case 125: m.move(1); return true
         case 126: m.move(-1); return true
         case 36, 76: m.submit(); return true
+        case 48 where m.current?.kind == .slash && m.current?.index == nil: m.complete(m.current!); return true // Tab ergänzt /Befehle
         case 48: m.move(f.contains(.shift) ? -1 : 1); return true
         case 51 where m.query.isEmpty && m.mode != .root: m.enter(.root); return true
         default: break
@@ -523,7 +548,7 @@ struct SearchView: View {
 
     private var footer: some View {
         HStack(spacing: 14) {
-            Text(m.mode == .clip ? L("Zwischenablage", "Clipboard") : m.mode == .emoji ? "Emoji" : "WinKomfort").foregroundStyle(.secondary)
+            Text(m.mode == .clip ? L("Zwischenablage", "Clipboard") : m.mode == .emoji ? "Emoji" : m.query.hasPrefix("/") ? L("Tab ergänzt", "Tab completes") : "WinKomfort").foregroundStyle(.secondary)
             Spacer()
             if let h = m.current {
                 key(m.primary(h), "↩") { m.openSelected() }
@@ -565,5 +590,16 @@ struct SearchView: View {
         .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.primary.opacity(0.15)))
         .shadow(color: .black.opacity(0.25), radius: 16, y: 6)
+    }
+}
+
+struct QRView: View {
+    let text: String
+    var body: some View {
+        VStack(spacing: 14) {
+            if let i = RemoteView.qr(text) { Image(nsImage: i).interpolation(.none).resizable().frame(width: 260, height: 260).padding(14).background(.white, in: RoundedRectangle(cornerRadius: 16)).accessibilityLabel("QR-Code") }
+            Text(text).lineLimit(3).truncationMode(.middle).foregroundStyle(.secondary).textSelection(.enabled)
+        }
+        .padding(24).frame(width: 340)
     }
 }

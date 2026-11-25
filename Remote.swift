@@ -391,7 +391,7 @@ import ScreenCaptureKit
 
 struct RemoteView: View {
     @ObservedObject var r = Remote.shared
-    private static func qr(_ s: String) -> NSImage? {
+    static func qr(_ s: String) -> NSImage? {
         let f = CIFilter.qrCodeGenerator()
         f.message = Data(s.utf8)
         f.correctionLevel = "M"
