@@ -1854,7 +1854,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .aiText:
             SearchPanel.show()
             SearchModel.shared.query = "/"
-        case .ask: AskPanel.toggle()
+        case .ask: AIPanel.toggle()
         case .snapLeft: Snap.run(.left)
         case .snapRight: Snap.run(.right)
         case .snapMax: Snap.run(.max)

@@ -287,7 +287,7 @@ enum SystemAction: String, CaseIterable {
         return e == nil
     }
     // Medientasten der Tastatur
-    private static func media(_ key: Int) -> Bool {
+    @discardableResult static func media(_ key: Int) -> Bool {
         for down in [true, false] {
             let e = NSEvent.otherEvent(with: .systemDefined, location: .zero, modifierFlags: NSEvent.ModifierFlags(rawValue: down ? 0xA00 : 0xB00), timestamp: 0,
                                        windowNumber: 0, context: nil, subtype: 8, data1: key << 16 | (down ? 0xA : 0xB) << 8, data2: -1)

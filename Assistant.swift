@@ -49,7 +49,9 @@ enum Assistant {
 
     // Befehl ausführen; gibt eine kurze Rückmeldung zurück
     @MainActor @discardableResult
-    static func run(_ cmd: String) -> String {
+    static func run(_ cmd: String, spoken: String? = nil) -> String {
+        if let spoken { minutesOverride = minutes(in: spoken) }
+        defer { if spoken != nil { minutesOverride = nil } }
         let c = cmd.trimmingCharacters(in: CharacterSet(charactersIn: " `\"'."))
         let name = c.prefix { $0 != "(" }.lowercased()
         var arg = ""
@@ -167,69 +169,6 @@ enum Assistant {
             Toast.show(run(cmd), symbol: "sparkles")
             minutesOverride = nil
         }
-    }
-}
-
-// „Frag WinKomfort“: kleines Eingabefeld in der Bildschirmmitte, ↩ führt aus, Esc schließt
-final class AskModel: ObservableObject { @Published var text = ""; @Published var token = 0 }
-
-@MainActor enum AskPanel {
-    private static var panel: KeyPanel?
-    private static let model = AskModel()
-
-    static func toggle() { if panel?.isVisible == true { panel?.orderOut(nil) } else { show() } }
-
-    static func show() {
-        guard Assistant.available else {
-            Toast.show(L("KI-Befehle brauchen Apple Intelligence (Systemeinstellungen › Apple Intelligence & Siri)",
-                         "AI commands need Apple Intelligence (System Settings › Apple Intelligence & Siri)"), symbol: "sparkles"); return
-        }
-        model.text = ""
-        Assistant.prewarm()
-        model.token += 1 // Fokus bei jedem Öffnen ins Feld
-        let p = panel ?? {
-            let p = KeyPanel(contentRect: NSRect(x: 0, y: 0, width: 520, height: 64), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-            p.becomesKeyOnlyIfNeeded = false
-            p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = true
-            p.level = .popUpMenu
-            p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-            p.contentView = fixedHost(AskView(model: model))
-            panel = p
-            return p
-        }()
-        let v = (NSScreen.main ?? NSScreen.screens[0]).visibleFrame
-        p.setFrameOrigin(NSPoint(x: v.midX - 260, y: v.minY + v.height * 0.62))
-        NSApp.activate(ignoringOtherApps: true)
-        p.makeKeyAndOrderFront(nil)
-    }
-
-    static func submit() {
-        let t = model.text.trimmingCharacters(in: .whitespaces)
-        panel?.orderOut(nil)
-        guard !t.isEmpty else { return }
-        Assistant.ask(t)
-    }
-    static func hide() { panel?.orderOut(nil) }
-}
-
-struct AskView: View {
-    @ObservedObject var model: AskModel
-    @FocusState private var focused: Bool
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "sparkles").font(.title2).foregroundStyle(.tint).accessibilityHidden(true)
-            TextField(L("Was soll passieren? z. B. „Game Mode an“", "What should happen? e.g. “Game Mode on”"), text: $model.text)
-                .textFieldStyle(.plain).font(.title3)
-                .focused($focused)
-                .onSubmit { AskPanel.submit() }
-                .onExitCommand { AskPanel.hide() }
-        }
-        .padding(.horizontal, 18)
-        .frame(width: 520, height: 64)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.primary.opacity(0.1)))
-        .onAppear { focused = true }
-        .onChange(of: model.token) { _, _ in focused = true }
     }
 }
 

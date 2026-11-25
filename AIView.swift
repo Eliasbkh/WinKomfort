@@ -7,13 +7,18 @@ import UniformTypeIdentifiers
 @MainActor enum Speech {
     private static let voice = AVSpeechSynthesizer()
     static func toggle(_ t: String) {
-        if voice.isSpeaking { voice.stopSpeaking(at: .immediate); return }
+        if voice.isSpeaking { stop(); return }
+        say(t)
+    }
+    static func say(_ t: String) {
+        stop()
+        let t = AILogic.tidy(t)
         let u = AVSpeechUtterance(string: t.replacingOccurrences(of: "[#*`|_]", with: "", options: .regularExpression))
         let l = NSLinguisticTagger.dominantLanguage(for: t) ?? "de"
         u.voice = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix(l) }.max { $0.quality.rawValue < $1.quality.rawValue }
         voice.speak(u)
     }
-    static func stop() { voice.stopSpeaking(at: .immediate) }
+    static func stop() { if voice.isSpeaking { voice.stopSpeaking(at: .immediate) } }
 }
 
 private func rich(_ s: String) -> AttributedString { (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s) }
@@ -68,8 +73,29 @@ struct AIMarkdown: View {
     }
 }
 
+extension View {
+    func aiLinks() -> some View {
+        self
+        .environment(\.openURL, OpenURLAction { u in
+            guard u.scheme == "https" || u.scheme == "http" else { return .discarded } // Antworten dürfen keine Dateien oder Apps öffnen
+            if u.scheme == "https", ["de.wikipedia.org", "en.wikipedia.org"].contains(u.host ?? "") { return .systemAction }
+            // Eine Antwort kann (durch ein fremdes Dokument) einen Link enthalten, der Inhalte verrät: erst zeigen, dann öffnen
+            DispatchQueue.main.async {
+                AIPanel.hide()
+                NSApp.activate(ignoringOtherApps: true)
+                let a = NSAlert()
+                a.messageText = L("Diesen Link öffnen?", "Open this link?")
+                a.informativeText = String(u.absoluteString.prefix(600))
+                a.addButton(withTitle: L("Abbrechen", "Cancel")); a.addButton(withTitle: L("Öffnen", "Open"))
+                if a.runModal() == .alertSecondButtonReturn { NSWorkspace.shared.open(u) }
+            }
+            return .handled
+        })
+    }
+}
+
 // Anhang als Kachel
-private struct DocChip: View {
+struct DocChip: View {
     let doc: AIDoc
     var remove: (() -> Void)?
     var body: some View {
@@ -90,6 +116,7 @@ struct AIView: View {
     @StateObject private var sidebar = TextBox<Bool>()
     @StateObject private var over = TextBox<Bool>()
     @StateObject private var setup = TextBox<Bool>()
+    @StateObject private var memory = TextBox<Bool>()
     @StateObject private var wipe = TextBox<Bool>()
     @Environment(\.accessibilityReduceMotion) private var still
 
@@ -104,11 +131,12 @@ struct AIView: View {
             }
         }
         .frame(minWidth: 680, minHeight: 420)
-        .environment(\.openURL, OpenURLAction { u in ["http", "https"].contains(u.scheme ?? "") ? .systemAction : .discarded }) // Antworten dürfen keine Dateien oder Apps öffnen
+        .aiLinks()
         .onDrop(of: [.fileURL, .image], isTargeted: Binding(get: { over.value ?? false }, set: { over.value = $0 })) { drop($0) }
         .overlay { if over.value == true { RoundedRectangle(cornerRadius: 12).strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [8, 6])).padding(6).allowsHitTesting(false) } }
         .alert(c.problem ?? "", isPresented: Binding(get: { c.problem != nil }, set: { if !$0 { c.problem = nil } })) { Button("OK") { c.problem = nil } }
         .sheet(isPresented: Binding(get: { setup.value ?? false }, set: { setup.value = $0 })) { AISetup { setup.value = false } }
+        .sheet(isPresented: Binding(get: { memory.value ?? false }, set: { memory.value = $0 })) { AIMemoryView { memory.value = false } }
         .confirmationDialog(L("Alle Unterhaltungen löschen?", "Delete all conversations?"), isPresented: Binding(get: { wipe.value ?? false }, set: { wipe.value = $0 })) {
             Button(L("Alle löschen", "Delete all"), role: .destructive) { c.deleteAll() }
         } message: { Text(L("Das lässt sich nicht rückgängig machen.", "This can't be undone.")) }
@@ -170,6 +198,7 @@ struct AIView: View {
                 }
                 .pickerStyle(.inline).labelsHidden()
                 Divider()
+                Button(L("Was ich mir gemerkt habe …", "What I remember…")) { memory.value = true }
                 Button(L("Größeres Modell einrichten …", "Set up a larger model…")) { setup.value = true }
             } label: { Text(modelName) }
             .menuStyle(.borderlessButton).fixedSize().help(L("Modell", "Model"))
@@ -193,7 +222,7 @@ struct AIView: View {
                 idea("rectangle.on.rectangle", L("Karteikarten aus einer Datei", "Flashcards from a file")) { if let t = AILogic.task("cards") { AI.file(t) } }
             }
             .frame(maxWidth: 440)
-            Text(L("Dateien hierher ziehen oder mit ⌘V einfügen", "Drop files here or paste with ⌘V")).font(.callout).foregroundStyle(.secondary)
+            Text(L("Oder: „Was steht morgen an?“ · „Erinnere mich um 8 an Sport“ · „Was ist auf meinem Bildschirm?“", "Or: “What's on tomorrow?” · “Remind me at 8 about sports” · “What's on my screen?”")).font(.callout).foregroundStyle(.secondary)
             Spacer()
         }
         .padding(24).frame(maxWidth: .infinity)
@@ -241,11 +270,12 @@ struct AIView: View {
             } else if m.failed == true {
                 Label(m.text, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
             } else { AIMarkdown(text: m.text) }
+            ForEach(m.cards ?? []) { AICardView(card: $0) }
             if last, c.busy, !m.text.isEmpty, !c.status.isEmpty { Text(c.status).font(.callout).foregroundStyle(.secondary) }
             if !m.sources.isEmpty {
                 HStack(spacing: 8) {
                     Text(L("Quelle:", "Source:")).foregroundStyle(.secondary)
-                    ForEach(m.sources, id: \.self) { s in if let u = URL(string: s.url) { Link("Wikipedia: " + s.title, destination: u) } }
+                    ForEach(m.sources, id: \.self) { s in if let u = URL(string: s.url) { Link(u.host?.contains("wikipedia") == true ? "Wikipedia: " + s.title : s.title, destination: u) } }
                 }
                 .font(.caption)
             }
@@ -304,15 +334,16 @@ struct AIView: View {
                 } label: { Image(systemName: "plus") }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().frame(width: 28, height: 26).help(L("Anhängen", "Attach")).accessibilityLabel(L("Anhängen", "Attach"))
                 Button { c.web.toggle() } label: {
-                    Label(c.web ? L("Wikipedia an", "Wikipedia on") : L("Wikipedia aus", "Wikipedia off"), systemImage: "globe").font(.callout)
+                    Label(c.web ? L("Internet an", "Internet on") : L("Internet aus", "Internet off"), systemImage: "globe").font(.callout)
                         .padding(.horizontal, 8).frame(height: 26)
                         .foregroundStyle(c.web ? Color.accentColor : .secondary)
                         .background(c.web ? Color.accentColor.opacity(0.14) : .clear, in: Capsule()).contentShape(Capsule())
                 }
                     .buttonStyle(.plain).accessibilityAddTraits(c.web ? .isSelected : [])
-                    .help(L("Darf Wissensfragen bei Wikipedia nachschlagen. Dann geht der Suchbegriff ins Internet.", "May look up facts on Wikipedia. The search term then goes online."))
+                    .help(L("Darf bei Wikipedia nachschlagen und das Wetter holen. Dann gehen Suchbegriff oder Ort ins Internet.", "May look things up on Wikipedia and get the weather. The search term or place then goes online."))
                 Spacer()
                 Text(privacy).font(.caption).foregroundStyle(.secondary).lineLimit(1).help(privacy)
+                MicButton()
                 if c.busy {
                     Button { c.stop() } label: { Image(systemName: "stop.fill").frame(width: 28, height: 26) }.help(L("Stopp", "Stop")).accessibilityLabel(L("Stopp", "Stop"))
                 } else {

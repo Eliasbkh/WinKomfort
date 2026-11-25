@@ -329,5 +329,20 @@ sc("Serveradresse", "\(AILogic.serverURL("http://127.0.0.1:11434/v1/")!) \(AILog
 sc("Denken weg", AILogic.withoutThinking("<think>hm</think>Ja") + AILogic.withoutThinking("A<think>hm"), "JaA")
 sc("Office", AILogic.xmlText("<a:p><a:t>A &amp; B</a:t></a:p><a:p>C</a:p>"), "A & B\nC\n")
 
+// Assistent: Absicht, Zeit, Titel
+ActLogic.cal.timeZone = TimeZone(identifier: "Europe/Berlin")!
+let mi = ActLogic.cal.date(from: DateComponents(year: 2026, month: 11, day: 25, hour: 20, minute: 10))! // Mittwoch
+func wann(_ s: String) -> String { guard let w = ActLogic.when(s, now: mi) else { return "–" }; let f = DateFormatter(); f.calendar = ActLogic.cal; f.timeZone = ActLogic.cal.timeZone; f.dateFormat = w.hasTime ? "d.M.yy HH:mm" : "d.M.yy"; return f.string(from: w.date) }
+for (a, b) in [("morgen um 15 Uhr", "26.11.26 15:00"), ("Freitag 14:30", "27.11.26 14:30"), ("nächsten Freitag", "4.12.26"), ("am 3.12. um 8", "3.12.26 08:00"), ("am 24. Dezember", "24.12.26"), ("am 2.1.", "2.1.27"), ("in 20 Minuten", "25.11.26 20:30"), ("in zwei Stunden", "25.11.26 22:10"), ("in 3 Tagen", "28.11.26"), ("morgen halb vier", "26.11.26 15:30"), ("um 8 Uhr", "26.11.26 08:00"), ("heute um 22 Uhr", "25.11.26 22:00"), ("morgen Abend um 7", "26.11.26 19:00"), ("am Mittwoch", "2.12.26"), ("übermorgen früh", "27.11.26 08:00"), ("ohne Zeit", "–"), ("am 31.2.", "–")] { sc("Wann: \(a)", wann(a), b) }
+for (a, b) in [("Trag morgen um 15 Uhr Zahnarzt ein", "Zahnarzt"), ("Erinnere mich morgen um 8 an Mathe Hausaufgaben", "Mathe Hausaufgaben"), ("Erstelle einen Termin Friseur am Freitag um 14:30", "Friseur"), ("Erinnere mich in 20 Minuten daran, dass ich Oma anrufe", "Oma anrufe"), ("Remind me tomorrow to buy milk", "Buy milk")] { sc("Titel: \(a)", ActLogic.title(a, now: mi), b) }
+func ab(_ s: String) -> String { ActLogic.candidates(s).map(\.rawValue).joined(separator: ",") }
+for (a, b) in [("Was steht morgen an?", "calendar"), ("Erinnere mich um 8 an Sport", "reminderNew"), ("Stell einen Timer auf 10 Minuten", "timer"), ("Wie wird das Wetter in Köln?", "weather"), ("Was ist auf meinem Bildschirm?", "screen"), ("Merk dir, dass ich Tim heiße", "remember"), ("Erkläre dunkle Materie", ""), ("Was ist ein Akkusativ?", ""), ("Was ist 2+2?", ""), ("Öffne Safari", "mac"), ("Wo liegt meine Bewerbung als PDF?", "files"), ("Mach den Bildschirm aus", "mac")] { sc("Absicht: \(a)", ab(a), b) }
+sc("Merken", ActLogic.fact("Merk dir bitte, dass ich in Köln wohne."), "ich in Köln wohne")
+sc("Ort", "\(ActLogic.place("Wie wird das Wetter morgen in Bad Honnef?") ?? "-") \(ActLogic.place("Regnet es heute?") ?? "-")", "Bad Honnef -")
+sc("Dateiwörter", "\(ActLogic.fileWords("Finde meine Präsentation über Vulkane")) \(ActLogic.fileTypes("Präsentation"))", "[\"vulkane\"] [\"pptx\", \"key\", \"ppt\", \"odp\"]")
+let nw = ActLogic.range("Was habe ich nächste Woche?", now: mi)
+sc("Zeitraum", "\(ActLogic.cal.component(.day, from: nw.from)) \(Int(nw.to.timeIntervalSince(nw.from) / 86400)) \(ActLogic.range("Was steht an?", now: mi).title)", "30 7 heute")
+sc("Auswahl", "\(ActLogic.choice("2", [.mac, .timer])!) \(ActLogic.choice("0", [.mac]) == nil) \(ActLogic.choice("7", [.mac]) == nil)", "timer true true")
+
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }

@@ -56,8 +56,9 @@ enum AIRead {
             }
         } else if ["pptx", "xlsx"].contains(ext) {
             t = office(u, ext)
-        } else if ["docx", "doc", "odt", "rtf"].contains(ext) {
-            t = (try? NSAttributedString(url: u, options: [:], documentAttributes: nil))?.string ?? ""
+        } else if let kind: NSAttributedString.DocumentType = ["docx": .officeOpenXML, "doc": .docFormat, "odt": .openDocument, "rtf": .rtf][ext] {
+            // Typ fest vorgeben: als .docx getarntes HTML würde sonst Inhalte aus dem Netz nachladen
+            t = (try? NSAttributedString(url: u, options: [.documentType: kind], documentAttributes: nil))?.string ?? ""
         } else if let h = try? FileHandle(forReadingFrom: u) {
             defer { try? h.close() }
             let d = (try? h.read(upToCount: 2_000_000)) ?? Data()
@@ -167,7 +168,7 @@ enum AIRun {
     // Antwort Stück für Stück; `source` meldet benutzte Seiten
     static func answer(_ e: AIEngine, _ turns: [AITurn], system: String? = nil, web: Bool = false, tools: Bool = true,
                        show: @escaping @MainActor (String) -> Void, note: @escaping @MainActor (String) -> Void = { _ in }, source: @escaping @MainActor (String, String) -> Void = { _, _ in }) async throws -> String {
-        let sys = system ?? rules(turns.last.map { $0.question ?? $0.text } ?? "") + (e == .apple ? "" : toolRules)
+        let sys = system ?? rules(turns.last.map { $0.question ?? $0.text } ?? "") + (e == .apple ? "" : toolRules) + (e == .own ? "" : AIMemory.prompt)
         @Sendable func look(_ q: String) async -> String {
             await note(L("Schlägt nach: \(AITools.query(q))", "Looking up: \(AITools.query(q))"))
             let r = await AITools.lookup(q)

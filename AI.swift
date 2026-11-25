@@ -39,6 +39,8 @@ struct AIMessage: Codable, Identifiable, Equatable {
     var docs: [AIDoc] = []
     var sources: [AISource] = []
     var failed: Bool? // Antwort kam nicht zustande
+    var cards: [AICard]?
+    var local: Bool? // enthält Persönliches vom Mac: nie an einen Anbieter schicken
 }
 struct AISource: Codable, Equatable, Hashable { let title: String, url: String }
 struct AIConversation: Codable, Identifiable {
@@ -157,6 +159,7 @@ enum AIStore {
     // MARK: Fragen
     func send() {
         let q = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        speak = false
         guard !busy, reading == 0, !q.isEmpty || !docs.isEmpty else { return }
         if let e = editing, let i = conv.messages.firstIndex(where: { $0.id == e }) { conv.messages.removeSubrange(i...) } // ab hier neu
         editing = nil; input = ""
@@ -180,7 +183,21 @@ enum AIStore {
         conv.messages.append(AIMessage(user: false, text: ""))
         let past = Array(conv.messages.dropLast()), e = engine, w = web
         begin { me in
-            let turns = try await self.turns(past, e, me)
+            var e = e, act = AIAct.Outcome()
+            if let q = past.last, q.docs.isEmpty, !q.text.isEmpty, let o = try await AIAct.handle(q.text, e, others: self.all.filter { $0.id != self.conv.id }, status: { if me == self.run { self.status = $0 } }) {
+                guard me == self.run, let i = self.conv.messages.indices.last, !self.conv.messages[i].user else { return }
+                act = o
+                self.conv.messages[i].cards = o.cards.isEmpty ? nil : o.cards
+                self.conv.messages[i].sources = o.sources
+                self.conv.messages[i].local = true
+                if i > 0 { self.conv.messages[i - 1].local = true }
+                if let t = o.text { self.set(t, me); return }
+                // Persönliches beantwortet immer das Modell auf dem Mac
+                if e == .own { guard Assistant.available else { throw AIFail.text(L("Persönliche Dinge gebe ich nicht an einen Anbieter weiter; dafür braucht es Apple Intelligence.", "I don't send personal data to a provider; this needs Apple Intelligence.")) }; e = .apple }
+            }
+            var turns = try await self.turns(past, e, me, extra: act.images)
+            if !act.material.isEmpty, let l = turns.popLast() { turns.append(AITurn(user: true, text: act.material + "\n\n" + l.text, images: l.images, question: l.question)) }
+            let w = w && act.material.isEmpty && act.images.isEmpty
             _ = try await AIRun.answer(e, turns, web: w, show: { self.set($0, me) }, note: { if me == self.run { self.status = $0 } }, source: { t, u in self.source(t, u, me) })
         }
     }
@@ -194,17 +211,37 @@ enum AIStore {
             if let i = conv.messages.indices.last, !conv.messages[i].user, conv.messages[i].text.isEmpty { fail(L("Keine Antwort bekommen.", "No answer."), me) }
             busy = false; status = ""
             keep()
+            if speak, let m = conv.messages.last, !m.user { Speech.say(m.text) }
+            speak = false
         }
     }
+    private var speak = false // Gesprochene Frage → gesprochene Antwort
+    func listen() {
+        Voice.shared.toggle { t in
+            self.docs.isEmpty ? self.ask(t) : { self.input = t; self.send() }()
+            self.speak = true
+        }
+    }
+    // Karte bestätigen
+    func confirm(_ card: AICard, title: String) {
+        guard !title.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        var c = card; c.title = title
+        Task {
+            do { try await AIAct.create(c) } catch { problem = Self.say(error); return }
+            for i in conv.messages.indices { if let k = conv.messages[i].cards?.firstIndex(where: { $0.id == card.id }) { conv.messages[i].cards?[k] = AICard(kind: .done, title: title, detail: card.kind == .newEvent ? L("Im Kalender", "In your calendar") : L("In den Erinnerungen", "In Reminders")) } }
+            keep()
+        }
+    }
+    func dismiss(_ card: AICard) { for i in conv.messages.indices { conv.messages[i].cards?.removeAll { $0.id == card.id } }; keep() }
     // Unterhaltung fürs Modell: Dokumente werden zur aktuellen Frage passend ausgewählt
-    private func turns(_ past: [AIMessage], _ e: AIEngine, _ me: Int) async throws -> [AITurn] {
+    private func turns(_ past: [AIMessage], _ e: AIEngine, _ me: Int, extra: [AIDoc] = []) async throws -> [AITurn] {
         guard let last = past.last else { return [] }
-        var t = past.dropLast().filter { $0.failed != true && !($0.text.isEmpty && $0.docs.isEmpty) }.map { m in
+        var t = past.dropLast().filter { !(e == .own && $0.local == true) && $0.failed != true && !($0.text.isEmpty && $0.docs.isEmpty) }.map { m in
             AITurn(user: m.user, text: m.user ? (m.docs.isEmpty ? "" : "[" + m.docs.map(\.name).joined(separator: ", ") + "] ") + m.text : m.text)
         }
         let files = past.flatMap(\.docs).filter { !$0.isImage }
         // Bilder: die der Frage, sonst die zuletzt gezeigten
-        let imgs = last.docs.contains(where: \.isImage) ? last.docs.filter(\.isImage) : (past.last { $0.docs.contains(where: \.isImage) }?.docs.filter(\.isImage) ?? [])
+        let imgs = !extra.isEmpty ? extra : last.docs.contains(where: \.isImage) ? last.docs.filter(\.isImage) : (past.last { $0.docs.contains(where: \.isImage) }?.docs.filter(\.isImage) ?? [])
         let see = e != .apple || AI.vision
         var q = last.text
         if q.isEmpty { q = !last.docs.contains { !$0.isImage } ? L("Beschreibe, was zu sehen ist. Wenn es eine Aufgabe ist, löse sie Schritt für Schritt.", "Describe what's shown. If it's an exercise, solve it step by step.") : L("Fasse das übersichtlich zusammen.", "Summarize this clearly.") }
@@ -317,7 +354,7 @@ enum AIStore {
     static func open() {
         let first = windows["ai"] == nil
         AIChat.shared.prepare()
-        showWindow("ai", "AI", onClose: { MainActor.assumeIsolated { AIChat.shared.stop() } }) { AIView() }
+        showWindow("ai", "AI", onClose: { MainActor.assumeIsolated { AIChat.shared.stop(); Voice.shared.finish(send: false); Speech.stop() } }) { AIView() }
         guard let w = windows["ai"] else { return }
         w.title = L("KI", "AI")
         if first {
