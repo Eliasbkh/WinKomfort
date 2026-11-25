@@ -145,6 +145,8 @@ extension ExplorerWindow {
 // Dock-Symbol wie bei einer normalen App, solange ein richtiges Fenster offen ist (Schnellnotiz, Suche, Startmenü sind Panels und zählen nicht)
 @MainActor enum DockIcon {
     private static var tokens: [NSObjectProtocol] = []
+    private static let explorerIcon = NSImage(named: "Explorer")
+    private static var shownIcon: NSImage?
     static var appWindows: [NSWindow] {
         NSApp.windows.filter { !($0 is NSPanel) && $0.styleMask.contains(.titled) && ($0.isVisible || $0.isMiniaturized) }
     }
@@ -165,6 +167,10 @@ extension ExplorerWindow {
     }
     private static func update() {
         if NSApp.isHidden { return } // ausgeblendet: Fenster gelten als unsichtbar, das Symbol muss bleiben
+        // Im Dock das Symbol dessen, was vorne ist: Explorer oder WinKomfort
+        let front = NSApp.orderedWindows.first { w in appWindows.contains { $0 === w } } ?? appWindows.first
+        let icon = front is ExplorerWindow ? explorerIcon : nil
+        if icon !== shownIcon { shownIcon = icon; NSApp.applicationIconImage = icon }
         let want: NSApplication.ActivationPolicy = appWindows.isEmpty ? .accessory : .regular
         guard NSApp.activationPolicy() != want else { return }
         let key = NSApp.keyWindow

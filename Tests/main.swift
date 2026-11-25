@@ -1,4 +1,5 @@
 // Tests: swiftc TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift OneNoteOrder.swift TimeParse.swift Tests/main.swift -o /tmp/wktest && /tmp/wktest
+import Foundation
 typealias A = TapDragLogic.Action
 typealias P = TapDragLogic.Point
 
@@ -172,6 +173,25 @@ var own = BudsProtocol.message(0x78, [1])
 sc("Buds: eigene Nachricht lesbar", "\(BudsProtocol.take(&own).map(\.id))", "[120]")
 var bad = budsRaw; bad[6] = 1
 sc("Buds: beschädigt verworfen", "\(BudsProtocol.take(&bad).count)", "0")
+
+// Suche: Rangfolge
+for (q, n, want) in [("fire", "Firefox", "0.9"), ("firefox", "Firefox", "1.0"), ("one", "Microsoft OneNote", "0.8"), ("mo", "Microsoft OneNote", "0.75"), ("note", "OneNote", "0.6"),
+                     ("musik", "Müsik", "1.0"), ("ffx", "Firefox", "0.4"), ("xyz", "Firefox", "nil"), ("", "Firefox", "nil"), ("vsc", "VisualStudioCode", "0.7")] {
+    sc("Treffer „\(q)“ in \(n)", SearchRank.match(q, n).map { "\($0)" } ?? "nil", want)
+}
+sc("Häufige App schlägt seltene bei gleichem Namen", "\(SearchRank.total(0.9, usage: 30) > SearchRank.total(0.9, usage: 0))", "true")
+sc("Wortanfang + häufig schlägt Anfang + nie benutzt", "\(SearchRank.total(0.8, usage: 30) > SearchRank.total(0.9, usage: 0))", "true")
+sc("Zufallstreffer schlägt genauen Namen nie", "\(SearchRank.total(0.4, usage: 1000) < SearchRank.total(1, usage: 0))", "true")
+sc("Benutzung halbiert sich in 14 Tagen", "\(SearchRank.decayed(8, since: Date(timeIntervalSince1970: 0), now: Date(timeIntervalSince1970: 14 * 86400)))", "4.0")
+
+// Umrechnen
+for (q, want) in [("10 km in mi", "6.2137 mi"), ("72 f to c", "22.2222 °C"), ("1,5 h in min", "90.0 min"), ("5 kg in km", "nil"), ("10 km", "nil"), ("1 gb in mb", "1000.0 MB")] {
+    sc("Umrechnen „\(q)“", Convert.evaluate(q).map { "\($0.value) \($0.unit)" } ?? "nil", want)
+}
+sc("Emoji deutsch", Emoji.search("herz").isEmpty ? "leer" : "da", "da")
+sc("Emoji „feuer“", Emoji.search("feuer").first?.char ?? "-", "🔥")
+sc("Emoji englisch", Emoji.search("rocket").first?.char ?? "-", "🚀")
+sc("Drittel lückenlos", "\(SnapMath.fraction(CGRect(x: 0, y: 0, width: 1.0 / 3, height: 1), in: CGRect(x: 0, y: 0, width: 1000, height: 600)).maxX == SnapMath.fraction(CGRect(x: 1.0 / 3, y: 0, width: 1.0 / 3, height: 1), in: CGRect(x: 0, y: 0, width: 1000, height: 600)).minX)", "true")
 
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }

@@ -17,11 +17,11 @@ import AppKit
     }
 
     // Andere Apps schicken Ordner (öffnen) oder Dateien (zeigen). Dateien werden nie gestartet, nur im Ordner markiert.
-    static func open(_ urls: [URL]) {
+    static func open(_ urls: [URL], select: Bool = false) {
         var shown: [URL: Set<URL>] = [:]
         for u in urls.prefix(20) where u.isFileURL {
             let v = try? u.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
-            if v?.isDirectory == true, v?.isPackage != true { shown[u.standardizedFileURL, default: []].formUnion([]) }
+            if !select, v?.isDirectory == true, v?.isPackage != true { shown[u.standardizedFileURL, default: []].formUnion([]) }
             else if FileManager.default.fileExists(atPath: u.path) { shown[u.deletingLastPathComponent().standardizedFileURL, default: []].insert(u.standardizedFileURL) }
         }
         for (dir, sel) in shown.prefix(5) {

@@ -578,6 +578,7 @@ struct AppEntry: Identifiable {
         all = dirs.flatMap { dir in
             ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []).filter { $0.hasSuffix(".app") }.map { entry("\(dir)/\($0)") }
         }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        all.append(entry("/System/Library/CoreServices/Finder.app"))
         // Angeheftet = die Apps aus deinem Dock
         let dock = UserDefaults(suiteName: "com.apple.dock")?.array(forKey: "persistent-apps") as? [[String: Any]] ?? []
         pinned = dock.compactMap { tile in
@@ -590,14 +591,18 @@ struct AppEntry: Identifiable {
 
     var results: [AppEntry] { query.isEmpty ? pinned : match(query) }
 
-    // Treffer, die mit dem Suchbegriff anfangen, zuerst
+    // Beste Namenstreffer zuerst, häufig benutzte Apps angehoben; was du bei diesem Wort zuletzt gewählt hast, ganz oben
     func match(_ query: String) -> [AppEntry] {
-        let q = query.lowercased()
-        let hits = all.filter { $0.name.lowercased().contains(q) || $0.file.lowercased().contains(q) }
-        return Array((hits.filter { $0.name.lowercased().hasPrefix(q) } + hits.filter { !$0.name.lowercased().hasPrefix(q) }).prefix(24))
+        let pick = AppUsage.shared.pick(query)
+        let hits = all.compactMap { e -> (AppEntry, Double)? in
+            guard let m = [e.name, e.file].compactMap({ SearchRank.match(query, $0) }).max() else { return nil }
+            return (e, SearchRank.total(m, usage: AppUsage.shared.score(e.path)) + (e.path == pick ? 1 : 0))
+        }
+        return Array(hits.sorted { $0.1 > $1.1 }.prefix(24).map(\.0)) // sorted ist stabil: bei Gleichstand alphabetisch
     }
 
     func open(_ e: AppEntry) {
+        AppUsage.shared.picked(query, e.path)
         NSWorkspace.shared.open(URL(fileURLWithPath: e.path))
         StartMenu.hide()
     }
@@ -1020,290 +1025,6 @@ struct NotificationsTab: View {
     }
 }
 
-// MARK: - Suche (wie Spotlight): Apps sofort, Dateien über den macOS-Suchindex, Rechner, Web
-// Sparsam: kein eigenes Indizieren; die Dateisuche läuft nur, während das Fenster offen ist, und stoppt nach dem ersten Ergebnis-Schwung.
-
-struct SearchHit: Identifiable {
-    enum Kind { case calc, app, file, web, ai }
-    let kind: Kind
-    let title: String
-    let subtitle: String
-    let path: String?
-    var id: String { "\(kind)|\(path ?? title)" }
-}
-
-@MainActor final class SearchModel: ObservableObject {
-    static let shared = SearchModel()
-    @Published var query = "" { didSet { if query != oldValue { selected = 0; update() } } }
-    @Published private(set) var hits: [SearchHit] = []
-    @Published var selected = 0
-    @Published var opened = 0
-    private var files: [SearchHit] = []
-    private let mdq = NSMetadataQuery()
-
-    init() {
-        mdq.searchScopes = [NSMetadataQueryUserHomeScope]
-        mdq.sortDescriptors = [NSSortDescriptor(key: NSMetadataItemFSContentChangeDateKey, ascending: false)]
-        NotificationCenter.default.addObserver(forName: .NSMetadataQueryDidFinishGathering, object: mdq, queue: .main) { _ in
-            MainActor.assumeIsolated { SearchModel.shared.collectFiles() }
-        }
-    }
-
-    private func collectFiles() {
-        files = (0..<min(mdq.resultCount, 60)).compactMap { i -> SearchHit? in
-            guard let item = mdq.result(at: i) as? NSMetadataItem,
-                  let path = item.value(forAttribute: NSMetadataItemPathKey) as? String,
-                  !path.hasSuffix(".app"), !path.contains("/Library/"), !path.contains("/.") else { return nil }
-            let dir = (path as NSString).deletingLastPathComponent.replacingOccurrences(of: NSHomeDirectory(), with: "~")
-            return SearchHit(kind: .file, title: (path as NSString).lastPathComponent, subtitle: dir, path: path)
-        }.prefix(8).map { $0 }
-        mdq.stop() // fertig gesammelt – nichts läuft weiter im Hintergrund
-        rebuild()
-    }
-
-    private func update() {
-        mdq.stop()
-        files = []
-        rebuild()
-        let q = query.trimmingCharacters(in: .whitespaces)
-        guard q.count >= 3 else { return }
-        mdq.predicate = NSPredicate(format: "%K CONTAINS[cd] %@", NSMetadataItemFSNameKey, q)
-        mdq.start()
-    }
-
-    private func rebuild() {
-        let q = query.trimmingCharacters(in: .whitespaces)
-        var h: [SearchHit] = []
-        if let v = Calc.evaluate(q) {
-            h.append(SearchHit(kind: .calc, title: "= " + Calc.format(v), subtitle: tr("Enter kopiert das Ergebnis"), path: nil))
-        }
-        if !q.isEmpty {
-            let apps = StartModel.shared.match(q).prefix(6).map { SearchHit(kind: .app, title: $0.name, subtitle: "App", path: $0.path) }
-            // Ganze Sätze („halt den Mac wach“) → KI-Befehl; ganz oben, wenn keine App passt
-            let ai = q.split(separator: " ").count >= 2 && Assistant.availableCached
-                ? SearchHit(kind: .ai, title: tr("Mit KI ausführen: „%@“", q), subtitle: tr("Apple Intelligence – direkt auf dem Mac"), path: nil) : nil
-            if let ai, apps.isEmpty { h.append(ai) }
-            h += apps
-            h += files
-            if let ai, !apps.isEmpty { h.append(ai) }
-            h.append(SearchHit(kind: .web, title: tr("Im Web suchen: „%@“", q), subtitle: tr("Öffnet deinen Browser"), path: nil))
-        }
-        hits = h
-        selected = min(selected, max(h.count - 1, 0))
-    }
-
-    func move(_ d: Int) { if !hits.isEmpty { selected = (selected + d + hits.count) % hits.count } }
-
-    func openSelected() {
-        guard hits.indices.contains(selected) else { return }
-        let hit = hits[selected]
-        switch hit.kind {
-        case .app, .file: NSWorkspace.shared.open(URL(fileURLWithPath: hit.path!))
-        case .calc:
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(String(hit.title.dropFirst(2)), forType: .string)
-        case .ai:
-            Assistant.ask(query)
-        case .web:
-            var c = URLComponents(string: "https://www.google.com/search")!
-            c.queryItems = [URLQueryItem(name: "q", value: query)]
-            NSWorkspace.shared.open(c.url!)
-        }
-        SearchPanel.hide()
-    }
-
-    func reset() {
-        mdq.stop()
-        query = ""
-        files = []
-        hits = []
-        opened += 1
-    }
-
-    func icon(_ hit: SearchHit) -> NSImage {
-        switch hit.kind {
-        case .app, .file: return StartModel.shared.icon(hit.path!)
-        case .calc: return NSImage(systemSymbolName: "equal.circle.fill", accessibilityDescription: tr("Rechner"))!
-        case .web: return NSImage(systemSymbolName: "globe", accessibilityDescription: "Web")!
-        case .ai: return NSImage(systemSymbolName: "sparkles", accessibilityDescription: "AI")!
-        }
-    }
-}
-
-@MainActor enum SearchPanel {
-    private static var panel: KeyPanel?
-    private static let width: CGFloat = 640
-
-    static func toggle() { if panel?.isVisible == true { hide() } else { show() } }
-    static func hide() { panel?.orderOut(nil); SearchModel.shared.reset() }
-    // Beim Start einmal unsichtbar bauen – dann ist das Suchfeld beim ersten Öffnen sofort da
-    static func prepare() { _ = panel ?? make(); panel?.contentView?.layoutSubtreeIfNeeded() }
-
-    static func show() {
-        StartModel.shared.reload() // App-Liste frisch (dauert nur Millisekunden)
-        SearchModel.shared.reset()
-        let p = panel ?? make()
-        resize()
-        p.orderFrontRegardless()
-        p.makeKey()
-        focusField()
-    }
-
-    // Textfeld aktivieren (blinkender Cursor). Klappt es nicht sofort, gleich noch einmal versuchen
-    static func focusField(retries: Int = 3) {
-        guard let p = panel, p.isVisible else { return }
-        if !(p.firstResponder is NSTextView), let f = SearchField.current {
-            p.makeKey()
-            p.makeFirstResponder(f)
-            (f.currentEditor() as? NSTextView)?.setSelectedRange(NSRange(location: (f.stringValue as NSString).length, length: 0))
-        }
-        if !(p.firstResponder is NSTextView), retries > 0 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { MainActor.assumeIsolated { focusField(retries: retries - 1) } }
-        }
-    }
-
-    // Fensterhöhe folgt der Trefferzahl, die Oberkante bleibt stehen
-    static func resize() {
-        guard let p = panel else { return }
-        let rows = min(SearchModel.shared.hits.count, 9)
-        let h: CGFloat = 60 + (rows > 0 ? CGFloat(rows) * 46 + 17 : 0)
-        let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main!
-        let top = screen.visibleFrame.maxY - screen.visibleFrame.height * 0.22
-        p.setFrame(NSRect(x: screen.visibleFrame.midX - width / 2, y: top - h, width: width, height: h), display: true)
-    }
-
-    private static func make() -> KeyPanel {
-        let p = KeyPanel(contentRect: NSRect(x: 0, y: 0, width: width, height: 60), styleMask: [.borderless, .nonactivatingPanel],
-                         backing: .buffered, defer: false)
-        p.becomesKeyOnlyIfNeeded = false
-        p.isOpaque = false
-        p.backgroundColor = .clear
-        p.hasShadow = true
-        p.level = .popUpMenu
-        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        p.contentView = fixedHost(SearchView())
-        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: p, queue: .main) { _ in
-            MainActor.assumeIsolated { hide() }
-        }
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
-            guard panel?.isKeyWindow == true else { return e }
-            // ⌥ noch gedrückt vom Öffnen mit ⌥ Leertaste? Dann normale Buchstaben statt ®, ∑ & Co.
-            if e.modifierFlags.contains(.option), !e.modifierFlags.contains(.command), !e.modifierFlags.contains(.control),
-               let plain = e.charactersIgnoringModifiers, plain.count == 1, plain.first!.isLetter || plain.first!.isNumber {
-                MainActor.assumeIsolated { SearchModel.shared.query += e.modifierFlags.contains(.shift) ? plain.uppercased() : plain }
-                return nil
-            }
-            // Textfeld in den ersten Millisekunden noch nicht bereit? Dann selbst ins Suchfeld schreiben – kein Buchstabe geht verloren
-            if !(panel?.firstResponder is NSTextView), !e.modifierFlags.contains(.command), !e.modifierFlags.contains(.control),
-               let chars = e.characters, !chars.isEmpty, e.keyCode != 53, e.keyCode != 125, e.keyCode != 126, e.keyCode != 36 {
-                MainActor.assumeIsolated {
-                    if e.keyCode == 51 { _ = SearchModel.shared.query.popLast() } // Rückschritt
-                    else if chars.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) { SearchModel.shared.query += chars }
-                    focusField(retries: 0)
-                }
-                return nil
-            }
-            switch e.keyCode {
-            case 53: MainActor.assumeIsolated { hide() }; return nil                       // Esc
-            case 125: MainActor.assumeIsolated { SearchModel.shared.move(1) }; return nil  // ↓
-            case 126: MainActor.assumeIsolated { SearchModel.shared.move(-1) }; return nil // ↑
-            default: return e
-            }
-        }
-        panel = p
-        return p
-    }
-}
-
-// Echtes macOS-Textfeld statt SwiftUI-TextField: lässt sich im schwebenden Panel zuverlässig aktivieren (mit Cursor)
-struct SearchField: NSViewRepresentable {
-    @Binding var text: String
-    var onSubmit: () -> Void
-    static weak var current: NSTextField?
-
-    func makeNSView(context: Context) -> NSTextField {
-        let f = NSTextField()
-        f.isBordered = false
-        f.drawsBackground = false
-        f.focusRingType = .none
-        f.font = .systemFont(ofSize: 22)
-        f.placeholderString = tr("Suchen – Apps, Dateien, Rechnen …")
-        f.cell?.isScrollable = true
-        f.cell?.wraps = false
-        f.delegate = context.coordinator
-        f.setAccessibilityLabel(tr("Suche"))
-        SearchField.current = f
-        return f
-    }
-
-    func updateNSView(_ f: NSTextField, context: Context) {
-        context.coordinator.parent = self
-        guard f.stringValue != text else { return }
-        f.stringValue = text
-        (f.currentEditor() as? NSTextView)?.setSelectedRange(NSRange(location: (text as NSString).length, length: 0)) // Cursor ans Ende
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: SearchField
-        init(_ p: SearchField) { parent = p }
-        func controlTextDidChange(_ n: Notification) { parent.text = (n.object as? NSTextField)?.stringValue ?? "" }
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
-            if sel == #selector(NSResponder.insertNewline(_:)) { parent.onSubmit(); return true }
-            return false
-        }
-    }
-}
-
-struct SearchView: View {
-    @ObservedObject var m = SearchModel.shared
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Image(systemName: "magnifyingglass").font(.title2).foregroundStyle(.secondary)
-                SearchField(text: $m.query) { m.openSelected() }
-            }
-            .padding(.horizontal, 18).frame(height: 60)
-            if !m.hits.isEmpty {
-                Divider()
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 2) {
-                            ForEach(Array(m.hits.enumerated()), id: \.element.id) { i, hit in
-                                HStack(spacing: 10) {
-                                    Image(nsImage: m.icon(hit)).resizable().scaledToFit().frame(width: 28, height: 28)
-                                        .foregroundStyle(i == m.selected ? .white : .accentColor)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(hit.title).lineLimit(1)
-                                        Text(hit.subtitle).font(.caption).lineLimit(1).truncationMode(.middle)
-                                            .foregroundStyle(i == m.selected ? AnyShapeStyle(.white.opacity(0.8)) : AnyShapeStyle(.secondary))
-                                    }
-                                    Spacer(minLength: 0)
-                                }
-                                .padding(.horizontal, 10).frame(height: 44)
-                                .foregroundStyle(i == m.selected ? .white : .primary)
-                                .background(RoundedRectangle(cornerRadius: 8).fill(i == m.selected ? Color.accentColor : .clear))
-                                .contentShape(Rectangle())
-                                .onTapGesture { m.selected = i; m.openSelected() }
-                                .id(i)
-                                .accessibilityElement(children: .combine)
-                                .accessibilityAddTraits(i == m.selected ? .isSelected : [])
-                            }
-                        }
-                        .padding(8)
-                    }
-                    .onChange(of: m.selected) { _, i in proxy.scrollTo(i) }
-                }
-            }
-        }
-        .frame(width: 640)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.primary.opacity(0.1)))
-        .onChange(of: m.hits.count) { _, _ in SearchPanel.resize() }
-    }
-}
-
 // SwiftUI-Inhalt für Fenster, deren Größe der Code selbst setzt. Ohne `sizingOptions = []` zwingt die Ansicht dem
 // Fenster eigene Größen-Regeln auf – zusammen mit setFrame endet das in einer Layout-Endlosschleife (Absturz).
 func fixedHost<V: View>(_ view: V) -> NSHostingView<V> {
@@ -1317,7 +1038,7 @@ func fixedHost<V: View>(_ view: V) -> NSHostingView<V> {
 @MainActor enum Toast {
     private static var panel: NSPanel?
     private static var hideTask: DispatchWorkItem?
-    static func show(_ text: String, symbol: String) {
+    static func show(_ text: String, symbol: String, seconds: Double = 1.4) {
         let text = tr(text)
         let p = panel ?? {
             let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -1339,7 +1060,7 @@ func fixedHost<V: View>(_ view: V) -> NSHostingView<V> {
         hideTask?.cancel()
         let t = DispatchWorkItem { panel?.orderOut(nil) }
         hideTask = t
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4, execute: t)
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: t)
         NSAccessibility.post(element: p, notification: .announcementRequested, userInfo: [.announcement: text])
     }
 }
@@ -3046,6 +2767,18 @@ struct SwitcherView: View {
         set(win, SnapMath.target(d, in: SnapMath.toAX(screen.visibleFrame, primaryHeight: primaryH)))
     }
 
+    // Fenster auf einen Bruchteil des Bildschirms legen (0…1, oben links = 0,0)
+    static func place(_ f: CGRect) {
+        guard AXIsProcessTrusted(), let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != getpid(),
+              let w = UIAuto.attr(AXUIElementCreateApplication(app.processIdentifier), kAXFocusedWindowAttribute), let old = frame(w as! AXUIElement) else { NSSound.beep(); return }
+        var id: CGWindowID = 0
+        _ = _AXUIElementGetWindow(w as! AXUIElement, &id)
+        if saved[id] == nil { saved[id] = old }
+        let h = NSScreen.screens[0].frame.height, c = CGPoint(x: old.midX, y: h - old.midY)
+        let v = SnapMath.toAX((NSScreen.screens.first { $0.frame.contains(c) } ?? NSScreen.main!).visibleFrame, primaryHeight: h)
+        set(w as! AXUIElement, SnapMath.fraction(f, in: v))
+    }
+
     private static func frame(_ w: AXUIElement) -> CGRect? {
         guard let p = UIAuto.attr(w, kAXPositionAttribute), let s = UIAuto.attr(w, kAXSizeAttribute) else { return nil }
         var pos = CGPoint.zero, size = CGSize.zero
@@ -3131,6 +2864,9 @@ struct ClipItem: Identifiable {
         if let t = item.text { pb.setString(t, forType: .string) } else if let img = item.image { pb.writeObjects([img]) }
         lastCount = pb.changeCount
         ClipPanel.hide()
+        Self.pressPaste()
+    }
+    static func pressPaste() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
             let src = CGEventSource(stateID: .combinedSessionState)
             for down in [true, false] {
@@ -3893,6 +3629,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !d.bool(forKey: "welcomeShown") { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MainActor.assumeIsolated { openWelcome() } } }
         DockReveal.start()
         DockIcon.setup()
+        AppUsage.shared.setup()
         Awake.shared.lidCleanup()
         FolderHandler.setup()
         BudsMic.update()

@@ -18,4 +18,9 @@ enum SnapMath {
         case .max: return v
         }
     }
+
+    static func fraction(_ f: CGRect, in v: CGRect) -> CGRect {
+        let x = (v.minX + f.minX * v.width).rounded(), y = (v.minY + f.minY * v.height).rounded()
+        return CGRect(x: x, y: y, width: (v.minX + f.maxX * v.width).rounded() - x, height: (v.minY + f.maxY * v.height).rounded() - y)
+    }
 }

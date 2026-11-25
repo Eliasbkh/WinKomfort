@@ -96,6 +96,7 @@ enum Snippets {
             .replacingOccurrences(of: "{zwischenablage}", with: clip).replacingOccurrences(of: "{clipboard}", with: clip)
     }
 
+    static func type(_ s: Snippet) { insert(deletes: 0, text: expand(s.text)) }
     private static func post(_ e: CGEvent?) {
         e?.setIntegerValueField(.eventSourceUserData, value: marker)
         e?.post(tap: .cghidEventTap)
