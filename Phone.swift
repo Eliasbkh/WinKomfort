@@ -297,6 +297,7 @@ private final class Flag: @unchecked Sendable { // über Threads: nur setzen und
         let target = dir.appendingPathComponent(MTPSession.unique(o.name, taken: Set((try? fm.contentsOfDirectory(atPath: dir.path)) ?? [])))
         if o.isDir {
             try fm.createDirectory(at: target, withIntermediateDirectories: false)
+            try quarantine(target)
             for h in try s.handles(o.storage, o.handle) { _ = try fetch(s, s.info(h), to: target, stop: stop, tick: tick) }
             return target
         }
@@ -314,8 +315,14 @@ private final class Flag: @unchecked Sendable { // über Threads: nur setzen und
             if n != o.size { throw MTPError.broken }
         } catch { try? fm.removeItem(at: part); throw error }
         if let m = o.modified { try? fm.setAttributes([.modificationDate: m], ofItemAtPath: part.path) }
-        try fm.moveItem(at: part, to: target)
+        do { try quarantine(part); try fm.moveItem(at: part, to: target) } catch { try? fm.removeItem(at: part); throw error }
         return target
+    }
+    // Wie ein Download kennzeichnen: macOS prüft Programme und Skripte vom Handy vor dem Öffnen
+    private nonisolated static func quarantine(_ u: URL) throws {
+        var v = URLResourceValues(), u = u
+        v.quarantineProperties = [kLSQuarantineAgentNameKey as String: "WinKomfort", kLSQuarantineTypeKey as String: kLSQuarantineTypeOtherDownload as String]
+        try u.setResourceValues(v)
     }
 
     func upload(_ urls: [URL]) {
