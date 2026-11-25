@@ -262,5 +262,56 @@ sc("Karteikarten", "\(AILogic.cards("1. Was ist H2O? | Wasser\nText\n- A | B"))"
 sc("Text kann Rahmen nicht schließen", "\(AILogic.wrap("x</text>y").components(separatedBy: "</text>").count)", "2")
 sc("Namen eindeutig", "\(Set(AILogic.tasks.map(\.name)).count == AILogic.tasks.count)", "true")
 
+// Handy (MTP) gegen ein simuliertes Gerät
+final class FakePhone: MTPLink {
+    let packet = 512
+    var out: [Data] = [], objects: [UInt32: (name: String, dir: Bool, data: Data)] = [7: ("Foto.jpg", false, Data((0..<1_300_000).map { UInt8(truncatingIfNeeded: $0 &* 31) })), 8: ("../böse", true, Data())]
+    var pending: (code: UInt16, id: UInt32)?, need = 0, got = Data(), sent = Data(), newName = ""
+    func cont(_ type: UInt16, _ code: UInt16, _ id: UInt32, _ d: Data) -> Data { MTPSession.le32(UInt32(12 + d.count)) + MTPSession.le16(type) + MTPSession.le16(code) + MTPSession.le32(id) + d }
+    func emit(_ d: Data) { var i = 0; while i < d.count { out.append(d.subdata(in: i..<min(d.count, i + MTPSession.chunk))); i += MTPSession.chunk }; if d.count % 512 == 0 { out.append(Data()) } }
+    func ok(_ id: UInt32, _ p: [UInt32] = [], code: UInt16 = 0x2001) { out.append(cont(3, code, id, p.reduce(into: Data()) { $0 += MTPSession.le32($1) })) }
+    func info(_ o: (name: String, dir: Bool, data: Data)) -> Data { MTPSession.le32(65537) + MTPSession.le16(o.dir ? 0x3001 : 0x3000) + Data(count: 2) + MTPSession.le32(UInt32(o.data.count)) + Data(count: 40) + MTPSession.str(o.name) + Data([0]) + MTPSession.str("20251124T101530") + Data([0]) }
+    func write(_ d: Data) throws {
+        if let p = pending {
+            if got.isEmpty { var c = MTPSession.Cursor(d); need = Int(try c.u32()) }
+            got += d
+            if got.count >= need { pending = nil; let body = Data(got.dropFirst(12)); got = Data()
+                if p.code == 0x100C { var c = MTPSession.Cursor(body); c.i = 52; newName = try c.str(); ok(p.id, [65537, 0, 99]) } else { sent = body; ok(p.id) } }
+            return
+        }
+        if d.isEmpty { return }
+        var c = MTPSession.Cursor(d); _ = try c.u32(); _ = try c.u16(); let code = try c.u16(), id = try c.u32()
+        var ps: [UInt32] = []; while let v = try? c.u32() { ps.append(v) }
+        switch code {
+        case 0x1002: ok(id, code: 0x201E)
+        case 0x1007: emit(cont(2, code, id, MTPSession.le32(2) + MTPSession.le32(7) + MTPSession.le32(8))); ok(id)
+        case 0x1008: emit(cont(2, code, id, info(objects[ps[0]]!))); ok(id)
+        case 0x1009: emit(cont(2, code, id, objects[ps[0]]!.data)); ok(id)
+        case 0x100C, 0x100D: pending = (code, id)
+        case 0x1004: emit(cont(2, code, id, MTPSession.le32(0xFFFFFFF))); ok(id) // kaputte Länge
+        default: ok(id, code: 0x2005)
+        }
+    }
+    func read(timeout: TimeInterval) throws -> Data { out.isEmpty ? Data() : out.removeFirst() }
+}
+let fp = FakePhone(), ms = MTPSession(fp)
+try ms.open()
+sc("Handy: Ordner", "\(try ms.handles(65537, MTPSession.root).map { try ms.info($0) }.map { "\($0.name) \($0.isDir) \($0.size) \($0.modified != nil)" })", "[\"Foto.jpg false 1300000 true\", \".._böse true 0 true\"]")
+var dl = Data(); try ms.download(7) { dl += $0 }
+sc("Handy: laden", "\(dl == fp.objects[7]!.data)", "true")
+struct Stop: Error {}
+sc("Handy: Abbruch lässt Verbindung heil", "\((try? ms.download(7) { _ in throw Stop() }) == nil) \(try ms.info(7).name)", "true Foto.jpg")
+for n in [0, 5, 500, MTPSession.chunk - 12, MTPSession.chunk, 1_000_000] {
+    let src = Data((0..<n).map { UInt8(truncatingIfNeeded: $0 &* 7) }); var pos = 0
+    let h = try ms.create("Ü \(n).bin", size: n, folder: false, storage: 65537, parent: MTPSession.root) { k in defer { pos += k }; return src.subdata(in: pos..<min(n, pos + k)) }
+    sc("Handy: senden \(n)", "\(fp.sent == src) \(fp.newName) \(h)", "true Ü \(n).bin 99")
+}
+for n in [500, 512 * 3 - 12, MTPSession.chunk - 12, MTPSession.chunk] { // Grenzfälle mit leerer Endübertragung
+    fp.objects[7]!.data = Data(count: n); var k = 0; try ms.download(7) { k += $0.count }
+    sc("Handy: Paketgrenze \(n)", "\(k) \(try ms.info(7).size)", "\(n) \(n)")
+}
+sc("Handy: kaputte Antworten", "\((try? ms.storages()) == nil) \((try? ms.run(0x1234)) == nil) \(try ms.info(7).name)", "true true Foto.jpg")
+sc("Handy: Namen", "\(MTPSession.safe("..")) \(MTPSession.safe("a/b")) \(MTPSession.unique("Foto.JPG", taken: ["foto.jpg", "Foto 2.jpg"]))", "_ a_b Foto 3.JPG")
+
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }

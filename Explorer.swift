@@ -658,6 +658,7 @@ struct Place: Identifiable, Hashable {
 
 struct ExplorerView: View {
     @ObservedObject var model: ExplorerModel
+    @ObservedObject private var phone = PhoneWatch.shared
     let style: ExplorerStyle
     var preview = false // in den Einstellungen: nur ansehen
     @FocusState private var searchFocused: Bool
@@ -895,7 +896,7 @@ struct ExplorerView: View {
                 .listRowBackground(model.recents ? RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(0.18)) : nil)
                 ForEach(standard) { placeRow($0) }
             }
-            if !volumes.isEmpty {
+            if !volumes.isEmpty || phone.connected {
                 Section(L("Geräte", "Devices")) {
                     ForEach(volumes) { v in
                         HStack(spacing: 4) {
@@ -906,6 +907,7 @@ struct ExplorerView: View {
                             }
                         }
                     }
+                    if phone.connected { PhoneRow() }
                 }
             }
         }
@@ -950,6 +952,7 @@ struct ExplorerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
         .dropDestination(for: URL.self) { urls, _ in model.transfer(urls, move: sameVolume(urls, model.url), to: model.url); return true }
+        .onDrop(of: [PhoneModel.dragType], isTargeted: nil) { p in model.recents ? false : PhoneModel.shared.dropped(p, to: model.url) }
     }
 
     private var gridView: some View {
