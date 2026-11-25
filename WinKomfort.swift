@@ -3845,8 +3845,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // App erneut öffnen (Finder, Spotlight, Startmenü) → Einstellungen zeigen, auch wenn das Menüleisten-Symbol versteckt ist
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        MainActor.assumeIsolated { openSettingsWindow() }
-        return true
+        MainActor.assumeIsolated { DockIcon.reopen() }
+        return false
     }
 
     // winkomfort://… aus Kurzbefehlen/Siri oder dem Browser
@@ -3892,6 +3892,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SearchPanel.prepare()
         if !d.bool(forKey: "welcomeShown") { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MainActor.assumeIsolated { openWelcome() } } }
         DockReveal.start()
+        DockIcon.setup()
+        Awake.shared.lidCleanup()
         FolderHandler.setup()
         BudsMic.update()
         GameMode.shared.setup()
@@ -3927,21 +3929,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return IORegistryEntryCreateCFProperty(e, "SleepDisabled" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? Bool ?? false
     }
 
+    // Darf WinKomfort das Zuklappen schon ohne Passwort schalten?
+    private nonisolated static func allowed() -> Bool { run("/usr/bin/sudo", ["-n", "-l", "/usr/bin/pmset", "-a", "disablesleep", "1"]) }
+    private nonisolated static func run(_ exe: String, _ args: [String]) -> Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: exe)
+        p.arguments = args
+        p.standardInput = FileHandle.nullDevice; p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return false }
+        p.waitUntilExit()
+        return p.terminationStatus == 0
+    }
+    private nonisolated static func admin(_ cmd: String, _ prompt: String) -> Bool {
+        run("/usr/bin/osascript", ["-e", "on run argv", "-e", "do shell script (item 1 of argv) with prompt (item 2 of argv) with administrator privileges", "-e", "end run", cmd, prompt])
+    }
+
     private func startLid(_ minutes: Int?) {
         lidRequest += 1
         let request = lidRequest
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("wk-lid-\(UUID().uuidString)")
-        let cmd = "/bin/bash -c " + LidScript.quote(LidScript.make(pid: getpid(), seconds: minutes.map { $0 * 60 }, stopFile: file.path)) + " >/dev/null 2>&1 &"
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        p.arguments = ["-e", "on run argv", "-e", "do shell script (item 1 of argv) with prompt (item 2 of argv) with administrator privileges", "-e", "end run", cmd,
-                       L("WinKomfort möchte den Mac auch zugeklappt wach halten.", "WinKomfort wants to keep the Mac awake with the lid closed.")]
-        p.standardError = FileHandle.nullDevice; p.standardOutput = FileHandle.nullDevice
-        p.terminationHandler = { p in
-            let ok = p.terminationStatus == 0
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { Awake.shared.lidStarted(ok, request, file) } }
+        let script = LidScript.make(pid: getpid(), seconds: minutes.map { $0 * 60 }, stopFile: file.path)
+        Task.detached {
+            var ok = Self.allowed()
+            if !ok {
+                _ = Self.admin(LidScript.install(uid: getuid()), L("WinKomfort möchte den Mac auch zugeklappt wach halten dürfen. Das fragt nur einmal.", "WinKomfort wants to be allowed to keep the Mac awake with the lid closed. It asks only once."))
+                ok = Self.allowed()
+            }
+            if ok, await MainActor.run(body: { Awake.shared.lidRequest == request }) {
+                let p = Process()
+                p.executableURL = URL(fileURLWithPath: "/bin/bash")
+                p.arguments = ["-c", script]
+                p.standardInput = FileHandle.nullDevice; p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+                ok = (try? p.run()) != nil
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            } else { ok = false }
+            await MainActor.run { [ok] in Awake.shared.lidStarted(ok, request, file) }
         }
-        do { try p.run() } catch { Toast.show(L("Wach – aber nur aufgeklappt", "Awake – but only with the lid open"), symbol: "lock.open") }
     }
     private func lidStarted(_ ok: Bool, _ request: Int, _ file: URL) {
         guard ok, request == lidRequest, Self.sleepDisabled else {
@@ -3950,10 +3973,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         lidStop = file
+        UserDefaults.standard.set(true, forKey: "lidOn")
         // Endet von selbst bei fast leerem Akku
         lidWatch = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in MainActor.assumeIsolated { if !Awake.sleepDisabled { Awake.shared.lidEnded() } } }
         lidWatch?.tolerance = 10
         Toast.show(L("Du kannst zuklappen – der Mac arbeitet weiter", "You can close the lid – the Mac keeps working"), symbol: "laptopcomputer")
+    }
+    // Wurde alles hart beendet, blieb die Einstellung vielleicht stehen: beim Start zurücknehmen
+    func lidCleanup() {
+        guard UserDefaults.standard.bool(forKey: "lidOn") else { return }
+        UserDefaults.standard.removeObject(forKey: "lidOn")
+        Task.detached { if Self.sleepDisabled { _ = Self.run("/usr/bin/sudo", ["-n", "/usr/bin/pmset", "-a", "disablesleep", "0"]) } }
+    }
+    static var ruleInstalled: Bool { FileManager.default.fileExists(atPath: LidScript.rulePath) }
+    func removeRule() {
+        stop()
+        // erst zurücknehmen lassen (das Skript schaut alle 5 s), dann die Erlaubnis löschen
+        DispatchQueue.global().asyncAfter(deadline: .now() + 6) {
+            let ok = Self.admin(LidScript.remove, L("WinKomfort entfernt die Erlaubnis fürs Zuklappen.", "WinKomfort removes the lid permission."))
+            DispatchQueue.main.async { Toast.show(ok ? L("Erlaubnis entfernt", "Permission removed") : L("Nicht entfernt", "Not removed"), symbol: "lock") }
+        }
     }
 
     private func lidEnded() {
@@ -3984,6 +4023,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func stop() {
         lidRequest += 1
+        UserDefaults.standard.removeObject(forKey: "lidOn")
         if let f = lidStop { FileManager.default.createFile(atPath: f.path, contents: nil); lidStop = nil }
         lidWatch?.invalidate()
         lidWatch = nil
@@ -4295,9 +4335,10 @@ struct GeneralTab: View {
                     Spacer()
                     if awake.mode != nil { Button("Beenden") { awake.stop() } }
                 }
+                if Awake.ruleInstalled { Button(L("Erlaubnis fürs Zuklappen entfernen …", "Remove lid permission…")) { awake.removeRule() } }
             } header: { Text("Wach bleiben") } footer: {
-                Text(L("„Bildschirm aus“ läuft auch zugeklappt weiter, dafür fragt macOS nach deinem Passwort. Zugeklappt endet es von selbst nach der Zeit, bei 20 % Akku oder wenn WinKomfort beendet wird. Nicht in der Tasche benutzen: Der Mac kann heiß werden.",
-                       "“Display off” also keeps working with the lid closed; macOS asks for your password for that. With the lid closed it ends by itself after the time, at 20% battery or when WinKomfort quits. Don't use it in a bag: the Mac can get hot."))
+                Text(L("„Bildschirm aus“ läuft auch zugeklappt weiter, dafür fragt macOS einmal nach deinem Passwort. Zugeklappt endet es von selbst nach der Zeit, bei 20 % Akku oder wenn WinKomfort beendet wird. Nicht in der Tasche benutzen: Der Mac kann heiß werden.",
+                       "“Display off” also keeps working with the lid closed; macOS asks for your password once for that. With the lid closed it ends by itself after the time, at 20% battery or when WinKomfort quits. Don't use it in a bag: the Mac can get hot."))
             }
             Section {
                 Toggle("Zwischenablage-Verlauf (\(HotAction.clipboard.current?.display ?? tr("Kürzel aus")))", isOn: $clipHistory)

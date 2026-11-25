@@ -285,8 +285,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
         let sel = selectedItems
         if sel.count == 1 { activate(sel[0]) } else { sel.filter { !$0.opensAsFolder }.forEach { NSWorkspace.shared.open($0.url) } }
     }
-    func click(_ item: FileItem) {
-        let flags = NSEvent.modifierFlags
+    func click(_ item: FileItem, _ flags: NSEvent.ModifierFlags) {
         if flags.contains(.command) {
             if selection.contains(item.url) { selection.remove(item.url) } else { selection.insert(item.url) }
         } else if flags.contains(.shift), let anchor = visible.firstIndex(where: { selection.contains($0.url) }),
@@ -461,7 +460,14 @@ final class ExplorerWindow: NSWindow {
     override func sendEvent(_ e: NSEvent) {
         if e.type == .keyDown, let m = model, !(firstResponder is NSText), MainActor.assumeIsolated({ m.renaming == nil }),
            MainActor.assumeIsolated({ handle(e, m) }) { return }
+        if e.type == .leftMouseDown, let m = model, MainActor.assumeIsolated({ listBand(e, m) }) { return }
         super.sendEvent(e)
+    }
+    // ⌘-Kürzel vor der Menüleiste, sonst schnappt sich „Bearbeiten › Kopieren“ das ⌘C (und kopiert keine Dateien)
+    override func performKeyEquivalent(with e: NSEvent) -> Bool {
+        if e.type == .keyDown, e.modifierFlags.contains(.command), let m = model, !(firstResponder is NSText),
+           MainActor.assumeIsolated({ m.renaming == nil && attachedSheet == nil && handle(e, m) }) { return true }
+        return super.performKeyEquivalent(with: e)
     }
     // Zwei Explorer nebeneinander auf dem Bildschirm dieses Fensters (je eine Hälfte)
     @MainActor func splitView() {
@@ -636,6 +642,7 @@ struct ExplorerView: View {
     let style: ExplorerStyle
     var preview = false // in den Einstellungen: nur ansehen
     @FocusState private var searchFocused: Bool
+    @StateObject private var tiles = TileFrames()
     private var searching: Bool { model.searching }
 
     var body: some View {
@@ -927,7 +934,7 @@ struct ExplorerView: View {
 
     private var gridView: some View {
         let size = style == .gnome ? max(model.iconSize, 64) : model.iconSize
-        return ScrollViewReader { proxy in ScrollView {
+        return GeometryReader { area in ScrollViewReader { proxy in ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: size + 40), spacing: 4)], spacing: 4) {
                 ForEach(model.visible) { item in
                     let sel = model.selection.contains(item.url)
@@ -941,25 +948,27 @@ struct ExplorerView: View {
                     .padding(6).frame(maxWidth: .infinity)
                     .background { if sel { RoundedRectangle(cornerRadius: 8).fill(.quaternary) } }
                     .contentShape(Rectangle())
-                    .onTapGesture(count: 2) { model.activate(item) }
-                    .simultaneousGesture(TapGesture().onEnded { model.click(item) })
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("grid")) } action: { tiles.frames[item.url] = $0 }
+                    .onDisappear { tiles.frames[item.url] = nil } // nie veraltete Lagen treffen
                     .contextMenu { itemMenu(item) }
-                    .draggable(item.url)
                     .dropDestination(for: URL.self) { urls, _ in
                         guard item.opensAsFolder else { return false }
                         model.transfer(urls, move: sameVolume(urls, item.url), to: item.url); return true
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityAddTraits(sel ? [.isButton, .isSelected] : .isButton)
+                    .accessibilityAction { model.selection = [item.url] }
+                    .accessibilityAction(named: L("Öffnen", "Open")) { model.activate(item) }
                     .id(item.url)
                 }
             }
             .padding(10)
+            .frame(maxWidth: .infinity, minHeight: area.size.height, alignment: .top) // auch die leere Fläche darunter
+            .overlay { if !preview { GridMouse(model: model, tiles: tiles) } }
+            .coordinateSpace(.named("grid"))
         }
         .onChange(of: model.scrollTarget) { _, t in if let t { proxy.scrollTo(t) } } // Pfeiltasten: Auswahl bleibt sichtbar
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { model.selection = [] }
+        } }
     }
 
     private var listView: some View {
@@ -969,7 +978,6 @@ struct ExplorerView: View {
                     FileIcon(item: item, size: 18, thumbnails: false)
                     Text(item.name).lineLimit(1).truncationMode(.middle)
                 }
-                .draggable(item.url)
             }
             .width(min: 180, ideal: 320)
             TableColumn(L("Änderungsdatum", "Date modified"), value: \.dateSort) { item in
