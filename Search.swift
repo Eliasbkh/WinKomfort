@@ -74,6 +74,7 @@ struct SearchAction: Identifiable {
         rebuild()
     }
 
+    func refresh() { if query.hasPrefix("/") { rebuild() } }
     func enter(_ m: Mode) { mode = m; query = ""; selected = 0; files = []; mdq.stop(); rebuild() }
 
     private func update() {
@@ -141,6 +142,11 @@ struct SearchAction: Identifiable {
             .map { SearchHit(kind: .snippet, title: $0.text.replacingOccurrences(of: "\n", with: " "), subtitle: $0.key, path: $0.id.uuidString, symbol: "text.quote", section: L("Text-Kürzel", "Snippets"), accessory: L("Einfügen", "Insert")) }
         h += files
         if let ai, !h.contains(where: { $0.kind == .ai }) { h.append(ai) }
+        if ai != nil { // Frage → Antwort; als Frage erkannt: vor dem Befehl
+            let a = SearchHit(kind: .action, title: L("KI fragen: „\(q)“", "Ask AI: “\(q)”"), subtitle: "", path: "aiq:" + q, symbol: "bubble.left.and.text.bubble.right", section: L("Weitere", "More"), accessory: L("auf dem Mac", "on device"))
+            let question = q.hasSuffix("?") || ["was ", "wer ", "wie ", "wo ", "wann ", "warum ", "wieso ", "welche", "what ", "who ", "how ", "why ", "when ", "where ", "which "].contains { q.lowercased().hasPrefix($0) }
+            if question, let i = h.firstIndex(where: { $0.kind == .ai }) { h.insert(a, at: i) } else { h.append(a) }
+        }
         return h + web.filter { w in !h.contains { $0.id == w.id } }
     }
 
@@ -343,6 +349,7 @@ enum SearchWeb {
     static func prepare() { _ = panel ?? make(); panel?.contentView?.layoutSubtreeIfNeeded() }
 
     static func show() {
+        Selection.capture() // vor dem eigenen Fenster: markierter Text für /fix & Co.
         StartModel.shared.reload() // App-Liste frisch (dauert nur Millisekunden)
         SearchModel.shared.reset()
         let p = panel ?? make()

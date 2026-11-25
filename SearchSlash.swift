@@ -69,7 +69,16 @@ import SwiftUI
         }
     }
 
-    static let all: [Command] = [
+    // Alle KI-Textaufgaben: Eingabe, sonst markierter Text, sonst Zwischenablage
+    private static let aiCommands: [Command] = AILogic.tasks.map { t in
+        Command(name: t.name, hint: L("markierter Text", "selected text"), text: L(t.de, t.en), symbol: t.symbol) { a in
+            let i = Selection.input(a)
+            guard !i.text.isEmpty else { return [] }
+            return [go(L(t.de, t.en), (i.from.isEmpty ? "" : i.from + ": ") + short(i.text)) { AI.run(t, i.text, i.replace) }]
+        }
+    }
+    static let all: [Command] = base + aiCommands
+    private static let base: [Command] = [
         Command(name: "math", hint: "sqrt(x)/2", text: L("Formel schön setzen, rechnen, kopieren", "Typeset, calculate and copy a formula"), symbol: "x.squareroot", needsArg: true) { a in
             guard let n = MathExpr.parse(a) else { return [] }
             var r = formula(n)
@@ -146,7 +155,16 @@ import SwiftUI
         Command(name: "wiki", hint: L("Suche", "query"), text: "Wikipedia", symbol: "book", needsArg: true) { web("Wikipedia", "https://de.wikipedia.org/w/index.php?search=", $0) },
         Command(name: "github", hint: L("Suche", "query"), text: "GitHub", symbol: "chevron.left.forwardslash.chevron.right", needsArg: true) { web("GitHub", "https://github.com/search?q=", $0) },
         Command(name: "maps", hint: L("Ort", "place"), text: "Google Maps", symbol: "map", needsArg: true) { web("Google Maps", "https://www.google.com/maps/search/", $0) },
-        Command(name: "ai", hint: L("Befehl", "command"), text: L("Mit Apple Intelligence ausführen", "Do it with Apple Intelligence"), symbol: "sparkles", needsArg: true) { a in a.isEmpty ? [] : [go(L("Ausführen: \(a)", "Do: \(a)")) { Assistant.ask(a) }] },
+        Command(name: "ai", hint: L("Frage", "question"), text: L("KI auf deinem Mac fragen", "Ask the AI on your Mac"), symbol: "sparkles", needsArg: true) { a in
+            a.isEmpty ? [] : [go(L("Fragen: \(a)", "Ask: \(a)"), L("bleibt auf dem Mac", "stays on your Mac")) { AI.chat(a) }]
+        },
+        Command(name: "do", hint: L("Befehl", "command"), text: L("Mac per Satz steuern", "Control the Mac with a sentence"), symbol: "wand.and.rays", needsArg: true) { a in a.isEmpty ? [] : [go(L("Ausführen: \(a)", "Do: \(a)")) { Assistant.ask(a) }] },
+        Command(name: "see", hint: L("Frage", "question"), text: L("KI sieht einen Bildschirmausschnitt an", "AI looks at part of your screen"), symbol: "eye") { a in
+            [go(a.isEmpty ? L("Ausschnitt erklären lassen", "Explain an area") : L("Zum Ausschnitt fragen: \(a)", "Ask about an area: \(a)")) { AI.see(a) }]
+        },
+        Command(name: "file", hint: "", text: L("PDF oder Text zusammenfassen", "Summarize a PDF or text file"), symbol: "doc.text.magnifyingglass") { _ in
+            ["summary", "bullets", "cards", "quiz"].compactMap(AILogic.task).map { t in go(L(t.de, t.en) + " …", L("Datei wählen", "choose a file")) { AI.file(t) } }
+        },
         Command(name: "password", hint: L("Länge", "length"), text: L("Sicheres Passwort erzeugen", "Generate a secure password"), symbol: "key") { a in
             [go(L("Passwort mit \(min(max(Int(a) ?? 20, 8), 128)) Zeichen kopieren", "Copy a \(min(max(Int(a) ?? 20, 8), 128))-character password"), L("wird nicht im Verlauf gespeichert", "not kept in history")) {
                 let pb = NSPasteboard.general
@@ -251,7 +269,9 @@ import SwiftUI
             return [list(c, section)]
         }
         let n = name == "help" ? "" : name
-        return all.filter { n.isEmpty || $0.name.hasPrefix(n) || (SearchRank.match(n, $0.text) ?? 0) >= 0.8 }
+        // Ist Text markiert, stehen die KI-Aufgaben oben
+        let order = !Selection.text.isEmpty ? aiCommands + base : all
+        return order.filter { n.isEmpty || $0.name.hasPrefix(n) || (SearchRank.match(n, $0.text) ?? 0) >= 0.8 }
             .sorted { ($0.name.hasPrefix(n) ? 0 : 1) < ($1.name.hasPrefix(n) ? 0 : 1) }.map { list($0, section) }
     }
     private static func copies(_ r: Row) -> Bool { if case .copy = r.act { return true }; return false }

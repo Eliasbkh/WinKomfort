@@ -68,6 +68,7 @@ import AppKit
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(v, forType: .string)
             Toast.show(L("Kopiert: \(v)", "Copied: \(v)"), symbol: "network")
+        case "aiq": AI.chat(v)
         case "pane": openSettingsWindow(Pane(rawValue: v))
         default: break
         }

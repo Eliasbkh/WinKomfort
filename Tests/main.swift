@@ -254,5 +254,13 @@ sc("Ablaufplan", "\(fl.nodes) \(fl.edges.map(\.label)) \(SchoolLogic.levels(fl))
 sc("Ablauf Kette", "\(SchoolLogic.flow("A -> B -> C")!.edges.count) \(SchoolLogic.flow("A") == nil) \(SchoolLogic.flow("-> B") == nil)", "2 true true")
 sc("Würfel", "\(SchoolLogic.dice("2d6")!) \(SchoolLogic.dice("")!) \(SchoolLogic.dice("w20")!) \(SchoolLogic.dice("99d6") == nil)", "(n: 2, sides: 6) (n: 1, sides: 6) (n: 1, sides: 20) true")
 
+// KI
+let lang = (0..<400).map { "Satz Nummer \($0) ist hier." }.joined(separator: " ")
+sc("Teilen verliert nichts", "\(AILogic.chunks(lang, max: 900).joined().filter { !$0.isWhitespace } == lang.filter { !$0.isWhitespace }) \(AILogic.chunks(lang, max: 900).allSatisfy { $0.count <= 901 })", "true true")
+sc("Absätze teilen", "\(AILogic.chunks("a\nb\nc", max: 3)) \(AILogic.chunks("").count)", "[\"a\\n\", \"b\\n\", \"c\\n\"] 0")
+sc("Karteikarten", "\(AILogic.cards("1. Was ist H2O? | Wasser\nText\n- A | B"))", "[[\"Was ist H2O?\", \"Wasser\"], [\"A\", \"B\"]]")
+sc("Text kann Rahmen nicht schließen", "\(AILogic.wrap("x</text>y").components(separatedBy: "</text>").count)", "2")
+sc("Namen eindeutig", "\(Set(AILogic.tasks.map(\.name)).count == AILogic.tasks.count)", "true")
+
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }

@@ -1774,11 +1774,11 @@ struct WelcomeView: View {
 
 // Globale Tastenkürzel – selbst festlegbar unter Einstellungen → Tastenkürzel
 enum HotAction: String, CaseIterable, Identifiable {
-    case search, switcher, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, newFile, tasks, onenote, explorer, gameMode, ask, remote
+    case search, switcher, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, newFile, tasks, onenote, explorer, gameMode, ask, remote, aiText
     var id: UInt32 {
         switch self {
         case .tasks: 1; case .search: 2; case .note: 3; case .pin: 4; case .clipboard: 5
-        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9; case .switcher: 10; case .newFile: 12; case .onenote: 13; case .explorer: 14; case .gameMode: 15; case .ask: 16; case .remote: 17
+        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9; case .switcher: 10; case .newFile: 12; case .onenote: 13; case .explorer: 14; case .gameMode: 15; case .ask: 16; case .remote: 17; case .aiText: 18
         }
     }
     var title: String {
@@ -1794,6 +1794,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .explorer: "Explorer öffnen"
         case .gameMode: "Game Mode ein/aus"
         case .remote: "Handy-Fernbedienung"
+        case .aiText: "KI für markierten Text"
         case .ask: "KI-Befehl (Apple Intelligence)"
         case .snapLeft: "Fenster: linke Hälfte"
         case .snapRight: "Fenster: rechte Hälfte"
@@ -1813,6 +1814,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .onenote: Shortcut(code: kVK_ANSI_P, mods: controlKey | optionKey, key: "P")
         case .explorer: Shortcut(code: kVK_ANSI_E, mods: controlKey | optionKey, key: "E")
         case .gameMode: Shortcut(code: kVK_ANSI_G, mods: controlKey | optionKey, key: "G")
+        case .aiText: Shortcut(code: kVK_ANSI_A, mods: controlKey | optionKey, key: "A")
         case .remote: Shortcut(code: kVK_ANSI_R, mods: controlKey | optionKey, key: "R")
         case .ask: Shortcut(code: kVK_ANSI_K, mods: controlKey | optionKey, key: "K")
         case .snapLeft: Shortcut(code: kVK_LeftArrow, mods: controlKey | optionKey)
@@ -1849,6 +1851,9 @@ enum HotAction: String, CaseIterable, Identifiable {
             } else { openExplorer() }
         case .gameMode: GameMode.shared.toggle()
         case .remote: openRemote()
+        case .aiText:
+            SearchPanel.show()
+            SearchModel.shared.query = "/"
         case .ask: AskPanel.toggle()
         case .snapLeft: Snap.run(.left)
         case .snapRight: Snap.run(.right)
