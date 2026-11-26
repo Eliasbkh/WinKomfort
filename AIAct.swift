@@ -89,7 +89,7 @@ enum AIMemory {
             // Erst nach deinem Klick wird etwas eingetragen
             return Outcome(text: kind == .eventNew ? L("So trage ich es ein:", "I'll add this:") : L("So erinnere ich dich:", "I'll remind you:"),
                            cards: [AICard(kind: kind == .eventNew ? .newEvent : .newReminder, title: t, start: w?.date, hasTime: w?.hasTime)])
-        case .calendar: return try await calendar(q)
+        case .calendar: return ActLogic.isBriefing(q) ? try await briefing(q) : try await calendar(q)
         case .reminders: return try await reminders()
         case .files:
             status(L("Sucht Dateien", "Searching files"))
@@ -133,6 +133,23 @@ enum AIMemory {
             AICard(kind: .event, title: e.title ?? "", detail: (one ? "" : e.startDate.formatted(.dateTime.weekday(.abbreviated).day().month()) + " · ") + (e.isAllDay ? L("ganztägig", "all day") : e.startDate.formatted(date: .omitted, time: .shortened) + " – " + e.endDate.formatted(date: .omitted, time: .shortened)) + (e.location.map { $0.isEmpty ? "" : " · " + String($0.prefix(60)) } ?? ""), start: e.startDate)
         }
         return Outcome(text: L("\(r.title.prefix(1).uppercased() + r.title.dropFirst()): \(ev.count == 1 ? "1 Termin" : "\(ev.count) Termine").", "\(r.title.prefix(1).uppercased() + r.title.dropFirst()): \(ev.count) event\(ev.count == 1 ? "" : "s")."), cards: Array(cards))
+    }
+    // Tagesüberblick: Stunden, Fälliges, Klausuren bald, Termine, Erinnerungen – ohne Rechte zu verlangen, die fehlen
+    private static func briefing(_ q: String) async throws -> Outcome {
+        let cal = ActLogic.cal, d = ActLogic.when(q)?.date ?? Date(), b = School.shared.book, start = cal.startOfDay(for: d)
+        let day = cal.isDateInToday(d) ? L("Heute", "Today") : cal.isDateInTomorrow(d) ? L("Morgen", "Tomorrow") : d.formatted(.dateTime.weekday(.wide))
+        var lines = ["**\(day), \(d.formatted(.dateTime.day().month(.wide)))**"]
+        let l = Plan.lessons(b, on: d)
+        if !b.lessons.isEmpty || !b.dated.isEmpty { lines.append("- " + (l.isEmpty ? L("Kein Unterricht", "No classes") : L("\(l.count) Stunden: ", "\(l.count) classes: ") + l.map(\.subject).joined(separator: ", ") + " (\(Plan.clock(l.first!.start))–\(Plan.clock(l.last!.end)))")) }
+        let due = b.tasks.filter { !$0.done && $0.due <= cal.date(byAdding: .day, value: 1, to: start)! }
+        if !due.isEmpty { lines.append("- " + L("Fällig: ", "Due: ") + due.prefix(5).map { ($0.subject.isEmpty ? "" : $0.subject + ": ") + $0.text }.joined(separator: "; ")) }
+        let exams = b.tasks.filter { !$0.done && $0.exam && $0.due >= start && $0.due < cal.date(byAdding: .day, value: 8, to: start)! }
+        if !exams.isEmpty { lines.append("- " + L("Klausuren bald: ", "Exams soon: ") + exams.map { "\($0.subject.isEmpty ? $0.text : $0.subject) \($0.due.formatted(.dateTime.weekday(.abbreviated)))" }.joined(separator: ", ")) }
+        var cards: [AICard] = []
+        if EKEventStore.authorizationStatus(for: .event) == .fullAccess, let ev = try? await calendar(q) { cards += ev.cards; if ev.cards.isEmpty, let t = ev.text { lines.append("- " + t) } }
+        if cal.isDateInToday(d), EKEventStore.authorizationStatus(for: .reminder) == .fullAccess, let r = try? await reminders() { cards += r.cards.prefix(5) }
+        if lines.count == 1, cards.isEmpty { lines.append(L("Nichts eingetragen. Stundenplan und Aufgaben findest du unter „/schule“.", "Nothing planned. Add your timetable and tasks via “/school”.")) }
+        return Outcome(text: lines.joined(separator: "\n"), cards: cards)
     }
     private static func reminders() async throws -> Outcome {
         try await allowed(.reminder)

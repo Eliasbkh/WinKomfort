@@ -583,7 +583,7 @@ final class ExplorerWindow: NSWindow {
     w.tabbingIdentifier = "WinKomfortExplorer" // macOS-Tabs: ⌘T, Tabs ziehen, ⌘⇧\\ Übersicht
     // neue Fenster wie in macOS eingestellt; ⌘T immer als Tab – aber nie an ein Fenster auf einem anderen Schreibtisch (sonst springt macOS dorthin)
     w.tabbingMode = split || !explorerWindows.contains(where: \.isOnActiveSpace) ? .disallowed : .automatic
-    w.collectionBehavior.formUnion([.moveToActiveSpace, .fullScreenAuxiliary])
+    stayHere(w)
     w.model = model
     model.window = w
     if let query, !query.isEmpty { model.searching = true; model.query = query } // z. B. von der KI: „finde meine Bewerbung“

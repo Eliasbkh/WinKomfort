@@ -432,6 +432,8 @@ let lay1 = HandLogic.layout("Ta ba", hf, in: CGRect(x: 0, y: 0, width: 200, heig
 let small = HandLogic.layout("ab ab ab ab ab ab", hf, in: CGRect(x: 0, y: 0, width: 30, height: 15), size: 10)
 sc("Handschrift Setzen", "\(lay1.strokes == lay2.strokes) \(lay1.fits) \(small.fits) \(HandLogic.fit("ab ab ab ab ab ab", hf, in: CGRect(x: 0, y: 0, width: 30, height: 15)) < 10) \(HandLogic.pick("ä", hf) != nil) \(HandLogic.pick("Ä", hf) != nil) \(HandLogic.slots.count) \(HandLogic.box(HandLogic.slots.count - 1).maxY < 800)", "true true false true true true 170 true")
 sc("Glätten", "\(HandLogic.simplify((0...10).map { CGPoint(x: CGFloat($0), y: 0) }, 0.5).count) \(HandLogic.smooth([CGPoint(x: 0, y: 0), CGPoint(x: 4, y: 0), CGPoint(x: 4, y: 4)]).count)", "2 6")
+sc("Tagesüberblick", "\(["Was steht heute an?", "Wie sieht mein Tag aus", "was muss ich morgen alles", "Gib mir einen Überblick"].map(ActLogic.isBriefing)) \(["Habe ich morgen einen Termin beim Zahnarzt?", "Trag Training morgen ein", "Mathe Hausaufgabe bis Freitag"].map(ActLogic.isBriefing))", "[true, true, true, true] [false, false, false]")
+sc("Überblick zugeordnet", "\(["Gib mir einen Überblick", "was muss ich morgen alles", "Was steht heute an?"].map { ActLogic.candidates($0).contains(.calendar) })", "[true, true, true]")
 sc("Riesige Eingabe", "\(Calc.evaluate(String(repeating: "-", count: 300_000) + "1") == nil) \(Calc.evaluate("--2+3") ?? 0)", "true 5.0")
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }

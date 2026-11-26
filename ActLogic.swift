@@ -37,7 +37,7 @@ enum ActLogic {
         (.timer, #"\btimer\b|countdown|\bweck mich in\b"#),
         (.reminderNew, #"erinner(e|st)?( du)? mich|remind me|(erinnerung|aufgabe|to-?do).*(erstell|anleg|hinzu|an\b)|(erstell|leg|setz).*(erinnerung|aufgabe|to-?do)"#),
         (.eventNew, #"(trag|leg|erstell|plan|setz|schreib|add|create|schedule)\w* .*(termin|kalender|treffen|event|meeting|calendar|\bein\b$)|\btermin .*(ein|anlegen|erstellen|machen|hinzufügen)\b"#),
-        (.calendar, #"kalender|\btermine?\b|steht .*\ban\b|\bmein(en)? (tag|woche)\b|hab(e)? ich .*(heute|morgen|woche|vor\b|zeit|frei)|calendar|my (day|week)|am i free"#),
+        (.calendar, #"kalender|\btermine?\b|steht .*\ban\b|überblick|briefing|was muss ich (heute|morgen)|\bmein(en)? (tag|woche)\b|hab(e)? ich .*(heute|morgen|woche|vor\b|zeit|frei)|calendar|my (day|week)|am i free"#),
         (.reminders, #"erinnerungen|to-?dos?\b|(offene|meine|welche) aufgaben|my (reminders|tasks)|noch zu tun"#),
         (.files, #"(find|such|wo (ist|liegt|hab)|zeig|öffne|open|where).*(datei|dokument|pdf|bild|foto|präsentation|referat|word|excel|tabelle|file|document|photo|presentation)|\bfinde\b.*\bmein|\bwo (ist|liegt) (mein|das|die|der)\b"#),
         (.screen, #"bildschirm(?!.*\baus\b)|\bscreen\b(?!.*\boff\b)|\bdas hier\b|auf (dieser|der) (seite|webseite)|diese[rsn]? (seite|webseite|mail|e-mail|artikel|text|aufgabe|fenster|fehlermeldung|tabelle|chat)|was (siehst|sehe)|this (page|window|email|error)"#),
@@ -48,6 +48,10 @@ enum ActLogic {
         (.music, #"\bmusik\b|\bsong\b|\blied\b|nächste[rsn]? (titel|track)|weiterspielen|\bmusic\b|next track"#),
         (.mac, #"\b(öffne|starte|öffnest|open|launch|start)\b|\bmach\b.*\b(auf|an|aus|lauter|leiser|dunkel|hell|größer)\b|lauter|leiser|lautstärke|\bstumm\b|\bvolume\b|dunkelmodus|dark ?mode|hellmodus|light ?mode|fenster.*(links|rechts|groß|maxim|vollbild)|game ?mode|spielmodus|\bwach\b|nicht (schlafen|einschlafen)|stay awake|(bildschirm|display).*\baus\b|bildschirmfoto|screenshot|task-?manager|zwischenablage|einstellungen|notier|notiz"#),
     ]
+    // „Was steht heute an?“, „Mein Tag“: alles zusammen statt nur Kalender
+    static func isBriefing(_ q: String) -> Bool {
+        q.lowercased().range(of: #"was steht .*\ban\b|\bmein(en)? tag\b|tagesüberblick|überblick|briefing|wie sieht (mein|der) (tag|morgen)|was (muss|hab|habe) ich (heute|morgen)( alles)?( vor| zu tun)?\W*$|\bmy day\b"#, options: .regularExpression) != nil
+    }
     static func candidates(_ q: String) -> [Kind] {
         let l = q.lowercased()
         guard l.count < 400 else { return [] } // langer Text ist Material, kein Befehl

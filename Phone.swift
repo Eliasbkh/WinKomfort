@@ -473,6 +473,7 @@ private final class Flag: @unchecked Sendable { // über Threads: nur setzen und
         w.isReleasedWhenClosed = false
         w.minSize = NSSize(width: 520, height: 320)
         w.tabbingMode = .disallowed // neben dem Explorer, damit man hin- und herziehen kann
+        stayHere(w)
         let host = NSHostingController(rootView: PhoneView(model: PhoneModel.shared))
         host.sizingOptions = []
         w.contentViewController = host

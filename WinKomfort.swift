@@ -1755,7 +1755,7 @@ struct WelcomeView: View {
         w.isMovableByWindowBackground = true
         w.isReleasedWhenClosed = false
         w.contentViewController = NSHostingController(rootView: WelcomeView { windows["welcome"]?.close() })
-        w.center()
+        w.center(); stayHere(w)
         windows["welcome"] = w
     }
     UserDefaults.standard.set(true, forKey: "welcomeShown")
@@ -1779,8 +1779,7 @@ struct WelcomeView: View {
         }
         windows[id] = w
     }
-    // auf dem Schreibtisch aufgehen, auf dem man gerade ist (auch über einer Vollbild-App), statt dorthin zu springen
-    w.collectionBehavior.formUnion([.moveToActiveSpace, .fullScreenAuxiliary])
+    stayHere(w)
     NSApp.activate(ignoringOtherApps: true)
     w.makeKeyAndOrderFront(nil)
 }
@@ -3903,6 +3902,9 @@ struct SettingsRoot: View {
     }
 }
 
+// Auf dem Schreibtisch aufgehen, auf dem man gerade ist (auch über einer Vollbild-App), statt dorthin zu springen
+@MainActor func stayHere(_ w: NSWindow) { w.collectionBehavior.formUnion([.moveToActiveSpace, .fullScreenAuxiliary]) }
+
 // Einstellungsfenster wie die Systemeinstellungen: Seitenleiste, Suche, Inhalt rechts
 @MainActor func openSettingsWindow(_ pane: Pane? = nil) {
     if let pane { SettingsNav.shared.query = ""; SettingsNav.shared.pane = pane }
@@ -3921,6 +3923,7 @@ struct SettingsRoot: View {
         if !w.setFrameUsingName("WinKomfortSettings") { w.center() }
         windows["settings"] = w
     }
+    if let w = windows["settings"] { stayHere(w) }
     NSApp.activate(ignoringOtherApps: true)
     windows["settings"]?.makeKeyAndOrderFront(nil)
     calmFocus("settings")

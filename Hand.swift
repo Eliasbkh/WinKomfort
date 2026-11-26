@@ -241,7 +241,7 @@ enum SheetReader {
                 texts.filter { $0.0.maxY <= y + k && $0.0.maxY > y - 130 * k && $0.0.maxX > x0 - 10 * k && $0.0.minX < x1 }.sorted { $0.0.minY < $1.0.minY }.suffix(4).map(\.1).joined(separator: " ")
             }
             // Tabellen aus dunklen Linien
-            let hs = runs(g, w, h, horizontal: true, dark: 0...170, minLen: w / 10), vs = runs(g, w, h, horizontal: false, dark: 0...170, minLen: Int(10 * k))
+            let hs = runs(g, w, h, horizontal: true, dark: 0...205, minLen: w / 10), vs = runs(g, w, h, horizontal: false, dark: 0...205, minLen: Int(10 * k)) // auch hellgrau gedruckte Tabellen
             var cells: [CGRect] = []
             let rows = hs.sorted { $0.at < $1.at }
             for (i, top) in rows.enumerated() {
@@ -261,7 +261,7 @@ enum SheetReader {
                 out.append(SheetField(page: pi, rect: CGRect(x: inner.minX / k, y: inner.minY / k, width: inner.width / k, height: inner.height / k), lines: [], context: ctxt))
             }
             // Schreiblinien: hellgraue lange Linien, in Gruppen mit gleichem Abstand
-            let light = runs(g, w, h, horizontal: true, dark: 171...238, minLen: w / 5).filter { l in !cells.contains { $0.insetBy(dx: -4, dy: -4).contains(CGPoint(x: (l.a + l.b) / 2, y: l.at)) } }.sorted { $0.at < $1.at }
+            let light = runs(g, w, h, horizontal: true, dark: 206...238, minLen: w / 5).filter { l in !cells.contains { $0.insetBy(dx: -4, dy: -4).contains(CGPoint(x: (l.a + l.b) / 2, y: l.at)) } }.sorted { $0.at < $1.at }
             var group: [Seg] = []
             func flush() {
                 guard let f = group.first, let l = group.last else { return }

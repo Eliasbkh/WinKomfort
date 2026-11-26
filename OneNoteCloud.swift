@@ -375,7 +375,7 @@ enum PDFQuality: String, CaseIterable, Identifiable {
         w.title = L("Bei Microsoft anmelden – für OneNote als PDF", "Sign in to Microsoft – for OneNote to PDF")
         w.contentView = web
         w.isReleasedWhenClosed = false
-        w.center()
+        w.center(); stayHere(w)
         loginWindow = w
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)

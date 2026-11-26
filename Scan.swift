@@ -667,6 +667,7 @@ private struct ScanResult: View {
                     Button(L("Zusammenfassen", "Summarize")) { s.ask(L("Fasse dieses Blatt kurz und verständlich zusammen.", "Summarize this sheet briefly.")) }
                     Button(L("Erklären", "Explain")) { s.ask(L("Erkläre mir einfach, worum es auf diesem Blatt geht und was ich tun soll.", "Explain simply what this sheet is about and what I should do.")) }
                     Button(L("Lernkarten", "Flashcards")) { s.cards() }
+                    Button(L("Als Aufgabe eintragen", "Add as task")) { s.homework() }
                     Button(L("Frage stellen …", "Ask…")) { s.ask("") }
                 }
             }
@@ -712,6 +713,22 @@ extension Scanner {
         if q.isEmpty { AIChat.shared.docs = [doc] } else { AIChat.shared.ask(q, docs: [doc]) } // ohne Frage nur anhängen, du tippst selbst
     }
     // Lernkarten direkt in Schule › Lernkarten
+    // Arbeitsauftrag erkennen und in Schule › Aufgaben eintragen (Fach und Termin wie beim Eintippen)
+    func homework() {
+        guard AI.ready(), !text.isEmpty else { return }
+        thinking = true
+        let t = text, subjects = Plan.subjects(School.shared.book), name = about?.subject ?? ""
+        Task {
+            defer { thinking = false }
+            guard #available(macOS 26.0, *) else { return }
+            let s = LanguageModelSession(instructions: "Du liest gescannte Schulblätter und formulierst den Arbeitsauftrag als eine kurze Zeile, wie ein Schüler sie ins Hausaufgabenheft schreibt: Fach, was zu tun ist, und wenn auf dem Blatt ein Termin steht, „bis …“. Nur diese eine Zeile.")
+            let q = (subjects.isEmpty ? "" : "Fächer: " + subjects.joined(separator: ", ") + ". ") + (name.isEmpty ? "" : "Vermutetes Fach: \(name). ") + "Text des Blatts:\n" + String(t.prefix(2500))
+            guard let line = try? await s.respond(to: q).content.trimmingCharacters(in: .whitespacesAndNewlines), !line.isEmpty, let k = School.shared.add(String(line.prefix(200))) else {
+                Toast.show(L("Ich habe keinen Arbeitsauftrag gefunden", "Couldn't find an assignment"), symbol: "checklist", seconds: 3); return
+            }
+            Toast.show(L("Eingetragen bis \(k.due.formatted(.dateTime.weekday(.wide).day().month())): ", "Added for \(k.due.formatted(.dateTime.weekday(.wide).day().month())): ") + (k.subject.isEmpty ? "" : k.subject + " · ") + k.text, symbol: "checklist", seconds: 4)
+        }
+    }
     func cards() {
         guard AI.ready(), !text.isEmpty else { return }
         thinking = true
