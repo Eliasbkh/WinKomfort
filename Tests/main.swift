@@ -407,6 +407,7 @@ sc("Scan Hinweis", "\(ScanLogic.hint(nil, previous: nil)) \(ScanLogic.hint(sq, p
 sc("Scan Fortschritt", "\(ScanLogic.step(0.5, .hold, dt: 0.13)) \(ScanLogic.step(0.5, .moving, dt: 0.1)) \(ScanLogic.step(0.9, .empty, dt: 0.1)) \(ScanLogic.step(0.99, .hold, dt: 1))", "0.6 0.3 0.0 1.0")
 let sz = ScanLogic.sides(sq, image: CGSize(width: 1920, height: 1440))
 sc("Scan Papier", "\(sz.width.rounded()) \(sz.height.rounded()) \(ScanLogic.paper(sz).kind) \(ScanLogic.paper(CGSize(width: 800, height: 1131)).size) \(ScanLogic.paper(CGSize(width: 1400, height: 1000)).size) \(ScanLogic.paper(CGSize(width: 500, height: 800)).kind) \(ScanLogic.pixels(ScanLogic.paper(CGSize(width: 800, height: 1131))))", "768.0 1152.0 a4 (595.0, 842.0) (842.0, 595.0) card (1653.0, 2339.0)")
+sc("Scan KI-Zeile", "\(ScanLogic.guess("**Titel:** „Lyrik: Handwerkszeug“ | Arbeitsblatt | Deutsch")!) \(ScanLogic.guess("Rechnung | Rechnung | leer")!) \(ScanLogic.guess("keine Ahnung") == nil)", "(title: \"Lyrik: Handwerkszeug\", kind: \"Arbeitsblatt\", subject: \"Deutsch\") (title: \"Rechnung\", kind: \"Rechnung\", subject: \"\") true")
 sc("Riesige Eingabe", "\(Calc.evaluate(String(repeating: "-", count: 300_000) + "1") == nil) \(Calc.evaluate("--2+3") ?? 0)", "true 5.0")
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }

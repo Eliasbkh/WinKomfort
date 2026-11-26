@@ -11,6 +11,15 @@ struct ScanQuad: Equatable {
         return abs((0..<4).reduce(0) { $0 + p[$1].x * p[($1 + 1) % 4].y - p[($1 + 1) % 4].x * p[$1].y }) / 2
     }
     func moved(from o: ScanQuad) -> CGFloat { zip(points, o.points).map { hypot($0.x - $1.x, $0.y - $1.y) }.max() ?? 1 }
+    // Ecke für Ecke der Median der letzten Messungen: einzelne Ausreißer verschwinden
+    static func median(_ qs: [ScanQuad]) -> ScanQuad? {
+        guard !qs.isEmpty else { return nil }
+        func m(_ k: KeyPath<ScanQuad, CGPoint>) -> CGPoint {
+            let x = qs.map { $0[keyPath: k].x }.sorted(), y = qs.map { $0[keyPath: k].y }.sorted()
+            return CGPoint(x: x[x.count / 2], y: y[y.count / 2])
+        }
+        return ScanQuad(tl: m(\.tl), tr: m(\.tr), br: m(\.br), bl: m(\.bl))
+    }
     static func mix(_ a: ScanQuad, _ b: ScanQuad, _ t: CGFloat) -> ScanQuad {
         func m(_ p: CGPoint, _ q: CGPoint) -> CGPoint { CGPoint(x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t) }
         return ScanQuad(tl: m(a.tl, b.tl), tr: m(a.tr, b.tr), br: m(a.br, b.br), bl: m(a.bl, b.bl))
@@ -18,12 +27,13 @@ struct ScanQuad: Equatable {
 }
 
 enum ScanLogic {
-    enum Hint: Equatable { case empty, small, cutNear, cutFar, cutSide, moving, hold, done }
+    enum Hint: Equatable { case empty, small, cutNear, cutFar, cutSide, hand, moving, hold, done }
     static let edge: CGFloat = 0.015, still: CGFloat = 0.012, holdSeconds = 1.3
 
     // Was soll man tun? Unten im Desk-View-Bild liegt die Seite zu dir, oben die zum Mac
-    static func hint(_ q: ScanQuad?, previous: ScanQuad?) -> Hint {
+    static func hint(_ q: ScanQuad?, previous: ScanQuad?, hand: Bool = false) -> Hint {
         guard let q else { return .empty }
+        if hand { return .hand }
         let p = q.points
         if p.contains(where: { $0.y > 1 - edge }) { return .cutNear }
         if p.contains(where: { $0.y < edge }) { return .cutFar }
@@ -36,7 +46,7 @@ enum ScanLogic {
     static func step(_ progress: Double, _ h: Hint, dt: Double) -> Double {
         switch h {
         case .hold: return min(1, progress + dt / holdSeconds)
-        case .moving: return max(0, progress - dt * 2)
+        case .moving, .hand: return max(0, progress - dt * 2)
         default: return 0
         }
     }
@@ -65,5 +75,13 @@ enum ScanLogic {
     static func fileName(_ d: Date) -> String {
         let f = DateFormatter(); f.locale = Locale(identifier: "de_DE"); f.dateFormat = "yyyy-MM-dd 'um' HH.mm.ss"
         return "Scan " + f.string(from: d)
+    }
+    // KI-Antwort „Titel | Art | Fach“ → Teile; Anführungszeichen, Markdown und „Titel:“-Vorsätze weg
+    static func guess(_ r: String) -> (title: String, kind: String, subject: String)? {
+        guard let line = r.split(separator: "\n").map(String.init).first(where: { $0.contains("|") }) else { return nil }
+        let p = line.split(separator: "|", omittingEmptySubsequences: false).map { $0.replacingOccurrences(of: #"^\s*(\*\*)?(titel|art|fach)\s*:\s*"#, with: "", options: [.regularExpression, .caseInsensitive]).trimmingCharacters(in: CharacterSet(charactersIn: " *\"„“'`")) }
+        guard p.count >= 2, !p[0].isEmpty else { return nil }
+        let s = p.count > 2 && !["-", "leer", "keins", "kein", "none"].contains(p[2].lowercased()) ? p[2] : ""
+        return (String(p[0].prefix(60)), String(p[1].prefix(30)), String(s.prefix(30)))
     }
 }

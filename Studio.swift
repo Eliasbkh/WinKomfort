@@ -109,7 +109,7 @@ struct PlotSpec: Equatable {
         var f: [MathNode] = []
         for p in t.split(separator: ";").prefix(4) {
             guard var n = MathExpr.parse(String(p)) else { return nil }
-            if let (a, b) = MathExpr.sides(n), [MathNode.id("y"), .mul([.id("f"), .paren("(", .id("x"), ")")])].contains(a) { n = b } // y = …, f(x) = …
+            if let (a, b) = MathExpr.sides(n), a == .id("y") || "fghpqk".contains(where: { a == .mul([.id(String($0)), .paren("(", .id("x"), ")")]) }) { n = b } // y = …, f(x) = …, g(x) = …
             guard MathExpr.variables(n).isSubset(of: ["x"]) else { return nil }
             f.append(n)
         }
@@ -120,9 +120,12 @@ struct PlotSpec: Equatable {
         for n in f { for i in 0...300 { if let v = MathExpr.eval(n, ["x": x.lowerBound + step * Double(i) + 1e-7]), v.isFinite, abs(v) < 1e6 { ys.append(v) } } }
         ys.sort()
         guard !f.isEmpty, ys.count > 2 else { return nil }
+        let rawLo = ys.first!, rawHi = ys.last!
         ys = Array(ys[(ys.count / 12)...(ys.count - 1 - ys.count / 12)])
         var lo = ys.first!, hi = ys.last!
         let wide = x.upperBound - x.lowerBound
+        // Polstelle (1/x, tan x): die Äste sollen sichtbar hochlaufen statt flach abgeschnitten zu wirken
+        if r == nil, rawHi - hi > 10 * max(hi - lo, 0.1) || lo - rawLo > 10 * max(hi - lo, 0.1) { lo = min(lo, -wide / 4); hi = max(hi, wide / 4) }
         if r == nil, hi - lo > wide * 4 { lo = max(lo, -wide); hi = min(hi, wide) }
         if hi <= lo { lo -= 1; hi = lo + 2 }
         let pad = max((hi - lo) * 0.15, 0.2)
@@ -153,13 +156,13 @@ struct PlotView: View {
             var v = (x.lowerBound / sx).rounded(.up) * sx
             while v <= x.upperBound {
                 line(CGPoint(x: px(v), y: 0), CGPoint(x: px(v), y: size.height), 0.1, 1)
-                if abs(v) > sx / 2 { c.draw(Text(Calc.format((v * 1e6).rounded() / 1e6)).font(.system(size: 11)).foregroundStyle(.secondary), at: CGPoint(x: px(v), y: min(ax + 9, size.height - 7))) }
+                if abs(v) > sx / 2 { c.draw(Text(Calc.format((v * 1e6).rounded() / 1e6)).font(.system(size: 11)).foregroundStyle(.secondary), at: CGPoint(x: min(max(px(v), 12), size.width - 12), y: min(ax + 9, size.height - 7))) } // Randzahlen nicht abschneiden
                 v += sx
             }
             v = (y.lowerBound / sy).rounded(.up) * sy
             while v <= y.upperBound {
                 line(CGPoint(x: 0, y: py(v)), CGPoint(x: size.width, y: py(v)), 0.1, 1)
-                if abs(v) > sy / 2 { c.draw(Text(Calc.format((v * 1e6).rounded() / 1e6)).font(.system(size: 11)).foregroundStyle(.secondary), at: CGPoint(x: max(ay - 6, 26), y: py(v)), anchor: .trailing) }
+                if abs(v) > sy / 2 { c.draw(Text(Calc.format((v * 1e6).rounded() / 1e6)).font(.system(size: 11)).foregroundStyle(.secondary), at: CGPoint(x: max(ay - 6, 26), y: min(max(py(v), 8), size.height - 8)), anchor: .trailing) }
                 v += sy
             }
             line(CGPoint(x: 0, y: ax), CGPoint(x: size.width, y: ax), 0.7, 1.5)

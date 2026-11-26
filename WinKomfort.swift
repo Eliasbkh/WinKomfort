@@ -1771,6 +1771,8 @@ struct WelcomeView: View {
         }
         windows[id] = w
     }
+    // auf dem Schreibtisch aufgehen, auf dem man gerade ist (auch über einer Vollbild-App), statt dorthin zu springen
+    w.collectionBehavior.formUnion([.moveToActiveSpace, .fullScreenAuxiliary])
     NSApp.activate(ignoringOtherApps: true)
     w.makeKeyAndOrderFront(nil)
 }
