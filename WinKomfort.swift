@@ -1777,11 +1777,11 @@ struct WelcomeView: View {
 
 // Globale Tastenkürzel – selbst festlegbar unter Einstellungen → Tastenkürzel
 enum HotAction: String, CaseIterable, Identifiable {
-    case search, switcher, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, newFile, tasks, onenote, explorer, gameMode, ask, remote, aiText, shelf, school
+    case search, switcher, note, clipboard, pin, snapLeft, snapRight, snapMax, snapRestore, newFile, tasks, onenote, explorer, gameMode, ask, remote, aiText, shelf, school, scan
     var id: UInt32 {
         switch self {
         case .tasks: 1; case .search: 2; case .note: 3; case .pin: 4; case .clipboard: 5
-        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9; case .switcher: 10; case .newFile: 12; case .onenote: 13; case .explorer: 14; case .gameMode: 15; case .ask: 16; case .remote: 17; case .aiText: 18; case .shelf: 19; case .school: 20
+        case .snapLeft: 6; case .snapRight: 7; case .snapMax: 8; case .snapRestore: 9; case .switcher: 10; case .newFile: 12; case .onenote: 13; case .explorer: 14; case .gameMode: 15; case .ask: 16; case .remote: 17; case .aiText: 18; case .shelf: 19; case .school: 20; case .scan: 21
         }
     }
     var title: String {
@@ -1801,6 +1801,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .ask: "KI fragen"
         case .shelf: "Ablage ein-/ausblenden"
         case .school: "Schule öffnen"
+        case .scan: "Blatt scannen (Desk View)"
         case .snapLeft: "Fenster: linke Hälfte"
         case .snapRight: "Fenster: rechte Hälfte"
         case .snapMax: "Fenster: maximieren"
@@ -1822,6 +1823,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .aiText: Shortcut(code: kVK_ANSI_A, mods: controlKey | optionKey, key: "A")
         case .shelf: Shortcut(code: kVK_ANSI_D, mods: controlKey | optionKey, key: "D")
         case .school: Shortcut(code: kVK_ANSI_S, mods: controlKey | optionKey, key: "S")
+        case .scan: Shortcut(code: kVK_ANSI_B, mods: controlKey | optionKey, key: "B")
         case .remote: Shortcut(code: kVK_ANSI_R, mods: controlKey | optionKey, key: "R")
         case .ask: Shortcut(code: kVK_ANSI_K, mods: controlKey | optionKey, key: "K")
         case .snapLeft: Shortcut(code: kVK_LeftArrow, mods: controlKey | optionKey)
@@ -1864,6 +1866,7 @@ enum HotAction: String, CaseIterable, Identifiable {
         case .ask: AIPanel.toggle()
         case .shelf: Shelf.shared.toggle()
         case .school: School.open()
+        case .scan: Scanner.open()
         case .snapLeft: Snap.run(.left)
         case .snapRight: Snap.run(.right)
         case .snapMax: Snap.run(.max)
@@ -3687,6 +3690,7 @@ struct MenuContent: View {
         Button("Suche …") { SearchPanel.show() }
         Button(L("KI fragen …", "Ask AI…")) { AIPanel.show() }
         Button(L("Schule …", "School…")) { School.open() }
+        Button(L("Blatt scannen …", "Scan sheet…")) { Scanner.open() }
         Button("Explorer …") { openExplorer() }
         Button("Schnellnotiz") { QuickNote.shared.toggle() }
         if !Pins.shared.pinned.isEmpty { Button("Alle angehefteten Fenster lösen") { Pins.shared.unpinAll() } }
