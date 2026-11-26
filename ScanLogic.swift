@@ -83,6 +83,11 @@ enum ScanLogic {
     }
     // Pixelgröße fürs Ergebnis: 200 dpi, mehr gibt die Kamera nicht ehrlich her
     static func pixels(_ p: Paper, dpi: CGFloat = 200) -> CGSize { CGSize(width: (p.size.width / 72 * dpi).rounded(), height: (p.size.height / 72 * dpi).rounded()) }
+    // So viele Pixel, wie die Kamera auf dem Blatt wirklich liefert (kein künstliches Aufblasen), höchstens 200 dpi
+    static func pixels(_ p: Paper, source: CGSize) -> CGSize {
+        let most = pixels(p), long = max(source.width, source.height), h = min(most.height, max(long * (p.size.height >= p.size.width ? 1 : p.size.height / p.size.width), 800))
+        return CGSize(width: (h * p.size.width / p.size.height).rounded(), height: h.rounded())
+    }
     static func fileName(_ d: Date) -> String {
         let f = DateFormatter(); f.locale = Locale(identifier: "de_DE"); f.dateFormat = "yyyy-MM-dd 'um' HH.mm.ss"
         return "Scan " + f.string(from: d)

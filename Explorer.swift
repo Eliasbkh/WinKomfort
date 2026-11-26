@@ -34,6 +34,38 @@ enum ExplorerStyle: String, CaseIterable, Identifiable {
     }
 }
 
+// Schnellfilter über der Liste: nur Arten, die im Ordner vorkommen
+enum FileFilter: String, CaseIterable {
+    case all, folders, images, documents, pdf, video, audio, archives, code
+    var title: String {
+        switch self {
+        case .all: L("Alle", "All"); case .folders: L("Ordner", "Folders"); case .images: L("Bilder", "Images"); case .documents: L("Dokumente", "Documents")
+        case .pdf: "PDF"; case .video: L("Videos", "Videos"); case .audio: L("Musik", "Audio"); case .archives: L("Archive", "Archives"); case .code: "Code"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .all: "square.grid.2x2"; case .folders: "folder"; case .images: "photo"; case .documents: "doc.text"; case .pdf: "doc.richtext"
+        case .video: "film"; case .audio: "music.note"; case .archives: "archivebox"; case .code: "chevron.left.forwardslash.chevron.right"
+        }
+    }
+    func match(_ f: FileItem) -> Bool {
+        if self == .all { return true }
+        if f.opensAsFolder { return self == .folders }
+        guard let t = UTType(filenameExtension: f.url.pathExtension.lowercased()) else { return false }
+        switch self {
+        case .images: return t.conforms(to: .image)
+        case .pdf: return t.conforms(to: .pdf)
+        case .video: return t.conforms(to: .movie) || t.conforms(to: .video)
+        case .audio: return t.conforms(to: .audio)
+        case .archives: return t.conforms(to: .archive) || ["zip", "rar", "7z", "gz", "tar", "dmg"].contains(f.url.pathExtension.lowercased())
+        case .code: return t.conforms(to: .sourceCode) || t.conforms(to: .script) || ["json", "xml", "html", "css", "yml", "yaml", "md"].contains(f.url.pathExtension.lowercased())
+        case .documents: return !t.conforms(to: .pdf) && (t.conforms(to: .text) || t.conforms(to: .presentation) || t.conforms(to: .spreadsheet) || ["doc", "docx", "pages", "odt", "rtf", "key", "numbers", "xls", "xlsx", "ppt", "pptx", "one"].contains(f.url.pathExtension.lowercased())) && !FileFilter.code.match(f)
+        default: return false
+        }
+    }
+}
+
 struct FileItem: Identifiable, Hashable, Sendable {
     let url: URL
     let name: String
@@ -51,12 +83,13 @@ struct FileItem: Identifiable, Hashable, Sendable {
 // MARK: - Modell eines Explorer-Fensters
 
 @MainActor final class ExplorerModel: ObservableObject {
-    @Published private(set) var url: URL
+    @Published private(set) var url: URL { didSet { if url != oldValue { filter = .all } } } // neuer Ordner: wieder alles zeigen
     @Published private(set) var items: [FileItem] = []
     @Published var selection: Set<URL> = []
     @Published var batch: [FileItem]?
     @Published var grid: Bool
     @Published var query = "" { didSet { if query != oldValue { scheduleDeepSearch() } } }
+    @Published var filter = FileFilter.all
     @Published private(set) var deepHits: [FileItem] = [] // Treffer in Unterordnern (macOS-Suchindex)
     @Published private(set) var recents = false             // Seitenleiste „Zuletzt benutzt“
     @Published var folderSizes = UserDefaults.standard.bool(forKey: "explorerFolderSizes") {
@@ -95,13 +128,14 @@ struct FileItem: Identifiable, Hashable, Sendable {
     }
 
     var visible: [FileItem] {
-        if recents { return items } // schon nach Datum sortiert
+        if recents { return filter == .all ? items : items.filter(filter.match) } // schon nach Datum sortiert
         let q = query.trimmingCharacters(in: .whitespaces)
         var list = q.isEmpty ? items : items.filter { $0.name.localizedCaseInsensitiveContains(q) }
         if !q.isEmpty {
             let here = Set(list.map(\.url))
             list += deepHits.filter { !here.contains($0.url) }
         }
+        if filter != .all { list = list.filter(filter.match) }
         // Ordner immer zuerst, wie in allen drei Vorbildern
         let sorted = list.sorted(using: sortOrder)
         return sorted.filter(\.opensAsFolder) + sorted.filter { !$0.opensAsFolder }
@@ -547,7 +581,9 @@ final class ExplorerWindow: NSWindow {
     w.isReleasedWhenClosed = false
     w.minSize = NSSize(width: 620, height: 380)
     w.tabbingIdentifier = "WinKomfortExplorer" // macOS-Tabs: ⌘T, Tabs ziehen, ⌘⇧\\ Übersicht
-    w.tabbingMode = split ? .disallowed : .automatic // neue Fenster wie in macOS eingestellt; ⌘T immer als Tab
+    // neue Fenster wie in macOS eingestellt; ⌘T immer als Tab – aber nie an ein Fenster auf einem anderen Schreibtisch (sonst springt macOS dorthin)
+    w.tabbingMode = split || !explorerWindows.contains(where: \.isOnActiveSpace) ? .disallowed : .automatic
+    w.collectionBehavior.formUnion([.moveToActiveSpace, .fullScreenAuxiliary])
     w.model = model
     model.window = w
     if let query, !query.isEmpty { model.searching = true; model.query = query } // z. B. von der KI: „finde meine Bewerbung“
@@ -558,7 +594,7 @@ final class ExplorerWindow: NSWindow {
     w.setContentSize(NSSize(width: 980, height: 620))
     if !split { w.setFrameAutosaveName("WinKomfortExplorer") }
     if !w.setFrameUsingName("WinKomfortExplorer") || w.frame.width < 700 { w.setContentSize(NSSize(width: 980, height: 620)); w.center() }
-    if parent == nil, let last = explorerWindows.last { w.setFrameTopLeftPoint(NSPoint(x: last.frame.minX + 26, y: last.frame.maxY - 26)) }
+    if parent == nil, let last = explorerWindows.last(where: \.isOnActiveSpace) { w.setFrameTopLeftPoint(NSPoint(x: last.frame.minX + 26, y: last.frame.maxY - 26)) }
     var token: NSObjectProtocol?
     token = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
         MainActor.assumeIsolated {
@@ -569,7 +605,7 @@ final class ExplorerWindow: NSWindow {
     }
     explorerWindows.append(w)
     NSApp.activate(ignoringOtherApps: true)
-    if let parent { parent.addTabbedWindow(w, ordered: .above) }
+    if let parent, parent.isOnActiveSpace { parent.addTabbedWindow(w, ordered: .above) }
     w.makeKeyAndOrderFront(nil)
     // Nicht im Suchfeld starten – sonst greifen ↩, Leertaste, ⌫ erst nach einem Klick
     DispatchQueue.main.async { w.makeFirstResponder(nil) }
@@ -932,12 +968,45 @@ struct ExplorerView: View {
         .dropDestination(for: URL.self) { urls, _ in model.transfer(urls, move: sameVolume(urls, p.url), to: p.url); return true }
     }
 
+    // Filter-Chips: nur Arten, die es hier gibt, mit Anzahl
+    @ViewBuilder private var filterBar: some View {
+        let counts = Dictionary(uniqueKeysWithValues: FileFilter.allCases.dropFirst().map { f in (f, model.items.lazy.filter(f.match).count) })
+        let shown = FileFilter.allCases.dropFirst().filter { (counts[$0] ?? 0) > 0 }
+        if shown.count > 1 || model.filter != .all {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach([FileFilter.all] + shown, id: \.self) { f in
+                        let on = model.filter == f
+                        Button { withAnimation(.easeOut(duration: 0.15)) { model.filter = on && f != .all ? .all : f } } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: f.symbol).imageScale(.small)
+                                Text(f.title)
+                                if f != .all { Text("\(counts[f] ?? 0)").foregroundStyle(on ? Color.white.opacity(0.8) : .secondary).monospacedDigit() }
+                            }
+                            .font(.callout).padding(.horizontal, 10).padding(.vertical, 4)
+                            .background(on ? Color.accentColor : Color.primary.opacity(0.07), in: Capsule())
+                            .foregroundStyle(on ? Color.white : .primary)
+                            .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain).accessibilityAddTraits(on ? .isSelected : [])
+                    }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+            }
+            Divider()
+        }
+    }
     @ViewBuilder private var content: some View {
+        VStack(spacing: 0) { filterBar; listOrGrid }
+    }
+    @ViewBuilder private var listOrGrid: some View {
         Group {
             if let e = model.error, model.items.isEmpty {
                 ContentUnavailableView(e, systemImage: "lock")
             } else if model.visible.isEmpty {
-                if model.query.isEmpty {
+                if model.filter != .all, model.query.isEmpty {
+                    ContentUnavailableView(L("Keine \(model.filter.title) in diesem Ordner", "No \(model.filter.title) in this folder"), systemImage: model.filter.symbol)
+                } else if model.query.isEmpty {
                     ContentUnavailableView(L("Ordner ist leer", "Folder is empty"), systemImage: "folder",
                                            description: Text(L("Dateien hierher ziehen oder mit ⌘⇧N einen Ordner anlegen.", "Drag files here or press ⌘⇧N for a new folder.")))
                 } else {

@@ -577,7 +577,7 @@ struct AppEntry: Identifiable {
     func reload() {
         query = ""
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let dirs = ["/Applications", "/Applications/Utilities", "/System/Applications", "/System/Applications/Utilities", "\(home)/Applications"]
+        let dirs = ["/Applications", "/Applications/Utilities", "/System/Applications", "/System/Applications/Utilities", "/System/Library/CoreServices/Applications", "\(home)/Applications"] // auch Apples versteckte Apps (Desk View, Schlüsselbund …)
         all = dirs.flatMap { dir in
             ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []).filter { $0.hasSuffix(".app") }.map { entry("\(dir)/\($0)") }
         }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }

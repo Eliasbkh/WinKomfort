@@ -107,7 +107,7 @@ enum Assistant {
             return L("Bildschirm aus", "Display off")
         case "open":
             let ws = NSWorkspace.shared
-            let dirs = ["/Applications", "/System/Applications", "/Applications/Utilities", "/System/Applications/Utilities", NSHomeDirectory() + "/Applications"]
+            let dirs = ["/Applications", "/System/Applications", "/Applications/Utilities", "/System/Applications/Utilities", "/System/Library/CoreServices/Applications", NSHomeDirectory() + "/Applications"]
             let target = arg.lowercased()
             for d in dirs {
                 if let f = (try? FileManager.default.contentsOfDirectory(atPath: d))?.first(where: { $0.lowercased().hasSuffix(".app") && $0.lowercased().dropLast(4) == target[...] })

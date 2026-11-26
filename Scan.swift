@@ -67,7 +67,7 @@ final class ScanEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, 
         // auch ein nur halb sichtbares Blatt zählt, damit Pfeile zeigen können, wohin es soll; gescannt wird ohnehin nur, wenn es ganz drin ist
         var q = seg.results?.first.flatMap { $0.confidence > 0.45 ? quad($0) : nil }
         // Die Segmentierung findet das Blatt sicher, die Kantensuche liegt genauer auf dem Rand: passt eine, nimm sie
-        if let s = q, let r = rect.results?.map(quad).filter({ $0.moved(from: s) < 0.05 }).min(by: { $0.moved(from: s) < $1.moved(from: s) }) { q = r }
+        if let s = q, let r = rect.results?.map(quad).filter({ $0.moved(from: s) < 0.05 && $0.area > s.area * 0.85 }).min(by: { $0.moved(from: s) < $1.moved(from: s) }) { q = r }
         // nur eine Hand, die auf dem Blatt liegt, stört; Finger am Rand (Festhalten) nicht
         let inner = q?.inset(0.15)
         let busy = (hand.results ?? []).contains { o in
@@ -82,8 +82,8 @@ final class ScanEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, 
 extension ScanLogic.Paper {
     var name: String { switch kind { case .a4: L("DIN-A4-Blatt", "A4 sheet"); case .letter: L("Letter-Blatt", "Letter sheet"); case .card: L("Karteikarte", "Index card"); case .note: L("Zettel", "Note"); case .sheet: L("Blatt", "Sheet") } }
 }
-enum ScanMode: String, CaseIterable { case color, gray, bw
-    var title: String { switch self { case .color: L("Farbe", "Color"); case .gray: L("Graustufen", "Grayscale"); case .bw: L("Schwarzweiß", "B&W") } }
+enum ScanMode: String, CaseIterable { case natural, color, gray, bw
+    var title: String { switch self { case .natural: L("Natürlich", "Natural"); case .color: L("Dokument", "Document"); case .gray: L("Graustufen", "Grayscale"); case .bw: L("Schwarzweiß", "B&W") } }
 }
 struct ScanText { let text: String; let box: CGRect } // box 0…1, Ursprung unten links
 struct ScanPage: Identifiable { let id = UUID(); let flat: CGImage; var image: CGImage; let paper: ScanLogic.Paper; let text: [ScanText]
@@ -122,7 +122,7 @@ enum ScanProcess {
         let f = CIFilter.perspectiveCorrection(); f.inputImage = img
         f.topLeft = v(q.tl); f.topRight = v(q.tr); f.bottomRight = v(q.br); f.bottomLeft = v(q.bl)
         guard var out = f.outputImage else { return nil }
-        let px = ScanLogic.pixels(paper), s = px.height / out.extent.height
+        let px = ScanLogic.pixels(paper, source: ScanLogic.sides(q, image: CGSize(width: w, height: h))), s = px.height / out.extent.height
         out = out.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: s, kCIInputAspectRatioKey: (px.width / out.extent.width) / s])
         out = out.transformed(by: CGAffineTransform(translationX: -out.extent.minX, y: -out.extent.minY))
         return ctx.createCGImage(out, from: CGRect(origin: .zero, size: px))
@@ -149,11 +149,17 @@ enum ScanProcess {
         let img = CIImage(cgImage: flat), r = img.extent
         let bg = img.applyingFilter("CIMorphologyMaximum", parameters: [kCIInputRadiusKey: max(8, r.width / 120)]).applyingGaussianBlur(sigma: r.width / 55).cropped(to: r)
         var out = bg.applyingFilter("CIDivideBlendMode", parameters: [kCIInputBackgroundImageKey: img]).cropped(to: r) // Ergebnis = Bild / Hintergrund
+        if mode == .natural { // wie ein gutes Foto: Schatten und Farbstich sanft weg, Schrift und Papier bleiben natürlich
+            let soft = out.applyingFilter("CIDissolveTransition", parameters: ["inputTargetImage": img, "inputTime": 0.35]) // 65 % ausgeglichen
+                .applyingFilter("CIColorControls", parameters: [kCIInputContrastKey: 1.06, kCIInputSaturationKey: 0.9])
+                .applyingFilter("CIUnsharpMask", parameters: [kCIInputRadiusKey: 1.0, kCIInputIntensityKey: 0.25])
+            return ctx.createCGImage(soft.cropped(to: r), from: r)
+        }
         let curve = CIFilter.toneCurve(); curve.inputImage = out
         curve.point0 = CGPoint(x: 0, y: 0); curve.point1 = CGPoint(x: 0.5, y: 0.1); curve.point2 = CGPoint(x: 0.78, y: 0.42); curve.point3 = CGPoint(x: 0.92, y: 0.95); curve.point4 = CGPoint(x: 1, y: 1)
         out = curve.outputImage ?? out
         switch mode {
-        case .color: out = out.applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0.95])
+        case .natural, .color: out = out.applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0.95]) // natural kommt oben schon zurück
         case .gray: out = out.applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0, kCIInputContrastKey: 1.1])
         case .bw: // steil, aber mit weichen Kanten: Buchstaben bleiben ganz statt zu zerfallen
             let k = CIFilter.toneCurve(); k.inputImage = out.applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0])
@@ -286,7 +292,7 @@ final class LidAngle {
     private var first: (flat: CGImage, paper: ScanLogic.Paper)?
     private var firstQuad: ScanQuad?
     @Published var touched = false // erst weiter, wenn das Blatt wirklich bewegt wurde
-    @Published var mode = ScanMode(rawValue: UserDefaults.standard.string(forKey: "scanMode") ?? "") ?? .color {
+    @Published var mode = ScanMode(rawValue: UserDefaults.standard.string(forKey: "scanMode") ?? "") ?? .natural {
         didSet { UserDefaults.standard.set(mode.rawValue, forKey: "scanMode"); restyle() }
     }
     var goodAngle: Int? { let a = UserDefaults.standard.integer(forKey: "scanAngle"); return a > 0 ? a : nil }
