@@ -130,7 +130,7 @@ enum AIStore {
                 let r = AIRead.file(u)
                 await MainActor.run {
                     self.reading -= 1
-                    switch r { case .success(let d): self.docs.append(d); case .failure(.text(let t)): self.problem = t }
+                    switch r { case .success(var d): d.path = u.path; self.docs.append(d); case .failure(.text(let t)): self.problem = t }
                 }
             }
         }
@@ -177,6 +177,13 @@ enum AIStore {
     private func reply() {
         conv.messages.append(AIMessage(user: false, text: ""))
         let past = Array(conv.messages.dropLast()), w = web
+        // „füll das aus“ mit angehängter PDF: in der eigenen Handschrift ausfüllen
+        if let q = past.last, q.user, q.text.lowercased().range(of: #"(aus ?füll|ausfuell|fill (it|this) in|beantworte .*blatt)"#, options: .regularExpression) != nil,
+           let pdf = q.docs.compactMap(\.path).first(where: { $0.lowercased().hasSuffix(".pdf") }) {
+            SheetFiller.open(URL(fileURLWithPath: pdf))
+            set(Hand.shared.font == nil ? L("Ich öffne das Ausfüllen. Richte vorher einmal deine Handschrift ein (Menü › Handschrift …), dann schreibe ich alles in deiner Schrift.", "Opening the filler. Set up your handwriting once first (menu › Handwriting…).") : L("Ich fülle das Blatt in deiner Handschrift aus. Im Fenster siehst du jede Antwort und kannst sie ändern, dann als PDF sichern oder direkt in OneNote schreiben lassen.", "Filling in the sheet in your handwriting. You can check and edit every answer, then save as PDF or write it into OneNote."), run)
+            return
+        }
         begin { me in
             var act = AIAct.Outcome()
             if let q = past.last, q.docs.isEmpty, !q.text.isEmpty, let o = try await AIAct.handle(q.text, others: self.all.filter { $0.id != self.conv.id }, status: { if me == self.run { self.status = $0 } }) {

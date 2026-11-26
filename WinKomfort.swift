@@ -3536,7 +3536,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         GameMode.shared.setup()
         Repair.setup()
         MouseScroll.update()
-        Shelf.shared.setup(); if !(UserDefaults.standard.stringArray(forKey: "batterySaving") ?? []).isEmpty { Battery.shared.setup() }
+        Shelf.shared.setup(); Notch.shared.update(); if !(UserDefaults.standard.stringArray(forKey: "batterySaving") ?? []).isEmpty { Battery.shared.setup() }
         Snippets.update()
         SystemMonitor.shared.update()
         Task { await Updater.shared.loop() }
@@ -3702,6 +3702,7 @@ struct MenuContent: View {
         Button(L("Schule …", "School…")) { School.open() }
         Button(L("Blatt scannen …", "Scan sheet…")) { Scanner.open() }
         Button(L("Akku …", "Battery…")) { Battery.open() }
+        Button(L("Handschrift …", "Handwriting…")) { Hand.openWindow() }
         Button("Explorer …") { openExplorer() }
         Button("Schnellnotiz") { QuickNote.shared.toggle() }
         if !Pins.shared.pinned.isEmpty { Button("Alle angehefteten Fenster lösen") { Pins.shared.unpinAll() } }

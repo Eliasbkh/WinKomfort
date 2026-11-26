@@ -10,6 +10,7 @@ struct AIDoc: Codable, Identifiable, Equatable {
     var name: String
     var text = ""        // ausgelesener Text (bei Bildern: erkannte Schrift)
     var jpeg: Data?      // nur bei Bildern
+    var path: String?    // Herkunft (für „füll das aus“)
     var isImage: Bool { jpeg != nil }
     var cg: CGImage? { jpeg.flatMap { NSBitmapImageRep(data: $0)?.cgImage } }
 }

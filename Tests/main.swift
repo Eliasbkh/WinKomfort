@@ -417,6 +417,21 @@ let paths: [Int32: String] = [501: "/Applications/Firefox.app/Contents/MacOS/fir
 let grp = BatteryLogic.group(smp, path: { paths[$0] })
 sc("Akku messen", "\(smp.count) \(smp[3].name) \(grp.map { "\($0.name)=\($0.power)" }) \(grp[2].pids.count) \(BatteryLogic.worthThrottling(BatteryLogic.AppUse(id: "/A.app", name: "A", power: 400, cpu: 9, pids: [1]), front: false)) \(BatteryLogic.worthThrottling(grp[0], front: false)) \(BatteryLogic.level(1200)) \(BatteryLogic.watts(850)) \(BatteryLogic.watts(1234)) \(BatteryLogic.bundle(of: "/usr/libexec/x") == nil)", "4 Microsoft OneNot [\"WindowServer=38.9\", \"Microsoft OneNote=25.2\", \"Firefox=22.0\"] 2 true false 3 850 mW 1,2 W true")
 sc("Akku Systemschutz", "\(BatteryLogic.AppUse(id: "/System/Library/CoreServices/Dock.app", name: "Dock", power: 0, cpu: 0, pids: []).isApp) \(BatteryLogic.AppUse(id: "/System/Applications/TextEdit.app", name: "TextEdit", power: 0, cpu: 0, pids: []).isApp)", "false true")
+// Handschrift
+func hbmp(_ w: Int, _ h: Int, _ on: (Int, Int) -> Bool) -> [UInt8] { (0..<(w * h)).map { on($0 % w, $0 / w) ? 1 : 0 } }
+let bL = hbmp(30, 40) { x, y in (x >= 5 && x <= 8 && y >= 5 && y <= 34) || (y >= 31 && y <= 34 && x >= 5 && x <= 25) }
+let gL = HandLogic.glyph(bL, 30, 40, baseline: 34, em: 30)!
+let bO = hbmp(40, 40) { x, y in let d = hypot(Double(x) - 20, Double(y) - 20); return d >= 10 && d <= 14 }
+let gO = HandLogic.glyph(bO, 40, 40, baseline: 34, em: 30)!
+let bT = hbmp(40, 40) { x, y in (y >= 5 && y <= 8 && x >= 5 && x <= 34) || (x >= 18 && x <= 21 && y >= 5 && y <= 34) }
+let gT = HandLogic.glyph(bT, 40, 40, baseline: 34, em: 30)!
+let lLen = gL.glyph.strokes.flatMap { s in zip(s, s.dropFirst()).map { hypot($0.0.x - $0.1.x, $0.0.y - $0.1.y) } }.reduce(0, +)
+sc("Handschrift Striche", "\(gL.glyph.strokes.count) \(lLen > 1.2 && lLen < 1.8) \(gO.glyph.strokes.count) \(gT.glyph.strokes.count <= 2) \(gL.pen > 0.05 && gL.pen < 0.25) \(HandLogic.glyph([UInt8](repeating: 0, count: 100), 10, 10, baseline: 8, em: 8) == nil)", "1 true 1 true true true")
+var hf = HandLogic.Font(); hf.glyphs = ["a": [gO.glyph], "b": [gL.glyph], "T": [gT.glyph]]
+let lay1 = HandLogic.layout("Ta ba", hf, in: CGRect(x: 0, y: 0, width: 200, height: 40), size: 10), lay2 = HandLogic.layout("Ta ba", hf, in: CGRect(x: 0, y: 0, width: 200, height: 40), size: 10)
+let small = HandLogic.layout("ab ab ab ab ab ab", hf, in: CGRect(x: 0, y: 0, width: 30, height: 15), size: 10)
+sc("Handschrift Setzen", "\(lay1.strokes == lay2.strokes) \(lay1.fits) \(small.fits) \(HandLogic.fit("ab ab ab ab ab ab", hf, in: CGRect(x: 0, y: 0, width: 30, height: 15)) < 10) \(HandLogic.pick("ä", hf) != nil) \(HandLogic.pick("Ä", hf) != nil) \(HandLogic.slots.count) \(HandLogic.box(HandLogic.slots.count - 1).maxY < 800)", "true true false true true true 170 true")
+sc("Glätten", "\(HandLogic.simplify((0...10).map { CGPoint(x: CGFloat($0), y: 0) }, 0.5).count) \(HandLogic.smooth([CGPoint(x: 0, y: 0), CGPoint(x: 4, y: 0), CGPoint(x: 4, y: 4)]).count)", "2 6")
 sc("Riesige Eingabe", "\(Calc.evaluate(String(repeating: "-", count: 300_000) + "1") == nil) \(Calc.evaluate("--2+3") ?? 0)", "true 5.0")
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")
 if failed > 0 { fatalError() }

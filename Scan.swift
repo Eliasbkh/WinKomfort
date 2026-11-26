@@ -300,7 +300,9 @@ final class LidAngle {
     private var prev: ScanQuad?, last = CACurrentMediaTime(), collecting = false, size = CGSize(width: 3, height: 4), recent: [ScanQuad] = []
     private var lid: LidAngle?, tick: Timer?
 
-    static func open() {
+    var forHand = false // Handschrift-Vorlage: Ergebnis geht direkt ans Einlesen
+    static func open(forHand: Bool = false) {
+        shared.forHand = forHand
         let first = windows["scan"] == nil
         showWindow("scan", "Scannen", onClose: { MainActor.assumeIsolated { Scanner.shared.stop() } }) { ScanView() }
         windows["scan"]?.title = L("Blatt scannen", "Scan sheet")
@@ -355,7 +357,7 @@ final class LidAngle {
         if let a = angle { UserDefaults.standard.set(a, forKey: "scanAngle") }
         flash = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { MainActor.assumeIsolated { Scanner.shared.flash = false } }
-        let m = mode, one = first, more = twice && first == nil
+        let m = mode, one = first, more = twice && first == nil && !forHand
         engine.take { frames in
             var p = one?.paper ?? p, flat = ScanProcess.flatten(frames, q, p)
             if more, let f = flat { // erster von zwei Durchgängen: merken, dann drehen lassen
@@ -371,6 +373,7 @@ final class LidAngle {
                 guard let flat, let img else { s.phase = .live; s.progress = 0; Toast.show(L("Das Bild war zu unscharf, bitte nochmal", "Image too blurry, please try again"), symbol: "exclamationmark.triangle", seconds: 3); return }
                 s.engine.stop(); s.tick?.invalidate()
                 s.first = nil; s.turning = false
+                if s.forHand { s.forHand = false; s.phase = .live; windows["scan"]?.close(); Hand.ingest(flat); return }
                 s.pages.append(ScanPage(flat: flat, image: img, paper: p, text: text)); s.current = s.pages.count - 1
                 s.phase = .result
                 if s.pages.count == 1 { s.describe() }

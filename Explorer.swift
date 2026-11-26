@@ -1112,6 +1112,7 @@ struct ExplorerView: View {
         Button(L("Als ZIP komprimieren", "Compress to ZIP")) { ensure(item); model.zip() }
         if FileTools.isImage(item.url) || FileTools.isPDF(item.url) { toolsMenu(item) }
         Button(L("In die Ablage", "Add to Shelf")) { ensure(item); Shelf.shared.park(model.selectedItems.map(\.url)) }
+        if FileTools.isPDF(item.url) { Button(L("Mit meiner Handschrift ausfüllen", "Fill in my handwriting")) { SheetFiller.open(item.url) } }
         if !item.opensAsFolder { Button(L("KI dazu fragen", "Ask AI about this")) { ensure(item); let u = model.selectedItems.filter { !$0.opensAsFolder }.map(\.url); AI.chat(""); AIChat.shared.attach(u) } }
         Button(L("Pfad kopieren", "Copy Path")) { ensure(item); model.copyPath() }
         Divider()

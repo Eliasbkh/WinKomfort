@@ -62,9 +62,13 @@ struct ToolsTab: View {
     @ObservedObject var awake = Awake.shared
     @AppStorage("clipHistory") var clipHistory = true
     @AppStorage("shelfShake") var shake = true
+    @AppStorage("notch") var notch = true
     @AppStorage("onenoteQuality") var onenoteQuality = PDFQuality.compact.rawValue
     var body: some View {
         Form {
+            Section {
+                Toggle(L("Interaktive Notch", "Interactive notch"), isOn: $notch).onChange(of: notch) { _, _ in Notch.shared.update() }
+            } header: { Text("Notch") } footer: { Text(L("Fährt beim Drüberfahren aus: Musik, nächste Stunde, Akku, schnelle Knöpfe. Dateien auf die Notch ziehen legt sie in die Ablage. Läuft ein Timer, zählt er neben der Kamera mit.", "Expands on hover: music, next class, battery, quick buttons. Drag files onto it to shelve them. A running timer counts down next to the camera.")) }
             Section {
                 LabeledContent("Status", value: awake.status)
                 ForEach([Awake.Mode.display, .system], id: \.self) { m in
