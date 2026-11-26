@@ -75,9 +75,8 @@ enum ScanLogic {
         let portrait = s.height >= s.width, r = max(s.width, s.height) / min(s.width, s.height)
         func page(_ w: CGFloat, _ h: CGFloat, _ n: Kind) -> Paper { Paper(kind: n, size: portrait ? CGSize(width: w, height: h) : CGSize(width: h, height: w)) }
         switch r {
-        case 1.34..<1.52: return page(595, 842, .a4)
-        case 1.25..<1.34: return page(612, 792, .letter)
-        case 1.52..<1.75: return page(360, 360 * r, .card)
+        case 1.28..<1.62: return page(595, 842, .a4) // die Kamera sieht A4 leicht gestaucht oder gestreckt; in Deutschland ist es fast immer A4
+        case 1.62..<1.8: return page(360, 360 * r, .card)
         case ..<1.12: return page(500, 500 * r, .note)
         default: return page(595, 595 * r, .sheet)
         }

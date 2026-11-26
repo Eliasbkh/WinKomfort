@@ -64,7 +64,8 @@ final class ScanEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, 
         try? VNImageRequestHandler(cvPixelBuffer: pb, orientation: orient).perform([seg, rect, hand])
         func f(_ p: CGPoint) -> CGPoint { CGPoint(x: p.x, y: 1 - p.y) } // Vision zählt von unten
         func quad(_ o: VNRectangleObservation) -> ScanQuad { ScanQuad(tl: f(o.topLeft), tr: f(o.topRight), br: f(o.bottomRight), bl: f(o.bottomLeft)) }
-        var q = seg.results?.first.flatMap { $0.confidence > 0.6 ? quad($0) : nil }
+        // auch ein nur halb sichtbares Blatt zählt, damit Pfeile zeigen können, wohin es soll; gescannt wird ohnehin nur, wenn es ganz drin ist
+        var q = seg.results?.first.flatMap { $0.confidence > 0.45 ? quad($0) : nil }
         // Die Segmentierung findet das Blatt sicher, die Kantensuche liegt genauer auf dem Rand: passt eine, nimm sie
         if let s = q, let r = rect.results?.map(quad).filter({ $0.moved(from: s) < 0.05 }).min(by: { $0.moved(from: s) < $1.moved(from: s) }) { q = r }
         // nur eine Hand, die auf dem Blatt liegt, stört; Finger am Rand (Festhalten) nicht
