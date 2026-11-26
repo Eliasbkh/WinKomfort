@@ -11,6 +11,7 @@ struct TaskRow: Identifiable {
     let icon: NSImage?
     let cpu: Double
     let mem: Double
+    let power: Double      // Prozessor-Energie in Milliwatt (macOS-Energiezähler je Prozess)
     let count: Int         // Prozesse insgesamt
     let kind: Kind
     enum Kind { case app, background, system }
@@ -36,27 +37,32 @@ struct MemoryInfo {
 
 // Alle lesbaren Prozesse messen (im Hintergrund, nur solange das Fenster offen ist)
 actor TaskSampler {
-    struct Proc: Sendable { let pid: pid_t, owner: pid_t, mem: Double, cpu: Double }
-    private var last: [pid_t: (ticks: UInt64, at: UInt64)] = [:]
+    struct Proc: Sendable { let pid: pid_t, owner: pid_t, mem: Double, cpu: Double, power: Double }
+    private var last: [pid_t: (ticks: UInt64, at: UInt64, nj: UInt64)] = [:]
     private static let responsible = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_get_pid_responsible_for_pid").map { unsafeBitCast($0, to: (@convention(c) (pid_t) -> pid_t).self) }
     func sample() -> [Proc] {
         var pids = [pid_t](repeating: 0, count: 8192)
         let n = proc_listallpids(&pids, Int32(pids.count * 4))
         guard n > 0 else { return [] }
         let now = mach_absolute_time()
-        var seen: [pid_t: (ticks: UInt64, at: UInt64)] = [:]
+        var seen: [pid_t: (ticks: UInt64, at: UInt64, nj: UInt64)] = [:]
+        let secs = Self.seconds
         let out = pids.prefix(Int(n)).compactMap { p -> Proc? in
-            var u = rusage_info_v4()
-            guard p > 0, withUnsafeMutablePointer(to: &u, { $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(p, RUSAGE_INFO_V4, $0) } }) == 0 else { return nil }
+            var u = rusage_info_v6()
+            guard p > 0, withUnsafeMutablePointer(to: &u, { $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(p, RUSAGE_INFO_V6, $0) } }) == 0 else { return nil }
             let t = u.ri_user_time &+ u.ri_system_time // gleiche Einheit wie mach_absolute_time → Anteil direkt teilbar
-            seen[p] = (t, now)
+            seen[p] = (t, now, u.ri_energy_nj)
             let cpu = last[p].map { o in now > o.at && t >= o.ticks ? Double(t - o.ticks) / Double(now - o.at) * 100 : 0 } ?? 0
+            // Nanojoule pro Sekunde / 10⁶ = Milliwatt
+            let mw = last[p].map { o in now > o.at && u.ri_energy_nj >= o.nj ? Double(u.ri_energy_nj - o.nj) / (Double(now - o.at) * secs) / 1e6 : 0 } ?? 0
             let r = Self.responsible?(p) ?? p
-            return Proc(pid: p, owner: r > 0 ? r : p, mem: Double(u.ri_phys_footprint), cpu: cpu)
+            return Proc(pid: p, owner: r > 0 ? r : p, mem: Double(u.ri_phys_footprint), cpu: cpu, power: mw)
         }
         last = seen
         return out
     }
+    // Sekunden je mach_absolute_time-Tick
+    static let seconds: Double = { var t = mach_timebase_info_data_t(); mach_timebase_info(&t); return Double(t.numer) / Double(t.denom) / 1e9 }()
     nonisolated static func path(_ p: pid_t) -> String {
         var b = [CChar](repeating: 0, count: 4096)
         return proc_pidpath(p, &b, 4096) > 0 ? String(cString: b) : ""
@@ -101,10 +107,10 @@ actor TaskSampler {
     }
     private func apply(_ procs: [TaskSampler.Proc]) {
         let apps = Dictionary(NSWorkspace.shared.runningApplications.map { ($0.processIdentifier, $0) }) { a, _ in a }
-        var sum: [pid_t: (mem: Double, cpu: Double, n: Int)] = [:]
+        var sum: [pid_t: (mem: Double, cpu: Double, power: Double, n: Int)] = [:]
         for p in procs {
-            let s = sum[p.owner] ?? (0, 0, 0)
-            sum[p.owner] = (s.mem + p.mem, s.cpu + p.cpu, s.n + 1)
+            let s = sum[p.owner] ?? (0, 0, 0, 0)
+            sum[p.owner] = (s.mem + p.mem, s.cpu + p.cpu, s.power + p.power, s.n + 1)
         }
         rows = sum.map { pid, s in
             let app = apps[pid]
@@ -113,7 +119,7 @@ actor TaskSampler {
             let kind: TaskRow.Kind = app?.activationPolicy == .regular ? .app : system || pid == getpid() ? .system : .background
             let name = app?.localizedName ?? Self.name(exe, pid)
             if icons[path] == nil, !path.isEmpty, kind != .system || app != nil { icons[path] = app?.icon ?? NSWorkspace.shared.icon(forFile: path) }
-            return TaskRow(id: pid, name: name, path: path, icon: icons[path], cpu: s.cpu, mem: s.mem, count: s.n, kind: kind)
+            return TaskRow(id: pid, name: name, path: path, icon: icons[path], cpu: s.cpu, mem: s.mem, power: s.power, count: s.n, kind: kind)
         }
         memory = MemoryInfo.read()
         let alive = Set(rows.map(\.id))
@@ -265,6 +271,7 @@ struct TaskView: View {
                 }
                 TableColumn("CPU", value: \.cpu) { r in Text(r.cpu.formatted(.number.precision(.fractionLength(1))) + " %").monospacedDigit() }.width(70)
                 TableColumn(L("Speicher", "Memory"), value: \.mem) { r in Text(size(r.mem)).monospacedDigit().fontWeight(r.mem > 1e9 ? .semibold : .regular) }.width(100)
+                TableColumn(L("Energie", "Energy"), value: \.power) { r in Text(Battery.watts(r.power)).monospacedDigit().foregroundStyle(r.power >= 1000 ? Color.red : r.power >= 300 ? Color.orange : .primary).fontWeight(r.power >= 300 ? .semibold : .regular) }.width(80)
             }
             .contextMenu(forSelectionType: pid_t.self) { ids in menu(ids) }
             HStack {

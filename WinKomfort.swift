@@ -1471,10 +1471,22 @@ enum DockReveal {
     private static var tap: CFMachPort?
     private static var pushed = false          // schon nachgedrückt, bis die Maus den Rand wieder verlässt
     private static let marker: Int64 = 0x574B  // kennzeichnet eigene Ereignisse, damit sie nicht erneut auslösen
+    // Bildschirmränder (Ursprung oben links), neu nur wenn sich Bildschirme ändern
+    private struct Edge { let minX, maxX, top, bottom: CGFloat }
+    nonisolated(unsafe) private static var edges: [Edge] = []
+    private static var screenToken: NSObjectProtocol?
+    private static func measureEdges() {
+        guard let primary = NSScreen.screens.first else { edges = []; return }
+        edges = NSScreen.screens.map { s in let top = primary.frame.maxY - s.frame.maxY; return Edge(minX: s.frame.minX, maxX: s.frame.maxX, top: top, bottom: top + s.frame.height) }
+    }
 
     static func start() {
         afterTrust {
-            guard tap == nil, (UserDefaults(suiteName: "com.apple.dock")?.string(forKey: "orientation") ?? "bottom") == "bottom" else { return }
+            // nur nötig, wenn das Dock unten sitzt und sich automatisch ausblendet – sonst lauscht WinKomfort gar nicht auf die Maus
+            let dock = UserDefaults(suiteName: "com.apple.dock")
+            guard tap == nil, (dock?.string(forKey: "orientation") ?? "bottom") == "bottom", dock?.bool(forKey: "autohide") == true else { return }
+            measureEdges()
+            if screenToken == nil { screenToken = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { _ in measureEdges() } }
             let mask = CGEventMask(1 << CGEventType.mouseMoved.rawValue) | CGEventMask(1 << CGEventType.leftMouseDragged.rawValue)
             tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .tailAppendEventTap, options: .listenOnly,
                                     eventsOfInterest: mask, callback: { _, type, event, _ in
@@ -1497,12 +1509,8 @@ enum DockReveal {
 
     // p in Bildschirmkoordinaten mit Ursprung oben links (wie Mausereignisse)
     private static func check(_ p: CGPoint) {
-        guard let primary = NSScreen.screens.first,
-              let screen = NSScreen.screens.first(where: {
-                  let top = primary.frame.maxY - $0.frame.maxY
-                  return p.x >= $0.frame.minX && p.x < $0.frame.maxX && p.y >= top && p.y <= top + $0.frame.height
-              }) else { return }
-        let bottom = primary.frame.maxY - screen.frame.minY
+        // nur Zahlen vergleichen: läuft bei jeder Mausbewegung, Bildschirme kommen aus dem Zwischenspeicher
+        guard let bottom = edges.first(where: { p.x >= $0.minX && p.x < $0.maxX && p.y >= $0.top && p.y <= $0.bottom })?.bottom else { return }
         if p.y < bottom - 30 { pushed = false; return }       // Rand verlassen → nächstes Mal wieder helfen
         guard !pushed, p.y >= bottom - 1, !dockVisible() else { return }
         pushed = true
@@ -3528,7 +3536,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         GameMode.shared.setup()
         Repair.setup()
         MouseScroll.update()
-        Shelf.shared.setup()
+        Shelf.shared.setup(); if !(UserDefaults.standard.stringArray(forKey: "batterySaving") ?? []).isEmpty { Battery.shared.setup() }
         Snippets.update()
         SystemMonitor.shared.update()
         Task { await Updater.shared.loop() }
@@ -3693,6 +3701,7 @@ struct MenuContent: View {
         Button(L("KI fragen …", "Ask AI…")) { AIPanel.show() }
         Button(L("Schule …", "School…")) { School.open() }
         Button(L("Blatt scannen …", "Scan sheet…")) { Scanner.open() }
+        Button(L("Akku …", "Battery…")) { Battery.open() }
         Button("Explorer …") { openExplorer() }
         Button("Schnellnotiz") { QuickNote.shared.toggle() }
         if !Pins.shared.pinned.isEmpty { Button("Alle angehefteten Fenster lösen") { Pins.shared.unpinAll() } }
