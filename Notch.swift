@@ -95,6 +95,7 @@ final class NotchPanel: NSPanel {
             let s = Int(t.timeIntervalSince(now)); return ("timer", String(format: "%d:%02d", s / 60, s % 60), .orange)
         }
         if charging, let c = charge { return ("bolt.fill", "\(c) %", .green) }
+        if !charging, let c = charge, c <= 15 { return ("battery.25percent", "\(c) %", .red) } // knapp: auch im Vollbild sichtbar
         if let l = Plan.now(School.shared.book, now).next, let m = Optional(l.start - (ActLogic.cal.component(.hour, from: now) * 60 + ActLogic.cal.component(.minute, from: now))), m <= 10, m >= 0 {
             return ("graduationcap.fill", L("\(l.subject) in \(m) min", "\(l.subject) in \(m) min"), .blue)
         }

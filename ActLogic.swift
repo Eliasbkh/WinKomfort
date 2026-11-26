@@ -11,7 +11,7 @@ enum ActLogic {
             case .timer: "einen Timer starten"
             case .reminderNew: "eine neue Erinnerung anlegen"
             case .eventNew: "einen neuen Termin in den Kalender eintragen"
-            case .calendar: "eigene Termine oder den eigenen Tag nachsehen"
+            case .calendar: "eigene Termine, den eigenen Tag oder einen Überblick über den Tag (Stunden, Aufgaben, Termine) nachsehen"
             case .reminders: "eigene Erinnerungen und offene Aufgaben nachsehen"
             case .files: "eine Datei auf diesem Mac finden"
             case .screen: "etwas zu dem sagen, was gerade auf dem Bildschirm zu sehen ist"
