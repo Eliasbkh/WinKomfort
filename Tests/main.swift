@@ -375,6 +375,20 @@ sc("Nächste Stunde", "\(ActLogic.cal.component(.day, from: Plan.nextDate(bk, su
 sc("Fach erkennen", "\(Plan.subject(in: "Mathe S. 43 Nr. 2", bk) ?? "-") \(Plan.subject(in: "IT Projekt", bk) ?? "-") \(Plan.subject(in: "mit dem Hund", bk) ?? "-")", "Mathematik IT -")
 let gr = [Plan.Grade(subject: "IT", value: 12, weight: 2), Plan.Grade(subject: "IT", value: 9)]
 sc("Noten", "\(Plan.average(gr)!) \(Plan.needed(gr, goal: 12, weight: 1)) \(Plan.note(fromPoints: 11)) \(Plan.average([]) == nil) \(Plan.gradeValue("2+", false)!) \(Plan.gradeValue("16", true) == nil) \(Plan.gradeValue("1-", false)!) \(Plan.gradeValue("x", true) == nil)", "11.0 15.0 2.0 true 1.75 true 1.25 true")
+// schriftlich 12 (×2) und 9 → 11; mündlich 6 → 60:40 = 9,0; 2:1 ohne mündlich = 11
+let go = gr + [Plan.Grade(subject: "IT", value: 6, oral: true)]
+let nd = Plan.needed(go, goal: 10, weight: 1, oral: true, written: 0.6)
+sc("Noten mündlich", "\(Plan.average(go, written: 0.6)!) \(Plan.average(gr, written: 0.6)!) \(Plan.mean(go)!) \(abs(Plan.average(go + [Plan.Grade(value: nd, oral: true)], written: 0.6)! - 10) < 1e-9) \((nd * 100).rounded() / 100)", "9.0 11.0 9.75 true 11.0")
+var bsub = Plan.Book(); bsub.grades = go; bsub.subjects = [Plan.Subject(name: "IT", written: 60), Plan.Subject(name: "Kunst")]
+sc("Fächer", "\(Plan.average(bsub, "IT")!) \(Plan.written(bsub, "Kunst")) \(Plan.subjects(bsub)) \(Plan.overall(bsub)!)", "9.0 0.5 [\"IT\", \"Kunst\"] 9.0")
+let ujs = #"[{"date":20261123,"startTime":745,"endTime":830,"su":[{"name":"M","longname":"Mathematik"}],"ro":[{"name":"A1"}]},{"date":20261124,"startTime":800,"endTime":845,"su":[{"name":"D","longname":""}],"code":"cancelled"},{"date":20261125,"startTime":800,"endTime":745,"su":[{"name":"X"}]},{"date":20261130,"startTime":745,"endTime":830,"su":[{"name":"M","longname":"Mathematik"}],"ro":[{"name":"A1"}]},{"date":20261201,"startTime":800,"endTime":845,"su":[{"name":"D"}]},{"date":20261207,"startTime":745,"endTime":830,"su":[{"name":"M","longname":"Mathematik"}],"ro":[{"name":"A1"}]},{"date":20261209,"startTime":900,"endTime":945,"su":[{"name":"Ph"}]},{"date":20261223,"startTime":900,"endTime":945,"su":[{"name":"Ph"}]}]"#
+let ud = Plan.untis(try! JSONDecoder().decode([Plan.UPeriod].self, from: Data(ujs.utf8)))
+sc("WebUntis", "\(ud.count) \(ud[0].subject) \(ud[0].room) \(ud[1].off == true) \(Plan.untisDay(ud[0].date!)) \(Plan.regular(ud).map { "\($0.subject)\($0.day)w\($0.week)" })", "7 Mathematik A1 true 20261123 [\"Mathematik2w0\", \"Ph4w2\"]")
+var bu = Plan.Book(); bu.dated = ud; bu.datedFrom = ActLogic.cal.date(from: DateComponents(year: 2026, month: 11, day: 23)); bu.datedTo = ActLogic.cal.date(from: DateComponents(year: 2026, month: 12, day: 21))
+let tue = ActLogic.cal.date(from: DateComponents(year: 2026, month: 11, day: 24, hour: 9))!
+sc("WebUntis Tag", "\(Plan.lessons(bu, on: tue).count) \(Plan.day(bu, tue).count) \(Plan.lessons(bu, on: ActLogic.cal.date(from: DateComponents(year: 2026, month: 12, day: 23))!).count)", "0 1 0")
+let old = try! JSONDecoder().decode(Plan.Book.self, from: Data(#"{"lessons":[{"id":"\#(UUID())","day":2,"start":455,"end":500,"subject":"M","room":"","week":0}],"grades":[{"id":"\#(UUID())","subject":"M","value":2,"weight":1,"name":"","date":0}]}"#.utf8))
+sc("Alte Datei", "\(old.lessons.count) \(old.grades.count) \(old.grades[0].isOral) \(old.untis == nil)", "1 1 false true")
 var kc = Plan.Card(front: "a", back: "b"); kc = Plan.answer(kc, right: true, now: mi); let k2 = Plan.answer(kc, right: false, now: mi)
 sc("Lernkarte", "\(kc.box) \(kc.due > mi) \(k2.box) \(k2.due <= mi) \(Plan.due(Plan.Deck(cards: [kc, k2]), mi).count)", "1 true 0 true 1")
 sc("Karten einfügen", "\(Plan.cards("a | b\nc\td e\nf;g\nleer\n|x").map { $0.front + "=" + $0.back })", "[\"a=b\", \"c=d e\", \"f=g\"]")

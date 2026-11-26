@@ -7,6 +7,9 @@ import UniformTypeIdentifiers
     static let shared = School()
     @Published var book: Plan.Book { didSet { if book != oldValue { save() } } }
     @Published var tab = "heute"
+    @Published var syncing = false
+    @Published var syncError: String?
+    var syncTask: Task<Void, Never>?
     private static let file: URL = {
         let d = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("WinKomfort")
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
@@ -25,6 +28,7 @@ import UniformTypeIdentifiers
             }
         } else { book = Plan.Book() }
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in MainActor.assumeIsolated { School.shared.quit() } }
+        startSync()
     }
     private var pending = false
     private func save() {
@@ -41,6 +45,7 @@ import UniformTypeIdentifiers
     func quit() { flush(); queue.sync {} } // beim Beenden nichts verlieren
     static func open(_ tab: String? = nil) {
         if let tab { shared.tab = tab }
+        shared.syncIfOld()
         let first = windows["school"] == nil
         showWindow("school", "Schule") { SchoolView() }
         windows["school"]?.title = L("Schule", "School")
@@ -97,7 +102,7 @@ private struct TodayTab: View {
     @ObservedObject var s: School
     var body: some View {
         TimelineView(.everyMinute) { t in
-            let l = Plan.lessons(s.book, on: t.date), n = Plan.now(s.book, t.date), m = ActLogic.cal.component(.hour, from: t.date) * 60 + ActLogic.cal.component(.minute, from: t.date)
+            let l = Plan.day(s.book, t.date), n = Plan.now(s.book, t.date), m = ActLogic.cal.component(.hour, from: t.date) * 60 + ActLogic.cal.component(.minute, from: t.date)
             let open = s.book.tasks.filter { !$0.done }.sorted { $0.due < $1.due }
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
@@ -105,7 +110,7 @@ private struct TodayTab: View {
                         Text(t.date.formatted(.dateTime.weekday(.wide).day().month(.wide))).font(.title2.weight(.semibold))
                         if let c = n.current { Text(L("\(c.subject), noch \(c.end - m) Minuten", "\(c.subject), \(c.end - m) minutes left")).foregroundStyle(.secondary) }
                         else if let x = n.next { Text(L("\(x.subject) in \(x.start - m) Minuten", "\(x.subject) in \(x.start - m) minutes")).foregroundStyle(.secondary) }
-                        else { Text(l.isEmpty ? L("Heute kein Unterricht", "No classes today") : L("Schule ist aus", "School is out")).foregroundStyle(.secondary) }
+                        else { Text(!l.contains { $0.off != true } ? L("Heute kein Unterricht", "No classes today") : L("Schule ist aus", "School is out")).foregroundStyle(.secondary) }
                     }
                     if s.book.lessons.isEmpty {
                         VStack(alignment: .leading, spacing: 8) { Text(L("Trag einmal deinen Stundenplan ein. Danach weiß WinKomfort, wann welche Stunde ist und bis wann Hausaufgaben fällig sind.", "Add your timetable once. WinKomfort then knows your classes and due dates.")); Button(L("Stundenplan anlegen", "Set up timetable")) { s.tab = "plan" }.buttonStyle(.borderedProminent) }
@@ -114,12 +119,13 @@ private struct TodayTab: View {
                             HStack(spacing: 12) {
                                 RoundedRectangle(cornerRadius: 2).fill(subjectTint(x.subject)).frame(width: 4, height: 30)
                                 Text("\(Plan.clock(x.start)) – \(Plan.clock(x.end))").monospacedDigit().foregroundStyle(.secondary).frame(width: 110, alignment: .leading)
-                                Text(x.subject).fontWeight(x.id == n.current?.id ? .semibold : .regular)
+                                Text(x.subject).fontWeight(x.id == n.current?.id ? .semibold : .regular).strikethrough(x.off == true)
+                                if x.off == true { Text(L("Entfall", "Cancelled")).font(.caption.weight(.semibold)).foregroundStyle(.red) }
                                 Spacer(); Text(x.room).foregroundStyle(.secondary)
                             }
                             .padding(.horizontal, 10).padding(.vertical, 4)
                             .background(x.id == n.current?.id ? Color.accentColor.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 8))
-                            .opacity(x.end <= m ? 0.45 : 1)
+                            .opacity(x.end <= m || x.off == true ? 0.45 : 1)
                         } }
                     }
                     VStack(alignment: .leading, spacing: 8) {
@@ -193,6 +199,7 @@ private struct PlanTab: View {
     @ObservedObject var s: School
     @StateObject private var edit = TextBox<Plan.Lesson>()
     @StateObject private var isNew = TextBox<Bool>()
+    @StateObject private var connect = TextBox<Bool>()
     private var names: [String] { [L("Montag", "Monday"), L("Dienstag", "Tuesday"), L("Mittwoch", "Wednesday"), L("Donnerstag", "Thursday"), L("Freitag", "Friday")] + (s.book.lessons.contains { $0.day == 7 } ? [L("Samstag", "Saturday")] : []) }
     var body: some View {
         VStack(spacing: 0) {
@@ -224,12 +231,24 @@ private struct PlanTab: View {
             }
             Divider()
             HStack {
-                Button(L("Aus Kalenderdatei (.ics) …", "From calendar file (.ics)…")) { load() }.help(L("Zum Beispiel aus WebUntis exportiert", "For example exported from WebUntis"))
+                if let u = s.book.untis {
+                    Image(systemName: s.syncError == nil ? "checkmark.icloud" : "exclamationmark.icloud").foregroundStyle(s.syncError == nil ? Color.secondary : .red)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("WebUntis · " + u.name).lineLimit(1)
+                        Text(s.syncError ?? s.book.synced.map { L("abgeglichen ", "synced ") + $0.formatted(.relative(presentation: .named)) } ?? "").font(.caption).foregroundStyle(s.syncError == nil ? Color.secondary : .red).lineLimit(2)
+                    }
+                    if s.syncing { ProgressView().controlSize(.small) } else { Button(L("Jetzt abgleichen", "Sync now")) { Task { await s.sync(quiet: false) } } }
+                    Menu { Button(L("Neu anmelden …", "Sign in again…")) { connect.value = true }; Button(L("Trennen", "Disconnect"), role: .destructive) { s.disconnect() } } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().accessibilityLabel(L("Mehr", "More"))
+                } else {
+                    Button(L("Mit WebUntis verbinden …", "Connect to WebUntis…")) { connect.value = true }.buttonStyle(.borderedProminent)
+                    Button(L("Aus Kalenderdatei (.ics) …", "From calendar file (.ics)…")) { load() }
+                }
                 Spacer()
                 if s.book.lessons.contains(where: { $0.week > 0 }) { Picker(L("A-Woche", "A week"), selection: $s.book.aWeekOdd) { Text(L("ungerade Kalenderwochen", "odd weeks")).tag(true); Text(L("gerade Kalenderwochen", "even weeks")).tag(false) }.frame(maxWidth: 340) }
             }
             .padding(10)
         }
+        .sheet(isPresented: Binding(get: { connect.value ?? false }, set: { connect.value = $0 })) { UntisSheet(s: s) { connect.value = false } }
         .sheet(isPresented: Binding(get: { edit.value != nil }, set: { if !$0 { edit.value = nil } })) {
             if let l = edit.value { LessonSheet(l: l, isNew: isNew.value ?? true, subjects: Plan.subjects(s.book)) { r in
                 s.book.lessons.removeAll { $0.id == l.id }
@@ -290,16 +309,27 @@ private struct GradesTab: View {
     @StateObject private var val = TextBox<String>()
     @StateObject private var name = TextBox<String>()
     @StateObject private var weight = TextBox<Double>()
+    @StateObject private var oral = TextBox<Bool>()
     @StateObject private var goal = TextBox<String>()
-    private var subject: String { sub.value ?? Plan.subjects(s.book).first ?? "" }
+    @StateObject private var edit = TextBox<Plan.Subject>()
+    private static let new = "\u{0}neu"
+    private var all: [String] { Plan.subjects(s.book) }
+    private var subject: String { sub.value.flatMap { all.contains($0) ? $0 : nil } ?? all.first ?? "" }
+    // Fächer mit Noten und alle selbst angelegten
+    private var shown: [String] { all.filter { n in s.book.grades.contains { $0.subject == n } || s.book.subjects.contains { $0.name == n } } }
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                if Plan.subjects(s.book).isEmpty { TextField(L("Fach", "Subject"), text: Binding(get: { sub.value ?? "" }, set: { sub.value = $0 })).textFieldStyle(.roundedBorder).frame(width: 130) }
-                else { Picker("", selection: Binding(get: { subject }, set: { sub.value = $0 })) { ForEach(Plan.subjects(s.book), id: \.self) { Text($0).tag($0) } }.labelsHidden().frame(width: 150) }
-                TextField(s.book.points ? L("Punkte", "Points") : L("Note", "Grade"), text: Binding(get: { val.value ?? "" }, set: { val.value = $0 })).textFieldStyle(.roundedBorder).frame(width: 70).onSubmit(add)
+                Picker("", selection: Binding(get: { subject }, set: { v in if v == Self.new { edit.value = Plan.Subject() } else { sub.value = v } })) {
+                    ForEach(all, id: \.self) { Text($0).tag($0) }
+                    if !all.isEmpty { Divider() }
+                    Text(L("Neues Fach …", "New subject…")).tag(Self.new)
+                }.labelsHidden().frame(width: 150).accessibilityLabel(L("Fach", "Subject"))
+                TextField(s.book.points ? L("Punkte", "Points") : L("Note", "Grade"), text: Binding(get: { val.value ?? "" }, set: { val.value = $0 })).textFieldStyle(.roundedBorder).frame(width: 64).onSubmit(add)
+                Picker("", selection: Binding(get: { oral.value ?? false }, set: { oral.value = $0 })) { Text(L("Schriftlich", "Written")).tag(false); Text(L("Mündlich", "Oral")).tag(true) }.pickerStyle(.segmented).labelsHidden().frame(width: 170).accessibilityLabel(L("Art", "Type"))
+                Picker("", selection: Binding(get: { weight.value ?? 1 }, set: { weight.value = $0 })) { Text(L("zählt einfach", "counts once")).tag(1.0); Text(L("zählt doppelt", "counts twice")).tag(2.0); Text(L("zählt halb", "counts half")).tag(0.5) }.labelsHidden().frame(width: 120)
+                    .help(L("Gewicht innerhalb von schriftlich bzw. mündlich, z. B. Klausur doppelt", "Weight within written or oral, e.g. exam twice"))
                 TextField(L("Wofür (freiwillig)", "For (optional)"), text: Binding(get: { name.value ?? "" }, set: { name.value = $0 })).textFieldStyle(.roundedBorder).onSubmit(add)
-                Picker("", selection: Binding(get: { weight.value ?? 1 }, set: { weight.value = $0 })) { Text(L("einfach", "×1")).tag(1.0); Text(L("doppelt", "×2")).tag(2.0); Text(L("halb", "×½")).tag(0.5) }.labelsHidden().frame(width: 95)
                 Button(L("Eintragen", "Add"), action: add).disabled(subject.isEmpty || Plan.gradeValue(val.value ?? "", s.book.points) == nil)
             }
             .padding(12)
@@ -308,22 +338,8 @@ private struct GradesTab: View {
                     if let o = Plan.overall(s.book) {
                         HStack(alignment: .firstTextBaseline, spacing: 10) { Text(Plan.text(o, s.book.points)).font(.system(size: 34, weight: .semibold)).monospacedDigit(); Text(s.book.points ? L("Gesamtschnitt, entspricht Note \(Plan.text(Plan.note(fromPoints: o), false))", "Overall, equals grade \(Plan.text(Plan.note(fromPoints: o), false))") : L("Gesamtschnitt aller Fächer", "Overall average")).foregroundStyle(.secondary) }
                     }
-                    ForEach(Plan.subjects(s.book).filter { n in s.book.grades.contains { $0.subject == n } }, id: \.self) { n in
-                        let g = s.book.grades.filter { $0.subject == n }.sorted { $0.date < $1.date }
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack { RoundedRectangle(cornerRadius: 2).fill(subjectTint(n)).frame(width: 4, height: 18); Text(n).font(.headline); Spacer(); Text(Plan.average(g).map { Plan.text($0, s.book.points) } ?? "").font(.headline).monospacedDigit() }
-                            ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 6) { ForEach(g) { x in
-                                Menu { Text((x.name.isEmpty ? "" : x.name + ", ") + x.date.formatted(date: .abbreviated, time: .omitted)); Button(L("Löschen", "Delete"), role: .destructive) { s.book.grades.removeAll { $0.id == x.id } } }
-                                label: { Text(Calc.format(x.value) + (x.weight == 1 ? "" : x.weight == 2 ? " ×2" : " ×½")).monospacedDigit() }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().padding(.horizontal, 9).padding(.vertical, 4).background(.primary.opacity(0.07), in: Capsule())
-                            } } }
-                            if let t = goal.value, let w = Plan.gradeValue(t, s.book.points) {
-                                let need = Plan.needed(g, goal: w, weight: 1), can = Plan.valid(need, s.book.points)
-                                Text(can ? L("Für \(Calc.format(w)) brauchst du als Nächstes \(Plan.text(need, s.book.points))", "For \(Calc.format(w)) you need \(Plan.text(need, s.book.points)) next") : (s.book.points ? need > 15 : need < 1) ? L("Mit einer Note nicht zu schaffen", "Not possible with one grade") : L("Schon sicher", "Already safe")).font(.callout).foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(12).background(.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
-                    }
-                    if s.book.grades.isEmpty { ContentUnavailableView(L("Noch keine Noten", "No grades yet"), systemImage: "graduationcap").frame(maxWidth: .infinity, minHeight: 220) }
+                    ForEach(shown, id: \.self) { n in card(n) }
+                    if shown.isEmpty { ContentUnavailableView(L("Noch keine Noten", "No grades yet"), systemImage: "graduationcap", description: Text(L("Leg oben links ein Fach an und stell ein, wie schriftlich und mündlich zählen.", "Create a subject at the top left and set how written and oral count."))).frame(maxWidth: .infinity, minHeight: 220) }
                 }
                 .padding(16).frame(maxWidth: 720).frame(maxWidth: .infinity)
             }
@@ -335,11 +351,98 @@ private struct GradesTab: View {
             }
             .padding(10)
         }
+        .sheet(isPresented: Binding(get: { edit.value != nil }, set: { if !$0 { edit.value = nil } })) {
+            if let x = edit.value { SubjectSheet(x: x, taken: all, grades: s.book.grades.filter { $0.subject == x.name && !x.name.isEmpty }.count) { r in save(x, r) } }
+        }
+    }
+    private func card(_ n: String) -> some View {
+        let g = s.book.grades.filter { $0.subject == n }.sorted { $0.date < $1.date }, w = Plan.written(s.book, n), pts = s.book.points
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                RoundedRectangle(cornerRadius: 2).fill(subjectTint(n)).frame(width: 4, height: 18); Text(n).font(.headline)
+                Text(L("schriftlich \(Int((w * 100).rounded())) % · mündlich \(Int(((1 - w) * 100).rounded())) %", "written \(Int((w * 100).rounded()))% · oral \(Int(((1 - w) * 100).rounded()))%")).font(.caption).foregroundStyle(.secondary)
+                Button { edit.value = s.book.subjects.first { $0.name == n } ?? Plan.Subject(name: n) } label: { Image(systemName: "slider.horizontal.3") }.buttonStyle(.borderless).help(L("Fach bearbeiten", "Edit subject")).accessibilityLabel(L("\(n) bearbeiten", "Edit \(n)"))
+                Spacer(); Text(Plan.average(s.book, n).map { Plan.text($0, pts) } ?? "–").font(.headline).monospacedDigit()
+            }
+            ForEach([false, true], id: \.self) { o in
+                let h = g.filter { $0.isOral == o }
+                HStack(spacing: 6) {
+                    Text(o ? L("Mündlich", "Oral") : L("Schriftlich", "Written")).font(.caption).foregroundStyle(.secondary).frame(width: 74, alignment: .leading)
+                    ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 6) {
+                        if h.isEmpty { Text("–").foregroundStyle(.tertiary) }
+                        ForEach(h) { x in
+                            Menu { Text((x.name.isEmpty ? "" : x.name + ", ") + x.date.formatted(date: .abbreviated, time: .omitted))
+                                Button(o ? L("Als schriftlich zählen", "Count as written") : L("Als mündlich zählen", "Count as oral")) { if let i = s.book.grades.firstIndex(where: { $0.id == x.id }) { s.book.grades[i].oral = !o } }
+                                Button(L("Löschen", "Delete"), role: .destructive) { s.book.grades.removeAll { $0.id == x.id } } }
+                            label: { Text(Calc.format(x.value) + (x.weight == 1 ? "" : x.weight == 2 ? " ×2" : " ×½")).monospacedDigit() }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().padding(.horizontal, 9).padding(.vertical, 4).background(.primary.opacity(0.07), in: Capsule())
+                        }
+                    } }
+                    if let a = Plan.mean(h) { Text("Ø " + Plan.text(a, pts)).font(.caption).monospacedDigit().foregroundStyle(.secondary) }
+                }
+            }
+            if let t = goal.value, let z = Plan.gradeValue(t, pts), !g.isEmpty {
+                let need = [false, true].map { o in (o, Plan.needed(g, goal: z, weight: 1, oral: o, written: w)) }
+                let ok = need.filter { Plan.valid($0.1, pts) }
+                let cur = Plan.average(s.book, n) ?? 0, safe = pts ? cur >= z : cur <= z
+                Text(!ok.isEmpty ? L("Für \(Calc.format(z)) brauchst du als Nächstes ", "For \(Calc.format(z)) you need next ") + ok.map { ($0.0 ? L("mündlich ", "oral ") : L("schriftlich ", "written ")) + Plan.text($0.1, pts) }.joined(separator: L(" oder ", " or ")) : safe ? L("Schon sicher", "Already safe") : L("Mit einer Note nicht zu schaffen", "Not possible with one grade")).font(.callout).foregroundStyle(.secondary)
+            }
+        }
+        .padding(12).background(.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+    }
+    private func save(_ old: Plan.Subject, _ r: Plan.Subject?) {
+        edit.value = nil
+        var b = s.book
+        guard let r else { // löschen
+            b.subjects.removeAll { $0.id == old.id || $0.name == old.name }; b.grades.removeAll { $0.subject == old.name }; s.book = b; return
+        }
+        if !old.name.isEmpty, old.name != r.name { // umbenennen überall
+            for i in b.grades.indices where b.grades[i].subject == old.name { b.grades[i].subject = r.name }
+            for i in b.tasks.indices where b.tasks[i].subject == old.name { b.tasks[i].subject = r.name }
+            for i in b.lessons.indices where b.lessons[i].subject == old.name { b.lessons[i].subject = r.name }
+        }
+        b.subjects.removeAll { $0.id == old.id || $0.name == old.name || $0.name == r.name }
+        b.subjects.append(r)
+        s.book = b; sub.value = r.name
     }
     private func add() {
         guard !subject.isEmpty, let v = Plan.gradeValue(val.value ?? "", s.book.points) else { return }
-        s.book.grades.append(Plan.Grade(subject: subject, value: v, weight: weight.value ?? 1, name: name.value ?? ""))
+        s.book.grades.append(Plan.Grade(subject: subject, value: v, weight: weight.value ?? 1, name: name.value ?? "", oral: oral.value == true ? true : nil))
         val.value = ""; name.value = ""; weight.value = 1
+    }
+}
+
+struct SubjectSheet: View {
+    let x: Plan.Subject, taken: [String], grades: Int
+    let done: (Plan.Subject?) -> Void
+    @StateObject private var b = TextBox<Plan.Subject>()
+    @Environment(\.dismiss) private var dismiss
+    private var v: Plan.Subject { b.value ?? x }
+    private var clean: String { v.name.trimmingCharacters(in: .whitespaces) }
+    private var ok: Bool { !clean.isEmpty && (clean == x.name || !taken.contains(clean)) }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(x.name.isEmpty ? L("Neues Fach", "New subject") : x.name).font(.title3.weight(.semibold))
+            TextField(L("Name, z. B. Mathe", "Name, e.g. Math"), text: Binding(get: { v.name }, set: { t in var y = v; y.name = t; b.value = y })).textFieldStyle(.roundedBorder)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(L("Schriftlich \(v.written) % · Mündlich \(100 - v.written) %", "Written \(v.written)% · Oral \(100 - v.written)%")).monospacedDigit()
+                Slider(value: Binding(get: { Double(v.written) }, set: { t in var y = v; y.written = Int(t.rounded()); b.value = y }), in: 0...100, step: 5).accessibilityLabel(L("Anteil schriftlich", "Written share"))
+                HStack { ForEach([(50, "1 : 1"), (60, "60 : 40"), (67, "2 : 1"), (40, "40 : 60"), (33, "1 : 2")], id: \.0) { p, t in Button(t) { var y = v; y.written = p; b.value = y }.controlSize(.small) } }
+                Text(L("Wie viel die Klausuren gegenüber der mündlichen Note zählen. Steht meist im Notenschlüssel deiner Schule.", "How much exams count compared to the oral grade. Usually set by your school."))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                if !x.name.isEmpty { Button(L("Löschen", "Delete"), role: .destructive) {
+                    if grades == 0 { done(nil); return }
+                    let a = NSAlert(); a.messageText = L("„\(x.name)“ mit \(grades) Noten löschen?", "Delete “\(x.name)” with \(grades) grades?")
+                    a.addButton(withTitle: L("Abbrechen", "Cancel")); a.addButton(withTitle: L("Löschen", "Delete")).hasDestructiveAction = true
+                    if a.runModal() == .alertSecondButtonReturn { done(nil) }
+                } }
+                Spacer()
+                Button(L("Abbrechen", "Cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(L("Sichern", "Save")) { var y = v; y.name = clean; done(y) }.keyboardShortcut(.defaultAction).disabled(!ok)
+            }
+        }
+        .padding(20).frame(width: 420)
     }
 }
 

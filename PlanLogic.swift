@@ -2,13 +2,16 @@
 import Foundation
 
 enum Plan {
-    struct Lesson: Codable, Identifiable, Equatable { var id = UUID(); var day = 2; var start = 455; var end = 500; var subject = ""; var room = ""; var week = 0 } // day 2 = Montag; week 0 = jede, 1 = A, 2 = B
+    struct Lesson: Codable, Identifiable, Equatable { var id = UUID(); var day = 2; var start = 455; var end = 500; var subject = ""; var room = ""; var week = 0; var date: Date? = nil; var off: Bool? = nil } // day 2 = Montag; week 0 = jede, 1 = A, 2 = B; date nur bei abgeglichenen Stunden aus WebUntis, off = Entfall
     struct Task: Codable, Identifiable, Equatable { var id = UUID(); var subject = ""; var text = ""; var due: Date; var exam = false; var done = false }
-    struct Grade: Codable, Identifiable, Equatable { var id = UUID(); var subject = ""; var value = 1.0; var weight = 1.0; var name = ""; var date = Date() }
+    struct Grade: Codable, Identifiable, Equatable { var id = UUID(); var subject = ""; var value = 1.0; var weight = 1.0; var name = ""; var date = Date(); var oral: Bool? = nil; var isOral: Bool { oral == true } } // weight zählt innerhalb von schriftlich bzw. mündlich
     struct Card: Codable, Identifiable, Equatable { var id = UUID(); var front = ""; var back = ""; var box = 0; var due = Date.distantPast; var right = 0; var wrong = 0 }
+    struct Subject: Codable, Identifiable, Equatable { var id = UUID(); var name = ""; var written = 50 } // Anteil schriftlich in Prozent
+    struct Untis: Codable, Equatable { var server = "", school = "", user = "", name = "" } // Passwort liegt im Schlüsselbund
     struct Deck: Codable, Identifiable, Equatable { var id = UUID(); var name = ""; var cards: [Card] = [] }
     struct Book: Codable, Equatable {
-        var lessons: [Lesson] = [], tasks: [Task] = [], grades: [Grade] = [], decks: [Deck] = []
+        var lessons: [Lesson] = [], tasks: [Task] = [], grades: [Grade] = [], decks: [Deck] = [], subjects: [Subject] = []
+        var untis: Untis?, dated: [Lesson] = [], datedFrom: Date?, datedTo: Date?, synced: Date? // echter Plan aus WebUntis für datedFrom..<datedTo
         var points = true          // Punkte 0–15 (Oberstufe) statt Noten 1–6
         var aWeekOdd = true        // A-Woche = ungerade Kalenderwoche
         init() {}
@@ -16,7 +19,8 @@ enum Plan {
         init(from d: Decoder) throws {
             let c = try d.container(keyedBy: CodingKeys.self)
             func list<T: Decodable>(_ k: CodingKeys) -> [T] { ((try? c.decode([Lossy<T>].self, forKey: k)) ?? []).compactMap(\.value) }
-            lessons = list(.lessons); tasks = list(.tasks); grades = list(.grades); decks = list(.decks)
+            lessons = list(.lessons); tasks = list(.tasks); grades = list(.grades); decks = list(.decks); subjects = list(.subjects); dated = list(.dated)
+            untis = try? c.decode(Untis.self, forKey: .untis); datedFrom = try? c.decode(Date.self, forKey: .datedFrom); datedTo = try? c.decode(Date.self, forKey: .datedTo); synced = try? c.decode(Date.self, forKey: .synced)
             points = (try? c.decode(Bool.self, forKey: .points)) ?? true
             aWeekOdd = (try? c.decode(Bool.self, forKey: .aWeekOdd)) ?? true
         }
@@ -31,7 +35,10 @@ enum Plan {
         guard let m, (0..<60).contains(m) else { return nil }
         return h * 60 + m
     }
-    static func lessons(_ b: Book, on d: Date, _ cal: Calendar = ActLogic.cal) -> [Lesson] {
+    static func lessons(_ b: Book, on d: Date, _ cal: Calendar = ActLogic.cal) -> [Lesson] { day(b, d, cal).filter { $0.off != true } }
+    // Mit Entfall; im abgeglichenen Zeitraum der echte Plan aus WebUntis
+    static func day(_ b: Book, _ d: Date, _ cal: Calendar = ActLogic.cal) -> [Lesson] {
+        if let f = b.datedFrom, let t = b.datedTo, f <= d, d < t { return b.dated.filter { $0.date.map { cal.isDate($0, inSameDayAs: d) } == true }.sorted { $0.start < $1.start } }
         let wd = cal.component(.weekday, from: d), odd = isoWeek(d, cal) % 2 == 1
         return b.lessons.filter { $0.day == wd && ($0.week == 0 || ($0.week == 1) == (odd == b.aWeekOdd)) }.sorted { $0.start < $1.start }
     }
@@ -46,7 +53,7 @@ enum Plan {
     }
     static func subjects(_ b: Book) -> [String] {
         var out: [String] = []
-        for s in b.lessons.map(\.subject) + b.grades.map(\.subject) + b.tasks.map(\.subject) where !s.isEmpty && !out.contains(s) { out.append(s) }
+        for s in b.subjects.map(\.name) + b.lessons.map(\.subject) + b.grades.map(\.subject) + b.tasks.map(\.subject) where !s.isEmpty && !out.contains(s) { out.append(s) }
         return out.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
     // Fach im Satz: „Mathe S. 43“ oder „M …“ nur bei ganzem Wort; längster Treffer gewinnt
@@ -56,8 +63,16 @@ enum Plan {
     }
 
     // MARK: Noten
-    static func average(_ g: [Grade]) -> Double? { let w = g.reduce(0) { $0 + $1.weight }; return w > 0 ? g.reduce(0) { $0 + $1.value * $1.weight } / w : nil }
-    static func overall(_ b: Book) -> Double? { let a = subjects(b).compactMap { s in average(b.grades.filter { $0.subject == s }) }; return a.isEmpty ? nil : a.reduce(0, +) / Double(a.count) }
+    static func mean(_ g: [Grade]) -> Double? { let w = g.reduce(0) { $0 + $1.weight }; return w > 0 ? g.reduce(0) { $0 + $1.value * $1.weight } / w : nil }
+    // Schriftlich und mündlich getrennt mitteln, dann nach Anteil verrechnen; fehlt eine Seite, zählt die andere allein
+    static func average(_ g: [Grade], written: Double = 0.5) -> Double? {
+        let w = mean(g.filter { !$0.isOral }), o = mean(g.filter(\.isOral))
+        if let w, let o { return written * w + (1 - written) * o }
+        return w ?? o
+    }
+    static func written(_ b: Book, _ s: String) -> Double { Double(min(max(b.subjects.first { $0.name == s }?.written ?? 50, 0), 100)) / 100 }
+    static func average(_ b: Book, _ s: String) -> Double? { average(b.grades.filter { $0.subject == s }, written: written(b, s)) }
+    static func overall(_ b: Book) -> Double? { let a = subjects(b).compactMap { average(b, $0) }; return a.isEmpty ? nil : a.reduce(0, +) / Double(a.count) }
     // Punkte → Note (deutsche Oberstufe): N = (17 − P) / 3
     static func note(fromPoints p: Double) -> Double { min(max((17 - p) / 3, 1), 6) }
     static func text(_ v: Double, _ points: Bool) -> String {
@@ -72,9 +87,11 @@ enum Plan {
         return points ? v : min(max(v + d, 1), 6)
     }
     // Was brauche ich als Nächstes, um auf den Wunschschnitt zu kommen?
-    static func needed(_ g: [Grade], goal: Double, weight: Double) -> Double {
-        let w = g.reduce(0) { $0 + $1.weight }
-        return (goal * (w + weight) - g.reduce(0) { $0 + $1.value * $1.weight }) / weight
+    // Der Schnitt ist linear in der neuen Note, also reichen zwei Probewerte
+    static func needed(_ g: [Grade], goal: Double, weight: Double, oral: Bool = false, written: Double = 0.5) -> Double {
+        func f(_ x: Double) -> Double { average(g + [Grade(value: x, weight: weight, oral: oral)], written: written) ?? x }
+        let a = f(0), b = f(1)
+        return b == a ? .nan : (goal - a) / (b - a)
     }
 
     // MARK: Lernkarten (Leitner: 0, 1, 2, 4, 8, 16, 32 Tage)
@@ -110,8 +127,7 @@ enum Plan {
             f.timeZone = v.hasSuffix("Z") ? TimeZone(identifier: "UTC") : cal.timeZone
             return f.date(from: String(v.prefix(15)))
         }
-        struct Key: Hashable { let day, start, end: Int, subject, room: String }
-        var weeks: [Key: Set<Int>] = [:], every = Set<Key>(), all = Set<Int>(), fixed: [Key: Int] = [:]
+        var items: [(Lesson, Int, String)] = []
         for ev in t.components(separatedBy: "BEGIN:VEVENT").dropFirst().prefix(5000) {
             var a: Date?, b: Date?, sum = "", loc = "", rule = "", off = false
             for l in ev.components(separatedBy: "END:VEVENT")[0].split(separator: "\n").map(String.init) {
@@ -122,8 +138,16 @@ enum Plan {
             }
             guard !off, let a, let b, !sum.isEmpty, b > a, b.timeIntervalSince(a) < 6 * 3600, cal.isDate(a, inSameDayAs: b) else { continue }
             func m(_ d: Date) -> Int { cal.component(.hour, from: d) * 60 + cal.component(.minute, from: d) }
-            let k = Key(day: cal.component(.weekday, from: a), start: m(a), end: m(b), subject: String(sum.prefix(60)), room: String(loc.prefix(30)))
-            let w = isoWeek(a, cal)
+            items.append((Lesson(day: cal.component(.weekday, from: a), start: m(a), end: m(b), subject: String(sum.prefix(60)), room: String(loc.prefix(30))), isoWeek(a, cal), rule))
+        }
+        return fold(items)
+    }
+    // Einzelne Termine (Stunde, Kalenderwoche, Wiederholungsregel) → regelmäßiger Plan mit A/B-Wochen
+    static func fold(_ items: [(Lesson, Int, String)]) -> [Lesson] {
+        struct Key: Hashable { let day, start, end: Int, subject, room: String }
+        var weeks: [Key: Set<Int>] = [:], every = Set<Key>(), all = Set<Int>(), fixed: [Key: Int] = [:]
+        for (l, w, rule) in items {
+            let k = Key(day: l.day, start: l.start, end: l.end, subject: l.subject, room: l.room)
             if rule.contains("FREQ=WEEKLY") { if rule.contains("INTERVAL=2") { fixed[k] = w % 2 } else { every.insert(k) } }
             weeks[k, default: []].insert(w); all.insert(w)
         }
@@ -133,5 +157,22 @@ enum Plan {
             let odd = fixed[k] ?? (alternating && !every.contains(k) && Set(w.map { $0 % 2 }).count == 1 && w.count * 2 >= all.count - 1 ? w.first.map { $0 % 2 } : nil)
             return Lesson(day: k.day, start: k.start, end: k.end, subject: k.subject, room: k.room, week: odd.map { $0 == 1 ? 1 : 2 } ?? 0)
         }.sorted { ($0.day, $0.start, $0.subject) < ($1.day, $1.start, $1.subject) }
+    }
+
+    // MARK: WebUntis (JSON-RPC getTimetable)
+    struct UName: Decodable { let name: String?; let longname: String? }
+    struct UPeriod: Decodable { let date: Int; let startTime: Int; let endTime: Int; let su: [UName]?; let ro: [UName]?; let code: String? }
+    static func untisDay(_ d: Date, _ cal: Calendar = ActLogic.cal) -> Int { let c = cal.dateComponents([.year, .month, .day], from: d); return c.year! * 10000 + c.month! * 100 + c.day! }
+    static func untis(_ p: [UPeriod], _ cal: Calendar = ActLogic.cal) -> [Lesson] {
+        p.prefix(5000).compactMap { x in
+            guard let d = cal.date(from: DateComponents(year: x.date / 10000, month: x.date / 100 % 100, day: x.date % 100)) else { return nil }
+            let s = x.su?.first, n = (s?.longname).flatMap { $0.isEmpty || $0.count > 24 ? nil : $0 } ?? s?.name ?? ""
+            let a = x.startTime / 100 * 60 + x.startTime % 100, b = x.endTime / 100 * 60 + x.endTime % 100
+            guard !n.isEmpty, a < b, b <= 24 * 60 else { return nil }
+            return Lesson(day: cal.component(.weekday, from: d), start: a, end: b, subject: String(n.prefix(60)), room: String((x.ro?.first?.name ?? "").prefix(30)), date: d, off: x.code == "cancelled" ? true : nil)
+        }.sorted { ($0.date!, $0.start) < ($1.date!, $1.start) }
+    }
+    static func regular(_ dated: [Lesson], _ cal: Calendar = ActLogic.cal) -> [Lesson] {
+        fold(dated.filter { $0.off != true }.compactMap { l in l.date.map { (Lesson(day: l.day, start: l.start, end: l.end, subject: l.subject, room: l.room), isoWeek($0, cal), "") } })
     }
 }

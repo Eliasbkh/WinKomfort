@@ -66,7 +66,7 @@ enum AIMemory {
         case .grades:
             let b = School.shared.book
             guard let o = Plan.overall(b) else { return Outcome(text: L("Noch keine Noten eingetragen (Suche: „/schule“).", "No grades yet (search: “/school”).")) }
-            return Outcome(text: L("Gesamt: **\(Plan.text(o, b.points))**", "Overall: **\(Plan.text(o, b.points))**") + "\n\n" + Plan.subjects(b).compactMap { n in Plan.average(b.grades.filter { $0.subject == n }).map { "- \(n): \(Plan.text($0, b.points))" } }.joined(separator: "\n"))
+            return Outcome(text: L("Gesamt: **\(Plan.text(o, b.points))**", "Overall: **\(Plan.text(o, b.points))**") + "\n\n" + Plan.subjects(b).compactMap { n in Plan.average(b, n).map { "- \(n): \(Plan.text($0, b.points))" } }.joined(separator: "\n"))
         case .music:
             let l = q.lowercased()
             SystemAction.media(l.contains("nächst") || l.contains("next") || l.contains("weiter") && !l.contains("weiterspiel") ? 17 : l.contains("vorige") || l.contains("zurück") || l.contains("previous") ? 18 : 16)
