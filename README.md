@@ -20,6 +20,10 @@ Windows-Komfort für macOS als Menüleisten-App – jede Funktion einzeln schalt
 - **Game Mode** (⌃⌥G, automatisch bei Spielen): Hintergrund-Apps gedrosselt, Nicht stören, Bildschirm bleibt an, Dock optional ausgeblendet – alles beim Beenden zurück
 - **KI-Assistent** (⌃⌥K, Apple Intelligence auf dem Gerät): fragen, sprechen, Bilder/PDF/Office anhängen, Kalender, Erinnerungen, Dateien, Bildschirm, Mac steuern, Gedächtnis. Internet (Wikipedia, Wetter) nur auf Wunsch. Harmlose Befehle auch als Links: `winkomfort://gamemode/on`, `winkomfort://awake/60`, `winkomfort://explorer/Downloads`
 - **Schule** (⌃⌥S): Stundenplan mit A/B-Wochen, direkt mit WebUntis abgeglichen (inkl. Entfall), Hausaufgaben, Noten schriftlich und mündlich mit eigenem Verhältnis je Fach (Punkte oder 1–6), Lernkarten, Lernmodus gegen Ablenkung
+- **Notch**: fährt beim Drüberfahren aus – KI-Frage direkt dort, Musik, Tagesüberblick, Ablage per Hineinziehen; Timer, Laden und knapper Akku neben der Kamera
+- **Blatt scannen** (⌃⌥B): Desk-View-Kamera, Pfeile zum Ausrichten, zwei Durchgänge für mehr Schärfe, durchsuchbares PDF, KI ordnet ein und trägt Hausaufgaben ein
+- **Eigene Handschrift**: Vorlage einlesen, Texte und Arbeitsblätter (Zellen, Linien, Kästchen) mit KI ausfüllen, PDF mit eigener Tinten-Ebene oder als echte Tinte in OneNote
+- **Akku** (`/akku`): echte Milliwatt je App, Apps im Hintergrund sparen lassen, jederzeit rückgängig; Energie-Spalte im Task-Manager
 - **Technik** in der Suche: `/subnet`, `/kv`, `/nsd` (Struktogramm), `/uml`, `/sql`, `/regex`, `/float`, `/ohm`, `/hash`, `/unix`
 - **Ablage** (⌃⌥D oder beim Ziehen wackeln) und **Umwandeln** im Explorer (JPEG/PNG, verkleinern, PDF zusammenfügen)
 - **Absturzschutz**: nach drei Abstürzen direkt beim Start nur Menü und Updates
