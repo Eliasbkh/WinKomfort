@@ -49,7 +49,10 @@ final class NotchPanel: NSPanel {
         }
         fit(now: true)
         panel?.orderFrontRegardless()
-        if token == nil { token = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { _ in MainActor.assumeIsolated { Notch.shared.update() } } }
+        if token == nil {
+            token = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { _ in MainActor.assumeIsolated { Notch.shared.update() } }
+            wake = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { _ in MainActor.assumeIsolated { Notch.shared.morning() } }
+        }
         refreshPower()
         live()
         if minute == nil { // einmal pro Minute: Laden, „Stunde gleich“ – fast kostenlos
@@ -57,7 +60,18 @@ final class NotchPanel: NSPanel {
             minute?.tolerance = 15
         }
     }
-    private var minute: Timer?
+    private var minute: Timer?, wake: NSObjectProtocol?
+    // Morgens beim ersten Aufwachen einmal kurz den Tag zeigen (nur wenn etwas eingetragen ist)
+    func morning(now d: Date = Date()) {
+        let day = ActLogic.cal.startOfDay(for: d).timeIntervalSince1970, b = School.shared.book
+        guard (5..<12).contains(ActLogic.cal.component(.hour, from: d)), UserDefaults.standard.double(forKey: "notchMorning") != day,
+              !Plan.lessons(b, on: d).isEmpty || b.tasks.contains(where: { !$0.done }) else { return }
+        UserDefaults.standard.set(day, forKey: "notchMorning")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { MainActor.assumeIsolated {
+            Notch.shared.expand()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { MainActor.assumeIsolated { let n = Notch.shared; if !(n.panel?.isKeyWindow ?? false), n.question.isEmpty { n.collapse() } } }
+        } }
+    }
     private func hide() { panel?.orderOut(nil); tick?.invalidate(); tick = nil; minute?.invalidate(); minute = nil }
 
     // Das Fenster ist nur so groß wie die sichtbare Form: daneben gehen Klicks normal an die Menüleiste und an Fenster darunter

@@ -153,6 +153,8 @@ struct SheetField: Identifiable, Equatable {
     let lines: [CGFloat]      // Schreiblinien (y), leer = freies Feld/Tabellenzelle
     var context: String       // Aufgabe, Spalte, Zeile
     var answer = ""
+    var check = false         // Ankreuzkästchen: Antwort „ja“ = Haken
+    var ticked: Bool { check && answer.lowercased().hasPrefix("j") || check && answer.lowercased().hasPrefix("y") }
 }
 
 enum SheetReader {
@@ -221,6 +223,36 @@ enum SheetReader {
         }
         return merged
     }
+    // leere Quadrate (4–10 pt) als zusammenhängende dunkle Umrandung mit hellem Inneren
+    static func checkboxes(_ g: [UInt8], _ w: Int, _ h: Int, k: CGFloat) -> [CGRect] {
+        var seen = [Bool](repeating: false, count: w * h), out: [CGRect] = []
+        let dark: UInt8 = 205 // dünne, kleine Kästchen werden beim Rastern grau statt schwarz
+        let lo = max(5, Int(2.5 * k)), hi = Int(11 * k) + 2
+        for y in 0..<h { for x in 0..<w where !seen[y * w + x] && g[y * w + x] < dark {
+            var stack = [(x, y)], n = 0, x0 = x, x1 = x, y0 = y, y1 = y
+            seen[y * w + x] = true
+            while let (px, py) = stack.popLast() {
+                n += 1; x0 = min(x0, px); x1 = max(x1, px); y0 = min(y0, py); y1 = max(y1, py)
+                if n > 4000 { break } // große Flächen (Bilder, Linien) früh aufgeben
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let nx = px + dx, ny = py + dy
+                    if nx >= 0, ny >= 0, nx < w, ny < h, !seen[ny * w + nx], g[ny * w + nx] < dark { seen[ny * w + nx] = true; stack.append((nx, ny)) }
+                }
+            }
+            let bw = x1 - x0 + 1, bh = y1 - y0 + 1
+            guard (lo...hi).contains(bw), (lo...hi).contains(bh), abs(bw - bh) <= max(2, bw / 6) else { continue }
+            let fill = Double(n) / Double(bw * bh)
+            let mid = g[((y0 + y1) / 2) * w + (x0 + x1) / 2]
+            // gerade Kanten: alle vier Ränder fast durchgehend dunkel (ein „o“ ist rund und fällt heraus)
+            func edge(_ pts: [(Int, Int)]) -> Bool { Double(pts.filter { g[$0.1 * w + $0.0] < dark + 20 }.count) / Double(max(pts.count, 1)) > 0.7 }
+            // je Kante auch eine Pixelreihe weiter innen: dünne Linien liegen oft zwischen zwei Pixeln
+            func row(_ y: Int) -> Bool { edge((x0...x1).map { ($0, y) }) }
+            func col(_ x: Int) -> Bool { edge((y0...y1).map { (x, $0) }) }
+            let straight = (row(y0) || row(y0 + 1)) && (row(y1) || row(y1 - 1)) && (col(x0) || col(x0 + 1)) && (col(x1) || col(x1 - 1))
+            if fill < 0.6, mid > 200, straight { out.append(CGRect(x: x0, y: y0, width: bw, height: bh)) } // hohl wie ein Kästchen, nicht ein Buchstabe
+        } }
+        return out
+    }
     static func fields(_ doc: PDFDocument) -> [SheetField] {
         var out: [SheetField] = []
         for pi in 0..<min(doc.pageCount, 12) {
@@ -277,6 +309,13 @@ enum SheetReader {
                 group.append(l)
             }
             flush()
+            // Ankreuzkästchen: kleine, leere Quadrate direkt vor einer Textzeile
+            for box in checkboxes(g, w, h, k: k) {
+                // die Texterkennung liest das Kästchen oft als „•“ mit: Zeile darf am Kästchen beginnen
+                guard let line = texts.filter({ $0.0.maxX > box.maxX + 10 * k && $0.0.minX - box.maxX < 15 * k && $0.0.minX > box.minX - 4 * k && abs($0.0.midY - box.midY) < box.height }).min(by: { $0.0.minX < $1.0.minX }) else { continue }
+                let item = line.1.replacingOccurrences(of: #"^[\s•·\-–□☐口oO0]+\s"#, with: "", options: .regularExpression)
+                out.append(SheetField(page: pi, rect: CGRect(x: box.minX / k, y: box.minY / k, width: box.width / k, height: box.height / k), lines: [], context: "Ankreuzen (ja/nein): " + item, check: true))
+            }
         }
         // doppelte Felder (gleiche Stelle) nur einmal
         var unique: [SheetField] = []
@@ -340,7 +379,7 @@ enum SheetReader {
                 let mine = fields.indices.filter { fields[$0].page == p && fields[$0].answer.isEmpty }
                 guard !mine.isEmpty else { continue }
                 status = L("KI beantwortet Seite \(p + 1) …", "AI answers page \(p + 1)…")
-                let list = mine.enumerated().map { n, i in let f = fields[i]; return "\(n + 1). \(f.context.prefix(300)) (Platz für etwa \(max(4, Int(f.rect.width * f.rect.height / 70))) Wörter)" }.joined(separator: "\n")
+                let list = mine.enumerated().map { n, i in let f = fields[i]; return "\(n + 1). \(f.context.prefix(300))" + (f.check ? " (nur ja oder nein)" : " (Platz für etwa \(max(4, Int(f.rect.width * f.rect.height / 70))) Wörter)") }.joined(separator: "\n")
                 let s = LanguageModelSession(instructions: "Du füllst ein Arbeitsblatt für einen Schüler aus. Antworte auf Deutsch, sachlich richtig, knapp und in Schülersprache. Fülle jedes Feld passend zu Aufgabe, Spalte und Zeile. Fragt ein Feld nach persönlichen Dingen, schreibe eine plausible, ehrliche Schülerantwort. Gib genau eine Zeile pro Feld zurück im Format: Nummer | Antwort")
                 let q = "Text der Seite:\n\(String(SheetReader.text(d, page: p).prefix(2200)))\n\nFelder:\n\(list)"
                 guard let r = try? await s.respond(to: q).content else { continue }
@@ -356,6 +395,12 @@ enum SheetReader {
     // Striche eines Feldes in Seitenpunkten (Ursprung oben links)
     func strokes(_ f: SheetField) -> [[CGPoint]] {
         guard let font = Hand.shared.font, !f.answer.isEmpty else { return [] }
+        if f.check { // Haken: kurzer Abstrich, langer Aufstrich, leicht über das Kästchen hinaus wie von Hand
+            guard f.ticked else { return [] }
+            let r = f.rect
+            _ = font
+            return [[CGPoint(x: r.minX + r.width * 0.12, y: r.midY + r.height * 0.05), CGPoint(x: r.minX + r.width * 0.42, y: r.maxY - r.height * 0.1), CGPoint(x: r.maxX + r.width * 0.25, y: r.minY - r.height * 0.35)]]
+        }
         if f.lines.count >= 1 {
             let gap = f.lines.count > 1 ? f.lines[1] - f.lines[0] : 16
             let size = min(gap * 0.5, 9)
