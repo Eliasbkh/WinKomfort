@@ -402,9 +402,11 @@ sc("Kalenderdatei", "\(Plan.ics(icsText).map { "\($0.day) \(Plan.clock($0.start)
 
 // Scannen
 let sq = ScanQuad(tl: CGPoint(x: 0.3, y: 0.1), tr: CGPoint(x: 0.7, y: 0.1), br: CGPoint(x: 0.7, y: 0.9), bl: CGPoint(x: 0.3, y: 0.9))
-let sq2 = ScanQuad(tl: CGPoint(x: 0.3, y: 0.2), tr: CGPoint(x: 0.7, y: 0.2), br: CGPoint(x: 0.7, y: 0.995), bl: CGPoint(x: 0.3, y: 0.995))
+let sq2 = ScanQuad(tl: CGPoint(x: 0.3, y: 0.2), tr: CGPoint(x: 0.7, y: 0.2), br: CGPoint(x: 0.7, y: 0.999), bl: CGPoint(x: 0.3, y: 0.999))
 sc("Scan Hinweis", "\(ScanLogic.hint(nil, previous: nil)) \(ScanLogic.hint(sq, previous: sq)) \(ScanLogic.hint(sq2, previous: nil)) \(ScanLogic.hint(sq, previous: sq2)) \((sq.area * 100).rounded())", "empty hold cutNear moving 32.0")
-sc("Scan Fortschritt", "\(ScanLogic.step(0.5, .hold, dt: 0.13)) \(ScanLogic.step(0.5, .moving, dt: 0.1)) \(ScanLogic.step(0.9, .empty, dt: 0.1)) \(ScanLogic.step(0.99, .hold, dt: 1))", "0.6 0.3 0.0 1.0")
+sc("Scan Blatt-Inneres", "\(sq.contains(CGPoint(x: 0.5, y: 0.5))) \(sq.contains(CGPoint(x: 0.2, y: 0.5))) \(sq.inset(0.15).contains(CGPoint(x: 0.31, y: 0.5))) \(ScanLogic.hint(ScanQuad(tl: CGPoint(x: 0, y: 0.1), tr: CGPoint(x: 0.5, y: 0.1), br: CGPoint(x: 0.5, y: 0.9), bl: CGPoint(x: 0, y: 0.9)), previous: nil))", "true false false cutLeft")
+sc("Scan Drehung", "\(ScanLogic.orientation(degrees: 2).rawValue) \(ScanLogic.orientation(degrees: -177).rawValue) \(ScanLogic.orientation(degrees: 92).rawValue) \(ScanLogic.orientation(degrees: -87).rawValue) \(ScanLogic.orientation(degrees: 181).rawValue)", "1 3 6 8 3")
+sc("Scan Fortschritt", "\(ScanLogic.step(0.5, .hold, dt: 0.13)) \(ScanLogic.step(0.5, .moving, dt: 0.1)) \(ScanLogic.step(0.9, .empty, dt: 0.1)) \(ScanLogic.step(0.99, .hold, dt: 1))", "0.6083333333333334 0.42 0.0 1.0")
 let sz = ScanLogic.sides(sq, image: CGSize(width: 1920, height: 1440))
 sc("Scan Papier", "\(sz.width.rounded()) \(sz.height.rounded()) \(ScanLogic.paper(sz).kind) \(ScanLogic.paper(CGSize(width: 800, height: 1131)).size) \(ScanLogic.paper(CGSize(width: 1400, height: 1000)).size) \(ScanLogic.paper(CGSize(width: 500, height: 800)).kind) \(ScanLogic.pixels(ScanLogic.paper(CGSize(width: 800, height: 1131))))", "768.0 1152.0 a4 (595.0, 842.0) (842.0, 595.0) card (1653.0, 2339.0)")
 sc("Scan KI-Zeile", "\(ScanLogic.guess("**Titel:** „Lyrik: Handwerkszeug“ | Arbeitsblatt | Deutsch")!) \(ScanLogic.guess("Rechnung | Rechnung | leer")!) \(ScanLogic.guess("keine Ahnung") == nil)", "(title: \"Lyrik: Handwerkszeug\", kind: \"Arbeitsblatt\", subject: \"Deutsch\") (title: \"Rechnung\", kind: \"Rechnung\", subject: \"\") true")

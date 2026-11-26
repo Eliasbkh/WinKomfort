@@ -133,6 +133,7 @@ enum Assistant {
     @MainActor static func handle(_ url: URL) {
         guard url.scheme == "winkomfort", let host = url.host?.lowercased() else { return }
         let arg = (url.path.removingPercentEncoding ?? url.path).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if host == "scan" { Scanner.open(); return } // winkomfort://scan öffnet den Scanner (z. B. aus Kurzbefehlen)
         let ok: Bool
         switch host {
         case "awake": ok = arg.allSatisfy(\.isNumber) && (Int(arg) ?? 9999) <= 600

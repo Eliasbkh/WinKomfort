@@ -1,5 +1,6 @@
 // Blatt scannen: Erkennen, Stillhalten, Hinweise und Papierformat – ohne Kamera testbar
 import CoreGraphics
+import ImageIO
 import Foundation
 
 // Ecken im Kamerabild, 0…1, Ursprung oben links (wie SwiftUI)
@@ -12,6 +13,16 @@ struct ScanQuad: Equatable {
     }
     func moved(from o: ScanQuad) -> CGFloat { zip(points, o.points).map { hypot($0.x - $1.x, $0.y - $1.y) }.max() ?? 1 }
     // Ecke für Ecke der Median der letzten Messungen: einzelne Ausreißer verschwinden
+    // Liegt der Punkt im Blatt? (Ecken im Uhrzeigersinn oder dagegen)
+    func contains(_ p: CGPoint) -> Bool {
+        let s = points.indices.map { i -> CGFloat in let a = points[i], b = points[(i + 1) % 4]; return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) }
+        return s.allSatisfy { $0 >= 0 } || s.allSatisfy { $0 <= 0 }
+    }
+    // ein Stück zur Mitte hin: Finger am Rand stören nicht
+    func inset(_ t: CGFloat) -> ScanQuad {
+        let c = CGPoint(x: points.map(\.x).reduce(0, +) / 4, y: points.map(\.y).reduce(0, +) / 4)
+        return ScanQuad.mix(self, ScanQuad(tl: c, tr: c, br: c, bl: c), t)
+    }
     static func median(_ qs: [ScanQuad]) -> ScanQuad? {
         guard !qs.isEmpty else { return nil }
         func m(_ k: KeyPath<ScanQuad, CGPoint>) -> CGPoint {
@@ -27,8 +38,8 @@ struct ScanQuad: Equatable {
 }
 
 enum ScanLogic {
-    enum Hint: Equatable { case empty, small, cutNear, cutFar, cutSide, hand, moving, hold, done }
-    static let edge: CGFloat = 0.015, still: CGFloat = 0.012, holdSeconds = 1.3
+    enum Hint: Equatable { case empty, small, cutNear, cutFar, cutLeft, cutRight, hand, moving, hold, done }
+    static let edge: CGFloat = 0.004, still: CGFloat = 0.02, holdSeconds = 1.2
 
     // Was soll man tun? Unten im Desk-View-Bild liegt die Seite zu dir, oben die zum Mac
     static func hint(_ q: ScanQuad?, previous: ScanQuad?, hand: Bool = false) -> Hint {
@@ -37,7 +48,8 @@ enum ScanLogic {
         let p = q.points
         if p.contains(where: { $0.y > 1 - edge }) { return .cutNear }
         if p.contains(where: { $0.y < edge }) { return .cutFar }
-        if p.contains(where: { $0.x < edge || $0.x > 1 - edge }) { return .cutSide }
+        if p.contains(where: { $0.x < edge }) { return .cutLeft }
+        if p.contains(where: { $0.x > 1 - edge }) { return .cutRight }
         if q.area < 0.08 { return .small }
         if let previous, q.moved(from: previous) > still { return .moving }
         return .hold
@@ -46,7 +58,7 @@ enum ScanLogic {
     static func step(_ progress: Double, _ h: Hint, dt: Double) -> Double {
         switch h {
         case .hold: return min(1, progress + dt / holdSeconds)
-        case .moving, .hand: return max(0, progress - dt * 2)
+        case .moving, .hand: return max(0, progress - dt * 0.8) // kurzes Wackeln kostet wenig
         default: return 0
         }
     }
@@ -83,5 +95,12 @@ enum ScanLogic {
         guard p.count >= 2, !p[0].isEmpty else { return nil }
         let s = p.count > 2 && !["-", "leer", "keins", "kein", "none"].contains(p[2].lowercased()) ? p[2] : ""
         return (String(p[0].prefix(60)), String(p[1].prefix(30)), String(s.prefix(30)))
+    }
+    // Schriftrichtung (0° = von links nach rechts) → Drehung, die das Blatt aufrecht stellt
+    static func orientation(degrees a: Double) -> CGImagePropertyOrientation {
+        let d = (a.truncatingRemainder(dividingBy: 360) + 540).truncatingRemainder(dividingBy: 360) - 180 // −180…180
+        if abs(d) <= 45 { return .up }
+        if abs(d) >= 135 { return .down }
+        return d > 0 ? .right : .left
     }
 }

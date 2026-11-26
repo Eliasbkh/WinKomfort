@@ -6,6 +6,7 @@ import CoreImage.CIFilterBuiltins
 import CoreText
 import FoundationModels
 import IOKit.hid
+import simd
 import SwiftUI
 import Vision
 
@@ -66,7 +67,12 @@ final class ScanEngine: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, 
         var q = seg.results?.first.flatMap { $0.confidence > 0.6 ? quad($0) : nil }
         // Die Segmentierung findet das Blatt sicher, die Kantensuche liegt genauer auf dem Rand: passt eine, nimm sie
         if let s = q, let r = rect.results?.map(quad).filter({ $0.moved(from: s) < 0.05 }).min(by: { $0.moved(from: s) < $1.moved(from: s) }) { q = r }
-        let busy = (hand.results ?? []).contains { $0.confidence > 0.5 }
+        // nur eine Hand, die auf dem Blatt liegt, stört; Finger am Rand (Festhalten) nicht
+        let inner = q?.inset(0.15)
+        let busy = (hand.results ?? []).contains { o in
+            guard o.confidence > 0.5, let pts = try? o.recognizedPoints(.all) else { return false }
+            return pts.values.contains { $0.confidence > 0.3 && inner?.contains(CGPoint(x: $0.location.x, y: 1 - $0.location.y)) == true }
+        }
         onQuad?(q, size, busy)
     }
 }
@@ -88,10 +94,27 @@ enum ScanProcess {
     static let ctx = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!])
     // Mitteln, entzerren, auf Papiergröße bringen
     static func flatten(_ frames: [CGImage], _ q: ScanQuad, _ paper: ScanLogic.Paper) -> CGImage? {
-        guard var img = frames.first.map(CIImage.init(cgImage:)) else { return nil }
-        for (k, g) in frames.dropFirst().enumerated() { // laufender Mittelwert
-            img = CIImage(cgImage: g).applyingFilter("CIDissolveTransition", parameters: ["inputTargetImage": img, "inputTime": 1 - 1 / Double(k + 2)])
+        // erst jedes Bild aufs Blatt entzerren, dann am Blattinhalt ausrichten und mitteln: weniger Rauschen, keine Doppelschrift
+        let flats = frames.compactMap { warp($0, q, paper) }
+        guard let ref = flats.last else { return nil } // das letzte Bild passt am besten zu den Ecken
+        let R = CIImage(cgImage: ref), inner = R.extent.insetBy(dx: R.extent.width * 0.05, dy: R.extent.height * 0.05)
+        func diff(_ x: CIImage) -> Double { // mittlere Abweichung zum Referenzbild, 0…765
+            var px = [UInt8](repeating: 0, count: 4)
+            let d = x.applyingFilter("CIDifferenceBlendMode", parameters: [kCIInputBackgroundImageKey: R]).applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: inner)])
+            ctx.render(d, toBitmap: &px, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: nil)
+            return Double(px[0]) + Double(px[1]) + Double(px[2])
         }
+        let aligned = flats.dropLast().compactMap { align(ref, CIImage(cgImage: $0), strict: true) }.map { ($0, diff($0)) }
+        let best = aligned.map(\.1).min() ?? 0
+        var img = R, k = 1
+        for (a, d) in aligned where d <= best * 1.5 + 3 { // nur wirklich deckungsgleiche Bilder mitteln
+            k += 1
+            img = a.applyingFilter("CIDissolveTransition", parameters: ["inputTargetImage": img, "inputTime": 1 - 1 / Double(k)])
+        }
+        return ctx.createCGImage(img, from: CGRect(origin: .zero, size: CGSize(width: ref.width, height: ref.height)))
+    }
+    static func warp(_ frame: CGImage, _ q: ScanQuad, _ paper: ScanLogic.Paper) -> CGImage? {
+        let img = CIImage(cgImage: frame)
         let w = img.extent.width, h = img.extent.height
         let c = CGPoint(x: q.points.map(\.x).reduce(0, +) / 4, y: q.points.map(\.y).reduce(0, +) / 4)
         func v(_ p: CGPoint) -> CGPoint { let i = CGPoint(x: p.x + (c.x - p.x) * 0.012, y: p.y + (c.y - p.y) * 0.012); return CGPoint(x: i.x * w, y: (1 - i.y) * h) } // knapp innen: kein Tischrand
@@ -103,17 +126,17 @@ enum ScanProcess {
         out = out.transformed(by: CGAffineTransform(translationX: -out.extent.minX, y: -out.extent.minY))
         return ctx.createCGImage(out, from: CGRect(origin: .zero, size: px))
     }
-    // Liegt das Blatt quer oder auf dem Kopf? Die Richtung mit dem meisten sicher erkannten Text gewinnt
+    // Liegt das Blatt quer oder auf dem Kopf? Die Texterkennung liest jede Richtung, verrät aber über die Ecken jeder Zeile, wohin die Schrift läuft
     static func upright(_ g: CGImage) -> CGImagePropertyOrientation {
-        let small = CIImage(cgImage: g).transformed(by: CGAffineTransform(scaleX: 0.45, y: 0.45))
+        let small = CIImage(cgImage: g).transformed(by: CGAffineTransform(scaleX: 0.5, y: 0.5))
         guard let s = ctx.createCGImage(small, from: small.extent) else { return .up }
-        let score = [CGImagePropertyOrientation.up, .right, .down, .left].map { o -> (CGImagePropertyOrientation, Double) in
-            let r = VNRecognizeTextRequest(); r.recognitionLevel = .fast; r.usesLanguageCorrection = false
-            try? VNImageRequestHandler(cgImage: s, orientation: o).perform([r])
-            return (o, (r.results ?? []).compactMap { $0.topCandidates(1).first }.reduce(0) { $0 + Double($1.confidence) * Double($1.string.count) })
-        }
-        let best = score.max { $0.1 < $1.1 }!
-        return best.1 > (score.first!.1 * 1.4 + 20) ? best.0 : .up // nur drehen, wenn es klar besser ist
+        let r = VNRecognizeTextRequest(); r.recognitionLevel = .accurate; r.usesLanguageCorrection = false
+        try? VNImageRequestHandler(cgImage: s).perform([r])
+        let lines = r.results ?? []
+        guard lines.count >= 2 else { return .up }
+        var x = 0.0, y = 0.0
+        for t in lines { x += Double(t.topRight.x - t.topLeft.x) * Double(s.width); y += Double(t.topRight.y - t.topLeft.y) * Double(s.height) }
+        return ScanLogic.orientation(degrees: atan2(y, x) * 180 / .pi)
     }
     static func turn(_ g: CGImage, _ o: CGImagePropertyOrientation) -> CGImage {
         guard o != .up else { return g }
@@ -126,7 +149,7 @@ enum ScanProcess {
         let bg = img.applyingFilter("CIMorphologyMaximum", parameters: [kCIInputRadiusKey: max(8, r.width / 120)]).applyingGaussianBlur(sigma: r.width / 55).cropped(to: r)
         var out = bg.applyingFilter("CIDivideBlendMode", parameters: [kCIInputBackgroundImageKey: img]).cropped(to: r) // Ergebnis = Bild / Hintergrund
         let curve = CIFilter.toneCurve(); curve.inputImage = out
-        curve.point0 = CGPoint(x: 0, y: 0); curve.point1 = CGPoint(x: 0.45, y: 0.12); curve.point2 = CGPoint(x: 0.72, y: 0.48); curve.point3 = CGPoint(x: 0.9, y: 0.95); curve.point4 = CGPoint(x: 1, y: 1)
+        curve.point0 = CGPoint(x: 0, y: 0); curve.point1 = CGPoint(x: 0.5, y: 0.1); curve.point2 = CGPoint(x: 0.78, y: 0.42); curve.point3 = CGPoint(x: 0.92, y: 0.95); curve.point4 = CGPoint(x: 1, y: 1)
         out = curve.outputImage ?? out
         switch mode {
         case .color: out = out.applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0.95])
@@ -144,6 +167,7 @@ enum ScanProcess {
         let A = CIImage(cgImage: a), r = A.extent
         var B = CIImage(cgImage: b)
         if B.extent.size != r.size { B = B.transformed(by: CGAffineTransform(scaleX: r.width / B.extent.width, y: r.height / B.extent.height)) }
+        B = align(a, B)
         let n = 24, h = r.height / CGFloat(n)
         func detail(_ i: CIImage) -> [Double] {
             let e = i.applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0]).applyingFilter("CIEdges", parameters: [kCIInputIntensityKey: 6])
@@ -163,6 +187,32 @@ enum ScanProcess {
         let mask = CIImage(cgImage: m).samplingLinear().transformed(by: CGAffineTransform(scaleX: r.width, y: r.height / CGFloat(n))).cropped(to: r)
         let out = A.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: B, kCIInputMaskImageKey: mask]).cropped(to: r)
         return ctx.createCGImage(out, from: r) ?? a
+    }
+    // zweite Aufnahme passgenau auf die erste legen, sonst wird die Schrift im Übergang doppelt
+    static func align(_ a: CGImage, _ b: CIImage) -> CIImage { align(a, b, strict: false) ?? b }
+    // strict: lieber weglassen als unsauber ausgerichtet mitteln
+    static func align(_ a: CGImage, _ b: CIImage, strict: Bool) -> CIImage? {
+        let r = CIImage(cgImage: a).extent
+        var B = b, done = false
+        if let bb = ctx.createCGImage(B, from: r) {
+            let reg = VNHomographicImageRegistrationRequest(targetedCGImage: bb)
+            try? VNImageRequestHandler(cgImage: a).perform([reg])
+            if let w = (reg.results?.first as? VNImageHomographicAlignmentObservation)?.warpTransform {
+                func map(_ p: CGPoint) -> CGPoint { // Bildpunkt von B → Lage in A; Vision zählt wie CoreImage von unten links (per Test geprüft)
+                    let v = w * simd_float3(Float(p.x), Float(p.y), 1)
+                    return CGPoint(x: CGFloat(v.x / v.z), y: CGFloat(v.y / v.z))
+                }
+                let H = r.height
+                let corners = [CGPoint(x: 0, y: H), CGPoint(x: r.width, y: H), CGPoint(x: r.width, y: 0), CGPoint(x: 0, y: 0)].map(map)
+                let moved = zip(corners, [CGPoint(x: 0, y: H), CGPoint(x: r.width, y: H), CGPoint(x: r.width, y: 0), CGPoint(x: 0, y: 0)]).map { hypot($0.x - $1.x, $0.y - $1.y) }.max() ?? 0
+                if moved < r.width * 0.08 { // nur kleine Korrekturen; ein Ausreißer würde das Bild verbiegen
+                    let f = CIFilter.perspectiveTransform(); f.inputImage = B
+                    f.topLeft = corners[0]; f.topRight = corners[1]; f.bottomRight = corners[2]; f.bottomLeft = corners[3]
+                    if let o = f.outputImage { B = o.cropped(to: r); done = true }
+                }
+            }
+        }
+        return strict && !done ? nil : B
     }
     static func read(_ g: CGImage) -> [ScanText] {
         let r = VNRecognizeTextRequest(); r.recognitionLevel = .accurate; r.recognitionLanguages = ["de-DE", "en-US"]; r.usesLanguageCorrection = true
@@ -233,7 +283,8 @@ final class LidAngle {
     @Published var twice = UserDefaults.standard.object(forKey: "scanTwice") as? Bool ?? true { didSet { UserDefaults.standard.set(twice, forKey: "scanTwice") } }
     @Published var turning = false        // erster Durchgang fertig, Blatt drehen
     private var first: (flat: CGImage, paper: ScanLogic.Paper)?
-    private var firstQuad: ScanQuad?, touched = false // erst weiter, wenn das Blatt wirklich bewegt wurde
+    private var firstQuad: ScanQuad?
+    @Published var touched = false // erst weiter, wenn das Blatt wirklich bewegt wurde
     @Published var mode = ScanMode(rawValue: UserDefaults.standard.string(forKey: "scanMode") ?? "") ?? .color {
         didSet { UserDefaults.standard.set(mode.rawValue, forKey: "scanMode"); restyle() }
     }
@@ -287,7 +338,7 @@ final class LidAngle {
         quad = q.map { n in quad.map { ScanQuad.mix($0, n, 0.6) } ?? n } // ruhige Linien statt Zittern
         if let q { paper = ScanLogic.paper(ScanLogic.sides(q, image: s)) }
         progress = turning && !touched ? 0 : ScanLogic.step(progress, hint, dt: dt)
-        let want = progress > 0.2
+        let want = progress > 0.2 && hint == .hold // nur ruhige Bilder mitteln, sonst wird die Schrift doppelt
         if want != collecting { collecting = want; engine.setCollect(want) }
         if progress >= 1 { capture() }
     }
@@ -387,18 +438,22 @@ final class LidAngle {
 // MARK: Oberfläche
 private struct CameraView: NSViewRepresentable {
     let session: AVCaptureSession
+    let live: Bool // die Verbindung gibt es erst, wenn die Kamera eingerichtet ist
     func makeNSView(context: Context) -> NSView {
         let v = NSView(); v.wantsLayer = true
-        let l = AVCaptureVideoPreviewLayer(session: session); l.videoGravity = .resizeAspect
-        if let c = l.connection {
-            if c.isVideoMirroringSupported { c.automaticallyAdjustsVideoMirroring = false; c.isVideoMirrored = false }
-            if c.isVideoRotationAngleSupported(90) { c.videoRotationAngle = 90 } // wie die Bilder für die Erkennung
-        }
+        let l = AVCaptureVideoPreviewLayer(session: session); l.videoGravity = .resizeAspectFill
         l.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]; l.frame = v.bounds
         v.layer = l
+        Self.turn(l)
         return v
     }
-    func updateNSView(_ v: NSView, context: Context) {}
+    func updateNSView(_ v: NSView, context: Context) { if let l = v.layer as? AVCaptureVideoPreviewLayer { Self.turn(l) } }
+    // genauso drehen wie die Bilder für die Erkennung, sonst liegt der Rahmen daneben
+    static func turn(_ l: AVCaptureVideoPreviewLayer) {
+        guard let c = l.connection else { return }
+        if c.isVideoMirroringSupported, c.isVideoMirrored || c.automaticallyAdjustsVideoMirroring { c.automaticallyAdjustsVideoMirroring = false; c.isVideoMirrored = false }
+        if c.isVideoRotationAngleSupported(90), c.videoRotationAngle != 90 { c.videoRotationAngle = 90 }
+    }
 }
 private struct QuadShape: Shape {
     var q: ScanQuad
@@ -433,12 +488,12 @@ struct ScanView: View {
     private var live: some View {
         VStack(spacing: 0) {
             ZStack {
-                CameraView(session: Scanner.sharedSession)
+                CameraView(session: Scanner.sharedSession, live: s.phase == .live)
                 overlay
                 Color.white.opacity(s.flash ? 0.85 : 0).allowsHitTesting(false).animation(still ? nil : .easeOut(duration: 0.3), value: s.flash)
                 if s.phase == .working { VStack(spacing: 10) { ProgressView().controlSize(.large); Text(L("Wird sauber gemacht …", "Cleaning up…")).font(.headline) }.padding(24).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16)) }
                 if s.phase == .starting { ProgressView().controlSize(.large) }
-                if s.turning && s.progress == 0 && s.phase == .live { turnCard }
+                if s.turning && !s.touched && s.phase == .live { turnCard }
             }
             .aspectRatio(s.aspect, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 14)).padding(14)
@@ -466,6 +521,7 @@ struct ScanView: View {
                             .scaleEffect(1 + s.progress * 0.5).position(x: p.x * r.width, y: p.y * r.height)
                     }
                     chip(q, r)
+                    if let d = push { arrows(d, r) }
                 } else {
                     guide(r)
                 }
@@ -488,6 +544,26 @@ struct ScanView: View {
         }
         .padding(24).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
         .transition(.scale(scale: 0.92).combined(with: .opacity))
+    }
+    // Wohin das Blatt soll: Pfeil zeigt die Schieberichtung
+    private var push: (symbol: String, dx: CGFloat, dy: CGFloat)? {
+        switch s.hint {
+        case .cutNear: return ("chevron.up", 0, -1)
+        case .cutFar: return ("chevron.down", 0, 1)
+        case .cutLeft: return ("chevron.right", 1, 0)
+        case .cutRight: return ("chevron.left", -1, 0)
+        default: return nil
+        }
+    }
+    private func arrows(_ d: (symbol: String, dx: CGFloat, dy: CGFloat), _ r: CGRect) -> some View {
+        let forward = d.dx + d.dy > 0 // nach rechts/unten: der letzte Pfeil ist der hellste
+        return (d.dx != 0 ? AnyLayout(HStackLayout(spacing: -18)) : AnyLayout(VStackLayout(spacing: -18))) {
+            ForEach(0..<3) { i in Image(systemName: d.symbol).font(.system(size: 54, weight: .bold)).opacity(0.35 + Double(forward ? i : 2 - i) * 0.3) }
+        }
+            .foregroundStyle(.white).shadow(color: .black.opacity(0.5), radius: 8)
+            .phaseAnimator(still ? [0.0] : [0.0, 1.0]) { v, t in v.offset(x: d.dx * 26 * t, y: d.dy * 26 * t) } animation: { _ in .easeInOut(duration: 0.7) }
+            .position(x: r.midX, y: r.midY)
+            .allowsHitTesting(false).transition(.opacity)
     }
     private func scanY(_ q: ScanQuad) -> CGFloat { let top = q.points.map(\.y).min()!, bottom = q.points.map(\.y).max()!; return top + (bottom - top) * s.progress }
     private func chip(_ q: ScanQuad, _ r: CGRect) -> some View {
@@ -517,8 +593,9 @@ struct ScanView: View {
         case .small: return ("arrow.up.forward.and.arrow.down.backward", L("Das Blatt ist sehr klein im Bild: näher an den Mac legen", "Sheet looks small: move it closer to your Mac"))
         case .cutNear: return ("arrow.down.to.line", L("Unten abgeschnitten: Display etwas weiter öffnen oder das Blatt zum Mac schieben", "Cut off at the bottom: open the display a little more or push the sheet towards the Mac"))
         case .cutFar: return ("arrow.up.to.line", L("Oben abgeschnitten: Display etwas zuklappen oder das Blatt zu dir ziehen", "Cut off at the top: tilt the display forward a little or pull the sheet towards you"))
-        case .cutSide: return ("arrow.left.and.right", L("Seitlich abgeschnitten: Blatt mehr in die Mitte legen", "Cut off at the side: move the sheet to the middle"))
-        case .hand: return ("hand.raised.slash", L("Hand aus dem Bild nehmen", "Move your hand out of the picture"))
+        case .cutLeft: return ("arrow.right", L("Links abgeschnitten: Blatt nach rechts schieben", "Cut off on the left: move the sheet right"))
+        case .cutRight: return ("arrow.left", L("Rechts abgeschnitten: Blatt nach links schieben", "Cut off on the right: move the sheet left"))
+        case .hand: return ("hand.raised.slash", L("Hand vom Blatt nehmen", "Take your hand off the sheet"))
         case .moving: return ("hand.raised", L("Ruhig liegen lassen …", "Keep it still…"))
         case .hold, .done: return ("viewfinder", s.turning ? L("Zweiter Durchgang … nicht bewegen", "Second pass… don't move") : L("Scanne … nicht bewegen", "Scanning… don't move"))
         }
@@ -567,32 +644,32 @@ private struct ScanResult: View {
                         .buttonStyle(.plain).accessibilityLabel(L("Seite \(i + 1)", "Page \(i + 1)"))
                 } }.padding(.horizontal, 18) }.frame(height: 76)
             }
-            if s.thinking || s.about != nil {
-                HStack(spacing: 8) {
-                    Image(systemName: "sparkles").foregroundStyle(Color.accentColor)
-                    if let a = s.about { Text([a.kind, a.subject, a.title.isEmpty ? "" : "„\(a.title)“"].filter { !$0.isEmpty }.joined(separator: " · ")).lineLimit(1) }
-                    if s.thinking { ProgressView().controlSize(.small); Text(L("KI liest mit …", "AI is reading…")).foregroundStyle(.secondary) }
+            HStack(spacing: 8) {
+                if s.thinking || s.about != nil {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles").foregroundStyle(Color.accentColor)
+                        if let a = s.about { Text([a.kind, a.subject, a.title.isEmpty ? "" : "„\(a.title)“"].filter { !$0.isEmpty }.joined(separator: " · ")).lineLimit(1) }
+                        if s.thinking { ProgressView().controlSize(.small); Text(L("KI liest mit …", "AI is reading…")).foregroundStyle(.secondary) }
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 6).background(.ultraThinMaterial, in: Capsule())
                 }
-                .font(.callout).padding(.horizontal, 12).padding(.vertical, 6).background(.ultraThinMaterial, in: Capsule()).padding(.top, 4)
-                .transition(.opacity)
+                if Assistant.available {
+                    Button(L("Zusammenfassen", "Summarize")) { s.ask(L("Fasse dieses Blatt kurz und verständlich zusammen.", "Summarize this sheet briefly.")) }
+                    Button(L("Erklären", "Explain")) { s.ask(L("Erkläre mir einfach, worum es auf diesem Blatt geht und was ich tun soll.", "Explain simply what this sheet is about and what I should do.")) }
+                    Button(L("Lernkarten", "Flashcards")) { s.cards() }
+                    Button(L("Frage stellen …", "Ask…")) { s.ask("") }
+                }
             }
+            .font(.callout).controlSize(.small).disabled(s.thinking).padding(.top, 4)
             HStack(spacing: 10) {
+                Picker("", selection: $s.mode) { ForEach(ScanMode.allCases, id: \.self) { Text($0.title).tag($0) } }.pickerStyle(.segmented).labelsHidden().frame(width: 240)
                 let words = s.pages.reduce(0) { $0 + $1.text.reduce(0) { $0 + $1.text.split(separator: " ").count } }
-                Text(words > 0 ? L("\(words) Wörter erkannt", "\(words) words found") : L("Kein Text erkannt", "No text found")).font(.callout).foregroundStyle(.secondary)
-                Picker("", selection: $s.mode) { ForEach(ScanMode.allCases, id: \.self) { Text($0.title).tag($0) } }.pickerStyle(.segmented).labelsHidden().frame(width: 260)
+                Text(words > 0 ? L("\(words) Wörter", "\(words) words") : L("kein Text", "no text")).font(.callout).foregroundStyle(.secondary).fixedSize()
                 Spacer()
                 Button(L("Neu scannen", "Retake")) { s.retake() }
                 Button(L("Weitere Seite", "Add page")) { s.again() }.keyboardShortcut("n", modifiers: .command)
-                if Assistant.available {
-                    Menu {
-                        Button(L("Zusammenfassen", "Summarize")) { s.ask(L("Fasse dieses Blatt kurz und verständlich zusammen.", "Summarize this sheet briefly.")) }
-                        Button(L("Erklären, worum es geht", "Explain it")) { s.ask(L("Erkläre mir einfach, worum es auf diesem Blatt geht und was ich tun soll.", "Explain simply what this sheet is about and what I should do.")) }
-                        Button(L("Lernkarten daraus machen", "Make flashcards")) { s.cards() }
-                        Divider()
-                        Button(L("Frage dazu stellen …", "Ask about it…")) { s.ask("") }
-                    } label: { Label(L("KI", "AI"), systemImage: "sparkles") }.fixedSize().disabled(s.thinking)
-                }
-                Menu(L("Kopieren", "Copy")) { Button(L("Bild", "Image")) { s.copyImage() }; Button(L("Erkannten Text", "Recognized text")) { s.copyText() } }.fixedSize()
+                Button(L("Bild kopieren", "Copy image")) { s.copyImage() }.keyboardShortcut("c", modifiers: .command)
+                Button(L("Text kopieren", "Copy text")) { s.copyText() }.disabled(words == 0)
                 Button(L("Als PDF sichern …", "Save as PDF…")) { s.save() }.buttonStyle(.borderedProminent).keyboardShortcut("s", modifiers: .command)
             }
             .padding(16)
