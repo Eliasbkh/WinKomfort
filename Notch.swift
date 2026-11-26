@@ -5,7 +5,7 @@ import SwiftUI
 
 @MainActor final class Notch: ObservableObject {
     static let shared = Notch()
-    @Published var open = false
+    @Published var open = false { didSet { if open != oldValue { fit() } } }
     @Published var dropping = false
     @Published var track: (title: String, artist: String, app: String, playing: Bool)?
     @Published var now = Date()
@@ -24,10 +24,9 @@ import SwiftUI
     private func show() {
         guard let s = screen, let l = s.auxiliaryTopLeftArea, let r = s.auxiliaryTopRightArea else { return }
         notch = CGSize(width: r.minX - l.maxX, height: s.safeAreaInsets.top)
-        let size = CGSize(width: 620, height: 250)
-        let frame = CGRect(x: s.frame.minX + l.maxX + notch.width / 2 - size.width / 2, y: s.frame.maxY - size.height, width: size.width, height: size.height)
+        center = s.frame.minX + l.maxX + notch.width / 2; top = s.frame.maxY
         if panel == nil {
-            let p = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = false
             p.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3) // über der Menüleiste
             p.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
@@ -35,13 +34,33 @@ import SwiftUI
             p.contentView = NSHostingView(rootView: NotchView(n: self))
             panel = p
         }
-        panel?.setFrame(frame, display: true)
+        fit(now: true)
         panel?.orderFrontRegardless()
         if token == nil { token = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { _ in MainActor.assumeIsolated { Notch.shared.update() } } }
         refreshPower()
         live()
+        if minute == nil { // einmal pro Minute: Laden, „Stunde gleich“ – fast kostenlos
+            minute = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in MainActor.assumeIsolated { let n = Notch.shared; let had = n.activity?.icon; n.refreshPower(); n.now = Date(); if had != n.activity?.icon { n.fit() } } }
+            minute?.tolerance = 15
+        }
     }
-    private func hide() { panel?.orderOut(nil); tick?.invalidate(); tick = nil }
+    private var minute: Timer?
+    private func hide() { panel?.orderOut(nil); tick?.invalidate(); tick = nil; minute?.invalidate(); minute = nil }
+
+    // Das Fenster ist nur so groß wie die sichtbare Form: daneben gehen Klicks normal an die Menüleiste und an Fenster darunter
+    private var center: CGFloat = 0, top: CGFloat = 0, shrink: DispatchWorkItem?
+    var size: CGSize { open ? CGSize(width: 580, height: 222) : CGSize(width: notch.width + (activity == nil ? 0 : 156) + 12, height: notch.height) }
+    func fit(now: Bool = false) {
+        guard let p = panel else { return }
+        shrink?.cancel()
+        let want = size
+        let apply = { [weak self] in
+            guard let self, let p = self.panel else { return }
+            p.setFrame(CGRect(x: self.center - want.width / 2, y: self.top - want.height, width: want.width, height: want.height), display: true)
+        }
+        if now || want.width >= p.frame.width || want.height >= p.frame.height { apply() } // größer: sofort, damit die Animation Platz hat
+        else { let w = DispatchWorkItem { MainActor.assumeIsolated { apply() } }; shrink = w; DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: w) } // kleiner: nach der Animation
+    }
 
     // Live-Anzeige links/rechts der Kamera: Timer, Laden, Stunde bald
     var activity: (icon: String, text: String, tint: Color)? {
@@ -59,7 +78,7 @@ import SwiftUI
     func live() {
         let need = open || !SearchTimer.shared.running.isEmpty
         if need, tick == nil {
-            tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in MainActor.assumeIsolated { let n = Notch.shared; n.now = Date(); n.live() } }
+            tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in MainActor.assumeIsolated { let n = Notch.shared; let had = n.activity != nil; n.now = Date(); if had != (n.activity != nil) { n.fit() }; n.live() } }
             tick?.tolerance = 0.3
         } else if !need, tick != nil { tick?.invalidate(); tick = nil; now = Date() }
     }
@@ -72,11 +91,13 @@ import SwiftUI
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: w)
         }
     }
-    private func refreshPower() {
+    func refreshPower() {
         guard let i = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(), let l = IOPSCopyPowerSourcesList(i)?.takeRetainedValue() as? [CFTypeRef], let p = l.first,
               let d = IOPSGetPowerSourceDescription(i, p)?.takeUnretainedValue() as? [String: Any] else { return }
         charge = d[kIOPSCurrentCapacityKey] as? Int
+        let was = charging
         charging = d[kIOPSIsChargingKey] as? Bool ?? false
+        if was != charging { fit() }
     }
     // Was läuft gerade? Nur fragen, wenn Musik oder Spotify ohnehin offen sind (startet nichts)
     private func readTrack() {
@@ -187,7 +208,7 @@ struct NotchView: View {
                     quick("doc.viewfinder", L("Scannen", "Scan")) { Scanner.open() }
                     quick("tray", L("Ablage", "Shelf")) { Shelf.shared.toggle() }
                     quick("battery.75percent", L("Akku", "Battery")) { Battery.open() }
-                    quick("timer", L("Timer 10 min", "Timer 10 min")) { SearchTimer.shared.start(10); n.live() }
+                    quick("timer", L("Timer 10 min", "Timer 10 min")) { SearchTimer.shared.start(10); n.live(); n.fit() }
                 }
             }
         }
