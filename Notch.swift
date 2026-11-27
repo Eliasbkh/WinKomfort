@@ -28,7 +28,7 @@ final class NotchPanel: NSPanel {
     private var closeWork: DispatchWorkItem?
     private var token: NSObjectProtocol?
     private(set) var notch = CGSize(width: 200, height: 32)
-    static var enabled: Bool { UserDefaults.standard.object(forKey: "notch") as? Bool ?? true }
+    static var enabled: Bool { Tool.notch.on }
 
     // nur auf Bildschirmen mit Kamera-Aussparung
     private var screen: NSScreen? { NSScreen.screens.first { $0.safeAreaInsets.top > 0 && $0.auxiliaryTopLeftArea != nil } }
@@ -76,7 +76,7 @@ final class NotchPanel: NSPanel {
 
     // Das Fenster ist nur so groß wie die sichtbare Form: daneben gehen Klicks normal an die Menüleiste und an Fenster darunter
     private var center: CGFloat = 0, top: CGFloat = 0, shrink: DispatchWorkItem?
-    var size: CGSize { open ? CGSize(width: 600, height: answer != nil || thinking ? 230 : 262) : CGSize(width: notch.width + (activity == nil ? 0 : 156) + 12, height: notch.height) }
+    var size: CGSize { open ? CGSize(width: 600, height: answer != nil || thinking ? 236 : 286) : CGSize(width: notch.width + (activity == nil ? 0 : 156) + 12, height: notch.height) }
     func fit(now: Bool = false) {
         guard let p = panel else { return }
         shrink?.cancel()
@@ -96,7 +96,7 @@ final class NotchPanel: NSPanel {
         }
         if charging, let c = charge { return ("bolt.fill", "\(c) %", .green) }
         if !charging, let c = charge, c <= 15 { return ("battery.25percent", "\(c) %", .red) } // knapp: auch im Vollbild sichtbar
-        if let l = Plan.now(School.shared.book, now).next, let m = Optional(l.start - (ActLogic.cal.component(.hour, from: now) * 60 + ActLogic.cal.component(.minute, from: now))), m <= 10, m >= 0 {
+        if Tool.school.on, let l = Plan.now(School.shared.book, now).next, let m = Optional(l.start - (ActLogic.cal.component(.hour, from: now) * 60 + ActLogic.cal.component(.minute, from: now))), m <= 10, m >= 0 {
             return ("graduationcap.fill", L("\(l.subject) in \(m) min", "\(l.subject) in \(m) min"), .blue)
         }
         if track?.playing == true { return ("waveform", "", .pink) }
@@ -201,20 +201,25 @@ struct NotchView: View {
         VStack(spacing: 0) {
             ZStack(alignment: .top) {
                 NotchShape(radius: n.open ? 30 : 10).fill(.black)
-                    .shadow(color: .black.opacity(n.open ? 0.35 : 0), radius: 18, y: 8)
                 if n.open {
                     expanded.padding(.top, n.notch.height - 2).padding(.horizontal, 24).padding(.bottom, 16)
-                        .transition(still ? .opacity : .opacity.combined(with: .scale(scale: 0.9, anchor: .top)).combined(with: .offset(y: -6)))
-                } else if let a { collapsed(a).frame(height: n.notch.height).transition(.opacity) }
+                        .frame(width: n.size.width - 20, height: n.size.height - 12, alignment: .top) // feste Größe: der Inhalt wächst nicht mit, die Form deckt ihn auf
+                        .transition(still ? .opacity : .asymmetric(
+                            insertion: .modifier(active: Soft(on: true), identity: Soft(on: false)).animation(.spring(response: 0.42, dampingFraction: 0.9).delay(0.07)),
+                            removal: .modifier(active: Soft(on: true), identity: Soft(on: false)).animation(.easeOut(duration: 0.12))))
+                } else if let a { collapsed(a).frame(height: n.notch.height).transition(.modifier(active: Soft(on: true), identity: Soft(on: false))) }
             }
-            .frame(width: w, height: h)
+            .frame(width: w, height: h, alignment: .top)
+            .clipShape(NotchShape(radius: n.open ? 30 : 10)) // wie bei Apple: nichts ragt über die schwarze Form hinaus
+            .background(NotchShape(radius: n.open ? 30 : 10).fill(.black).shadow(color: .black.opacity(n.open ? 0.4 : 0), radius: 16, y: 6)) // Schatten wächst mit der Form
             .contentShape(NotchShape(radius: 10))
             .onHover { n.hover($0) }
             .onDrop(of: [.fileURL], isTargeted: Binding(get: { n.dropping }, set: { v in n.dropping = v; n.hover(v) })) { providers in
                 _ = Shelf.shared.add(providers); n.dropping = false; n.hover(false); return true
             }
-            .animation(still ? .easeOut(duration: 0.15) : .spring(response: 0.42, dampingFraction: 0.78), value: n.open)
-            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: h)
+            // eine Feder für alles: auf mit leichtem Nachfedern, zu ohne (wie die Dynamic Island)
+            .animation(still ? .easeOut(duration: 0.15) : n.open ? .spring(response: 0.5, dampingFraction: 0.74) : .spring(response: 0.38, dampingFraction: 0.92), value: n.open)
+            .animation(still ? nil : .spring(response: 0.4, dampingFraction: 0.86), value: n.size)
             .animation(.easeOut(duration: 0.2), value: a?.icon)
             Spacer(minLength: 0)
         }
@@ -257,12 +262,12 @@ struct NotchView: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
                     .overlay(Label(L("Loslassen: in die Ablage", "Drop: add to shelf"), systemImage: "tray.and.arrow.down").font(.headline))
             } else {
-                HStack(alignment: .top, spacing: 10) { music; today }
+                HStack(alignment: .top, spacing: 10) { music; if Tool.school.on { today } }
                 HStack(spacing: 8) {
-                    quick("doc.viewfinder", L("Scannen", "Scan")) { Scanner.open() }
-                    quick("pencil.and.scribble", L("Handschrift", "Handwriting")) { Hand.openWindow() }
+                    if Tool.scan.on { quick("doc.viewfinder", L("Scannen", "Scan")) { Scanner.open() } }
+                    if Tool.tidy.on { quick("sparkles.rectangle.stack", L("Schön machen", "Tidy up")) { Tidy.open() } } else if Tool.hand.on { quick("pencil.and.scribble", L("Handschrift", "Handwriting")) { Hand.openWindow() } }
                     quick("tray", L("Ablage", "Shelf")) { Shelf.shared.toggle() }
-                    quick("battery.75percent", L("Akku", "Battery")) { Battery.open() }
+                    if Tool.battery.on { quick("battery.75percent", L("Akku", "Battery")) { Battery.open() } }
                     quick("timer", L("Timer 10 min", "Timer 10 min")) { SearchTimer.shared.start(10); n.live(); n.fit() }
                 }
             }
@@ -313,6 +318,11 @@ struct NotchView: View {
         }
         .buttonStyle(NotchPress()).accessibilityLabel(title)
     }
+}
+// Ein- und Ausblenden mit Unschärfe und leichtem Zoom von oben, wie Apples Inhalte in der Dynamic Island
+private struct Soft: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View { content.opacity(on ? 0 : 1).blur(radius: on ? 6 : 0).scaleEffect(on ? 0.94 : 1, anchor: .top) }
 }
 // Drücken: leicht kleiner und heller, wie Apples Kontrollzentrum
 private struct NotchPress: ButtonStyle {

@@ -78,7 +78,8 @@ import SwiftUI
             return [go(L(t.de, t.en), (i.from.isEmpty ? "" : i.from + ": ") + short(i.text)) { AI.run(t, i.text, i.replace) }]
         }
     }
-    static let all: [Command] = base + TechCommands.all + aiCommands
+    private static let every: [Command] = base + TechCommands.all + aiCommands
+    static var all: [Command] { every.filter { Tool.allows(command: $0.name) } } // ausgeschaltete Werkzeuge (Bibliothek) fehlen
     private static let base: [Command] = [
         Command(name: "math", hint: "sqrt(x)/2", text: L("Formel schön setzen, rechnen, kopieren", "Typeset, calculate and copy a formula"), symbol: "x.squareroot", needsArg: true) { a in
             guard let n = MathExpr.parse(a) else { return [] }
@@ -271,7 +272,7 @@ import SwiftUI
         }
         let n = name == "help" ? "" : name
         // Ist Text markiert, stehen die KI-Aufgaben oben
-        let order = !Selection.text.isEmpty ? aiCommands + base : all
+        let order = !Selection.text.isEmpty ? aiCommands + base.filter { Tool.allows(command: $0.name) } : all
         return order.filter { n.isEmpty || $0.name.hasPrefix(n) || (SearchRank.match(n, $0.text) ?? 0) >= 0.8 }
             .sorted { ($0.name.hasPrefix(n) ? 0 : 1) < ($1.name.hasPrefix(n) ? 0 : 1) }.map { list($0, section) }
     }

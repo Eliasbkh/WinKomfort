@@ -470,9 +470,14 @@ struct HandView: View {
             } else {
                 Text(L("Einmal einrichten, dann schreibt WinKomfort Texte und Arbeitsblätter in deiner Schrift, auch als echte Tinte in OneNote.", "Set up once; then WinKomfort writes texts and worksheets in your handwriting, even as real ink in OneNote.")).fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .leading, spacing: 10) {
-                    step(1, L("Vorlage drucken", "Print the template"), L("Ein A4-Blatt mit Kästchen für jedes Zeichen.", "An A4 sheet with a box for each character.")) { Button(L("Vorlage öffnen", "Open template")) { openTemplate() } }
+                    step(1, L("Vorlage drucken", "Print the template"), L("Ein A4-Blatt mit Kästchen für jedes Zeichen.", "An A4 sheet with a box for each character.")) { HStack {
+                        Button(L("Drucken …", "Print…")) { Self.printTemplate() }
+                        ShareLink(item: Self.templateURL) { Label(L("An iPhone/iPad senden", "Send to iPhone/iPad"), systemImage: "square.and.arrow.up") }
+                            .help(L("Per AirDrop, Nachricht oder Mail: auf dem iPad mit dem Stift ausfüllen oder dort drucken", "Via AirDrop, Messages or Mail: fill it in on the iPad with a pencil or print it there"))
+                        Button(L("Öffnen", "Open")) { NSWorkspace.shared.open(Self.templateURL) }
+                    } }
                     step(2, L("Ausfüllen", "Fill it in"), L("Jedes Zeichen zweimal, mit dunklem Stift, so wie du sonst schreibst.", "Each character twice, dark pen, your normal writing.")) { EmptyView() }
-                    step(3, L("Einlesen", "Read it in"), L("Mit dem Scanner (⌃⌥B) oder als Foto/PDF.", "With the scanner (⌃⌥B) or as a photo/PDF.")) { HStack { Button(L("Scannen", "Scan")) { Scanner.open(forHand: true) }; Button(L("Datei wählen …", "Choose file…")) { importFile() } } }
+                    step(3, L("Einlesen", "Read it in"), L("Mit dem Scanner (⌃⌥B), dem iPhone oder als Foto/PDF – auch die am iPad ausgefüllte PDF.", "With the scanner (⌃⌥B), your iPhone or as a photo/PDF – also the PDF filled in on an iPad.")) { HStack { Button(L("Scannen", "Scan")) { Scanner.open(forHand: true) }; PhoneImportButton(title: L("Mit iPhone", "With iPhone")) { Hand.ingest($0) }.fixedSize(); Button(L("Datei wählen …", "Choose file…")) { importFile() } } }
                 }
             }
             if let b = h.busy { HStack { ProgressView().controlSize(.small); Text(b).foregroundStyle(.secondary) } }
@@ -486,9 +491,16 @@ struct HandView: View {
             VStack(alignment: .leading, spacing: 4) { Text(t).font(.headline); Text(d).foregroundStyle(.secondary); action() }
         }
     }
-    private func openTemplate() {
+    // Vorlage liegt einmal in Dokumente: zum Teilen (AirDrop aufs iPad), Drucken und Öffnen
+    static var templateURL: URL {
         let u = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(L("WinKomfort Handschrift-Vorlage.pdf", "WinKomfort handwriting template.pdf"))
-        do { try Hand.templatePDF().write(to: u, options: .atomic); NSWorkspace.shared.open(u) } catch { Toast.show(error.localizedDescription, symbol: "exclamationmark.triangle") }
+        if !FileManager.default.fileExists(atPath: u.path) { try? Hand.templatePDF().write(to: u, options: .atomic) }
+        return u
+    }
+    static func printTemplate() {
+        guard let d = PDFDocument(url: templateURL), let op = d.printOperation(for: .shared, scalingMode: .pageScaleNone, autoRotate: false) else { return }
+        op.printInfo.topMargin = 0; op.printInfo.bottomMargin = 0; op.printInfo.leftMargin = 0; op.printInfo.rightMargin = 0
+        op.run() // 100 %: die Kästchen müssen ihre Größe behalten
     }
     private func importFile() {
         let p = NSOpenPanel(); p.allowedContentTypes = [.image, .pdf]

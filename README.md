@@ -22,7 +22,9 @@ Windows-Komfort für macOS als Menüleisten-App – jede Funktion einzeln schalt
 - **Schule** (⌃⌥S): Stundenplan mit A/B-Wochen, direkt mit WebUntis abgeglichen (inkl. Entfall), Hausaufgaben, Noten schriftlich und mündlich mit eigenem Verhältnis je Fach (Punkte oder 1–6), Lernkarten, Lernmodus gegen Ablenkung
 - **Notch**: fährt beim Drüberfahren aus – KI-Frage direkt dort, Musik, Tagesüberblick, Ablage per Hineinziehen; Timer, Laden und knapper Akku neben der Kamera
 - **Blatt scannen** (⌃⌥B): Desk-View-Kamera, Pfeile zum Ausrichten, zwei Durchgänge für mehr Schärfe, durchsuchbares PDF, KI ordnet ein und trägt Hausaufgaben ein
-- **Eigene Handschrift**: Vorlage einlesen, Texte und Arbeitsblätter (Zellen, Linien, Kästchen) mit KI ausfüllen, PDF mit eigener Tinten-Ebene oder als echte Tinte in OneNote
+- **Notizen schön machen**: KI ordnet Notizen aus OneNote, Text, Fotos oder Tafelbildern mit Überschriften und Einrückung, setzt Formeln (29², √, x₁, Δv) und fügt sie in OneNote ein
+- **Bibliothek** (Einstellungen): größere Werkzeuge einzeln ein- und ausschalten; neu installiert startet WinKomfort schlank
+- **Eigene Handschrift**: Vorlage drucken oder ans iPad schicken, einlesen per Scanner, iPhone oder Datei, Texte und Arbeitsblätter (Zellen, Linien, Kästchen) mit KI ausfüllen, PDF mit eigener Tinten-Ebene oder als echte Tinte in OneNote
 - **Akku** (`/akku`): echte Milliwatt je App, Apps im Hintergrund sparen lassen, jederzeit rückgängig; Energie-Spalte im Task-Manager
 - **Technik** in der Suche: `/subnet`, `/kv`, `/nsd` (Struktogramm), `/uml`, `/sql`, `/regex`, `/float`, `/ohm`, `/hash`, `/unix`
 - **Ablage** (⌃⌥D oder beim Ziehen wackeln) und **Umwandeln** im Explorer (JPEG/PNG, verkleinern, PDF zusammenfügen)
@@ -50,7 +52,7 @@ Startet automatisch bei der Anmeldung und aktualisiert sich selbst über GitHub 
 ## Bauen / testen / veröffentlichen
 
 ```bash
-swiftc TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift OneNoteOrder.swift TimeParse.swift LaunchLogic.swift RemoteCrypto.swift BudsProtocol.swift SearchRank.swift Convert.swift Emoji.swift SlashLogic.swift RenameLogic.swift MathExpr.swift SchoolLogic.swift AILogic.swift MTPLogic.swift ScanLogic.swift BatteryLogic.swift HandLogic.swift ActLogic.swift TechLogic.swift PlanLogic.swift Tests/main.swift -o /tmp/wktest && /tmp/wktest
+swiftc TapDragLogic.swift Calc.swift Shortcut.swift SnapMath.swift OneNoteOrder.swift TimeParse.swift LaunchLogic.swift RemoteCrypto.swift BudsProtocol.swift SearchRank.swift Convert.swift Emoji.swift SlashLogic.swift RenameLogic.swift MathExpr.swift SchoolLogic.swift AILogic.swift MTPLogic.swift ScanLogic.swift BatteryLogic.swift HandLogic.swift TidyLogic.swift ActLogic.swift TechLogic.swift PlanLogic.swift Tests/main.swift -o /tmp/wktest && /tmp/wktest
 ./build.sh 1.0.0
 ./release.sh 1.0.1 "Was ist neu"
 ```

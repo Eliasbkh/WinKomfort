@@ -1918,7 +1918,7 @@ enum HotKey {
 
     static func registerAll() {
         unregisterAll()
-        for a in HotAction.allCases {
+        for a in HotAction.allCases where Tool.allows(a) {
             guard let s = a.current else { continue }
             var ref: EventHotKeyRef?
             if RegisterEventHotKey(UInt32(s.code), UInt32(s.mods), EventHotKeyID(signature: OSType(0x574B4654), id: a.id),
@@ -3523,6 +3523,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ClipHistory.shared.start()
         DispatchQueue.global(qos: .utility).async { OneNotePDF.cleanLeftovers() }
         SearchPanel.prepare()
+        if !d.bool(forKey: "welcomeShown"), d.object(forKey: "toolsLean") == nil { d.set(true, forKey: "toolsLean") } // neu installiert: schlank starten (Bibliothek)
         if !d.bool(forKey: "welcomeShown") { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MainActor.assumeIsolated { openWelcome() } } }
         DockReveal.start()
         DockIcon.setup()
@@ -3535,7 +3536,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         GameMode.shared.setup()
         Repair.setup()
         MouseScroll.update()
-        Shelf.shared.setup(); Notch.shared.update(); if !(UserDefaults.standard.stringArray(forKey: "batterySaving") ?? []).isEmpty { Battery.shared.setup() }
+        Shelf.shared.setup(); Notch.shared.update(); if Tool.battery.on, !(UserDefaults.standard.stringArray(forKey: "batterySaving") ?? []).isEmpty { Battery.shared.setup() }
         Snippets.update()
         SystemMonitor.shared.update()
         Task { await Updater.shared.loop() }
@@ -3695,17 +3696,18 @@ struct MenuContent: View {
             if awake.mode != nil { Button("Wach bleiben beenden") { awake.stop() } }
         }
         Divider()
-        if let l = School.shared.menuLine { Button(l) { School.open("heute") } }
+        if Tool.school.on, let l = School.shared.menuLine { Button(l) { School.open("heute") } }
         Button("Suche …") { SearchPanel.show() }
         Button(L("KI fragen …", "Ask AI…")) { AIPanel.show() }
-        Button(L("Schule …", "School…")) { School.open() }
-        Button(L("Blatt scannen …", "Scan sheet…")) { Scanner.open() }
-        Button(L("Akku …", "Battery…")) { Battery.open() }
-        Button(L("Handschrift …", "Handwriting…")) { Hand.openWindow() }
+        if Tool.school.on { Button(L("Schule …", "School…")) { School.open() } }
+        if Tool.scan.on { Button(L("Blatt scannen …", "Scan sheet…")) { Scanner.open() } }
+        if Tool.battery.on { Button(L("Akku …", "Battery…")) { Battery.open() } }
+        if Tool.hand.on { Button(L("Handschrift …", "Handwriting…")) { Hand.openWindow() } }
+        if Tool.tidy.on { Button(L("Notizen schön machen …", "Tidy up notes…")) { Tidy.open() } }
         Button("Explorer …") { openExplorer() }
         Button("Schnellnotiz") { QuickNote.shared.toggle() }
         if !Pins.shared.pinned.isEmpty { Button("Alle angehefteten Fenster lösen") { Pins.shared.unpinAll() } }
-        Button(L("Handy-Fernbedienung …", "Phone remote…")) { openRemote() }
+        if Tool.remote.on { Button(L("Handy-Fernbedienung …", "Phone remote…")) { openRemote() } }
         if Buds.enabled { BudsMenu() }
         Button("Task-Manager …") { openTaskManager() }
             .keyboardShortcut(.escape, modifiers: [.control, .shift])
@@ -3722,12 +3724,13 @@ struct MenuContent: View {
 // Einstellungsfenster wie bei Systemapps: AppKit-Tabs im Toolbar-Stil, Inhalt in SwiftUI
 // Seiten wie in den Systemeinstellungen: farbige Symbolkachel, Titel, Suchbegriffe
 enum Pane: String, CaseIterable, Identifiable {
-    case general, ai, school, tools, shortcuts, input, windows, desktop, animations, menubar, notifications, finder, explorer, screenshots, phone, gamemode, autostarts, cleanup
+    case general, library, ai, school, tools, shortcuts, input, windows, desktop, animations, menubar, notifications, finder, explorer, screenshots, phone, gamemode, autostarts, cleanup
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .general: "Allgemein"
+        case .library: L("Bibliothek", "Library")
         case .ai: L("KI-Assistent", "AI Assistant")
         case .school: L("Schule", "School")
         case .tools: L("Werkzeuge", "Tools")
@@ -3750,6 +3753,7 @@ enum Pane: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .general: "gearshape.fill"
+        case .library: "square.grid.2x2.fill"
         case .ai: "sparkles"
         case .school: "graduationcap.fill"
         case .tools: "wrench.and.screwdriver.fill"
@@ -3773,6 +3777,7 @@ enum Pane: String, CaseIterable, Identifiable {
     var tint: Color {
         switch self {
         case .general: .gray
+        case .library: .blue
         case .ai: .purple
         case .school: .indigo
         case .tools: .orange
@@ -3808,6 +3813,7 @@ enum Pane: String, CaseIterable, Identifiable {
         if let g = group { t += features.filter { $0.group == g }.flatMap { [$0.title, $0.hint] } }
         switch self {
         case .general: t += ["Anmelden Start Updates Version Bedienungshilfen Wach bleiben Bildschirm Ruhezustand Zwischenablage Verlauf Kopieren Einfügen Text-Kürzel Snippets Textbausteine Siri Kurzbefehle Shortcuts KI Selbsttest Reparieren Protokoll Sprache Englisch Deutsch OneNote PDF Größe"]
+        case .library: t += Tool.allCases.flatMap { [$0.title, $0.detail] } + ["Werkzeuge ausschalten deaktivieren Funktionen Module Tools Library Disable"]
         case .ai: t += ["KI AI Assistent Chat Siri Kurzbefehle Sprechen Mikrofon Kalender Erinnerungen Kontakte Wikipedia Wetter Gedächtnis Assistant Voice"]
         case .school: t += ["Stundenplan Hausaufgaben Noten Lernkarten Lernmodus Fokus Mathe Technik Timetable Homework Grades Study Focus"]
         case .tools: t += ["Wach bleiben Bildschirm Ruhezustand Zuklappen Zwischenablage Verlauf Ablage Text-Kürzel Snippets Textbaustein OneNote PDF Awake Clipboard Shelf"]
@@ -3829,7 +3835,7 @@ enum Pane: String, CaseIterable, Identifiable {
     }
     // Überschriften der Seitenleiste
     static var sections: [(String, [Pane])] {
-        [("", [.general, .ai, .school, .tools]), (L("Bedienung", "Controls"), [.shortcuts, .input, .windows]), (L("Oberfläche", "Interface"), [.desktop, .animations, .menubar, .notifications]),
+        [("", [.general, .library, .ai, .school, .tools]), (L("Bedienung", "Controls"), [.shortcuts, .input, .windows]), (L("Oberfläche", "Interface"), [.desktop, .animations, .menubar, .notifications]),
          (L("Dateien", "Files"), [.finder, .explorer, .screenshots]), (L("Geräte und Spiele", "Devices and games"), [.phone, .gamemode]), (L("Mac pflegen", "Maintenance"), [.autostarts, .cleanup])]
     }
 }
@@ -3874,6 +3880,7 @@ struct SettingsRoot: View {
             Group {
                 switch nav.pane ?? .general {
                 case .general: GeneralTab(store: Store.shared)
+                case .library: LibraryTab()
                 case .ai: AITab()
                 case .school: SchoolPane()
                 case .tools: ToolsTab()

@@ -301,8 +301,9 @@ final class LidAngle {
     private var lid: LidAngle?, tick: Timer?
 
     var forHand = false // Handschrift-Vorlage: Ergebnis geht direkt ans Einlesen
-    static func open(forHand: Bool = false) {
-        shared.forHand = forHand
+    var forTidy = false // „Schön machen“: Ergebnis geht direkt dorthin
+    static func open(forHand: Bool = false, forTidy: Bool = false) {
+        shared.forHand = forHand; shared.forTidy = forTidy
         let first = windows["scan"] == nil
         showWindow("scan", "Scannen", onClose: { MainActor.assumeIsolated { Scanner.shared.stop() } }) { ScanView() }
         windows["scan"]?.title = L("Blatt scannen", "Scan sheet")
@@ -357,7 +358,7 @@ final class LidAngle {
         if let a = angle { UserDefaults.standard.set(a, forKey: "scanAngle") }
         flash = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { MainActor.assumeIsolated { Scanner.shared.flash = false } }
-        let m = mode, one = first, more = twice && first == nil && !forHand
+        let m = mode, one = first, more = twice && first == nil && !forHand && !forTidy
         engine.take { frames in
             var p = one?.paper ?? p, flat = ScanProcess.flatten(frames, q, p)
             if more, let f = flat { // erster von zwei Durchgängen: merken, dann drehen lassen
@@ -374,6 +375,7 @@ final class LidAngle {
                 s.engine.stop(); s.tick?.invalidate()
                 s.first = nil; s.turning = false
                 if s.forHand { s.forHand = false; s.phase = .live; windows["scan"]?.close(); Hand.ingest(flat); return }
+                if s.forTidy { s.forTidy = false; s.phase = .live; windows["scan"]?.close(); Tidy.open(); Tidy.shared.take(img); return }
                 s.pages.append(ScanPage(flat: flat, image: img, paper: p, text: text)); s.current = s.pages.count - 1
                 s.phase = .result
                 if s.pages.count == 1 { s.describe() }
@@ -411,6 +413,20 @@ final class LidAngle {
     func retake() { if pages.indices.contains(current) { pages.remove(at: current) }; current = max(0, pages.count - 1); again() }
     func discard() { pages = []; current = 0; about = nil }
     var text: String { pages.map(\.plain).joined(separator: "\n\n") }
+    // Vom iPhone (Dokument scannen oder Foto): ist schon entzerrt, nur noch Text erkennen
+    func addPhone(_ img: CGImage) {
+        if forHand { forHand = false; windows["scan"]?.close(); stop(); Hand.ingest(img); return }
+        if forTidy { forTidy = false; windows["scan"]?.close(); stop(); Tidy.open(); Tidy.shared.take(img); return }
+        stop(); phase = .working
+        Task {
+            let text = await Task.detached(priority: .userInitiated) { ScanProcess.read(img) }.value
+            let p = ScanLogic.paper(CGSize(width: img.width, height: img.height))
+            let size = p.kind == .a4 ? p.size : CGSize(width: 595, height: 595 * CGFloat(img.height) / CGFloat(max(img.width, 1)))
+            pages.append(ScanPage(flat: img, image: img, paper: ScanLogic.Paper(kind: p.kind, size: size), text: text))
+            current = pages.count - 1; phase = .result
+            if pages.count == 1 { describe() }
+        }
+    }
     func save() {
         guard !pages.isEmpty else { return }
         let p = NSSavePanel(); p.allowedContentTypes = [.pdf]; p.nameFieldStringValue = suggestedName + ".pdf"
@@ -487,7 +503,7 @@ struct ScanView: View {
             Color.black.ignoresSafeArea()
             switch s.phase {
             case .result: ScanResult(s: s).transition(still ? .opacity : .scale(scale: 0.9).combined(with: .opacity))
-            case .failed(let m): ContentUnavailableView(L("Scannen geht gerade nicht", "Scanning unavailable"), systemImage: "camera.badge.ellipsis", description: Text(m)).foregroundStyle(.white)
+            case .failed(let m): VStack { ContentUnavailableView(L("Scannen geht gerade nicht", "Scanning unavailable"), systemImage: "camera.badge.ellipsis", description: Text(m)).foregroundStyle(.white); PhoneImportButton(title: L("Mit iPhone scannen", "Scan with iPhone")) { s.addPhone($0) }.fixedSize().padding(.bottom, 40) }
             default: live
             }
         }
@@ -621,6 +637,8 @@ struct ScanView: View {
                 }
                 .help(L("Winkel deines Displays. Gemerkt wird der Winkel, bei dem der letzte Scan geklappt hat.", "Your display angle. The angle of the last successful scan is remembered."))
             }
+            PhoneImportButton(title: L("iPhone", "iPhone")) { s.addPhone($0) }.fixedSize()
+                .help(L("Mit der iPhone-Kamera scannen: noch schärfer, z. B. für Tafelbilder oder kleine Schrift", "Scan with the iPhone camera: even sharper, e.g. for whiteboards or small print"))
             Toggle(L("2 Durchgänge", "2 passes"), isOn: $s.twice).toggleStyle(.switch).controlSize(.small).fixedSize()
                 .help(L("Blatt einmal drehen und zweimal scannen: deutlich schärfer, dauert ein paar Sekunden länger", "Turn the sheet and scan twice: much sharper, takes a few seconds longer"))
             Picker("", selection: $s.mode) { ForEach(ScanMode.allCases, id: \.self) { Text($0.title).tag($0) } }.pickerStyle(.segmented).labelsHidden().frame(width: 230)
@@ -667,6 +685,8 @@ private struct ScanResult: View {
                     Button(L("Zusammenfassen", "Summarize")) { s.ask(L("Fasse dieses Blatt kurz und verständlich zusammen.", "Summarize this sheet briefly.")) }
                     Button(L("Erklären", "Explain")) { s.ask(L("Erkläre mir einfach, worum es auf diesem Blatt geht und was ich tun soll.", "Explain simply what this sheet is about and what I should do.")) }
                     Button(L("Lernkarten", "Flashcards")) { s.cards() }
+                    Button(L("Schön in OneNote", "Tidy into OneNote")) { if s.pages.indices.contains(s.current) { Tidy.open(); Tidy.shared.take(s.pages[s.current].image) } }
+                        .help(L("KI ordnet den Text des Blatts mit Überschriften, Einrückungen und Formeln und fügt ihn in OneNote ein", "AI arranges the sheet's text with headings, indents and formulas and pastes it into OneNote"))
                     Button(L("Als Aufgabe eintragen", "Add as task")) { s.homework() }
                     Button(L("Frage stellen …", "Ask…")) { s.ask("") }
                 }
