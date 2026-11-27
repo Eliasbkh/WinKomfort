@@ -23,6 +23,8 @@ Windows-Komfort für macOS als Menüleisten-App – jede Funktion einzeln schalt
 - **Notch**: fährt beim Drüberfahren aus – KI-Frage direkt dort, Musik, Tagesüberblick, Ablage per Hineinziehen; Timer, Laden und knapper Akku neben der Kamera
 - **Blatt scannen** (⌃⌥B): Desk-View-Kamera, Pfeile zum Ausrichten, zwei Durchgänge für mehr Schärfe, durchsuchbares PDF, KI ordnet ein und trägt Hausaufgaben ein
 - **Notizen schön machen**: KI ordnet Notizen aus OneNote, Text, Fotos oder Tafelbildern mit Überschriften und Einrückung, setzt Formeln (29², √, x₁, Δv) und fügt sie in OneNote ein
+- **Lernzettel**: KI liest OneNote-Abschnitte oder ganze Notizbücher (auch Handschrift), PDFs und Fotos, beachtet deine Angaben zur Arbeit und schreibt einen gegliederten Lernzettel mit Merke-Kästen, Formeln, typischen Fehlern und Selbsttest – als PDF, in OneNote oder als Lernkarten
+- **OneNote aufräumen**: nach Microsoft-Anmeldung leere Seiten löschen, unbenannte Seiten und Abschnitte von der KI benennen lassen (erst Vorschau, Umbenennen rückgängig machbar)
 - **Bibliothek** (Einstellungen): größere Werkzeuge einzeln ein- und ausschalten; neu installiert startet WinKomfort schlank
 - **Eigene Handschrift**: Vorlage drucken oder ans iPad schicken, einlesen per Scanner, iPhone oder Datei, Texte und Arbeitsblätter (Zellen, Linien, Kästchen) mit KI ausfüllen, PDF mit eigener Tinten-Ebene oder als echte Tinte in OneNote
 - **Akku** (`/akku`): echte Milliwatt je App, Apps im Hintergrund sparen lassen, jederzeit rückgängig; Energie-Spalte im Task-Manager

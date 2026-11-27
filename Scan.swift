@@ -94,9 +94,12 @@ struct ScanAbout: Equatable { var title = "", kind = "", subject = "" } // von d
 enum ScanProcess {
     static let ctx = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!])
     // Mitteln, entzerren, auf Papiergröße bringen
-    static func flatten(_ frames: [CGImage], _ q: ScanQuad, _ paper: ScanLogic.Paper) -> CGImage? {
+    static func flatten(_ frames: [CGImage], _ q: ScanQuad, _ paper: ScanLogic.Paper, boost force: CGFloat? = nil) -> CGImage? {
         // erst jedes Bild aufs Blatt entzerren, dann am Blattinhalt ausrichten und mitteln: weniger Rauschen, keine Doppelschrift
-        let flats = frames.compactMap { warp($0, q, paper) }
+        // Super-Resolution: ab 4 Bildern aufs doppelte Raster entzerren. Das Blatt liegt in jedem Bild um Bruchteile
+        // eines Pixels anders; ausgerichtet und gemittelt ergibt das echte Zusatzschärfe statt nur Hochrechnen
+        let boost: CGFloat = force ?? (frames.count >= 4 ? 2 : 1)
+        let flats = frames.compactMap { warp($0, q, paper, boost: boost) }
         guard let ref = flats.last else { return nil } // das letzte Bild passt am besten zu den Ecken
         let R = CIImage(cgImage: ref), inner = R.extent.insetBy(dx: R.extent.width * 0.05, dy: R.extent.height * 0.05)
         func diff(_ x: CIImage) -> Double { // mittlere Abweichung zum Referenzbild, 0…765
@@ -112,9 +115,11 @@ enum ScanProcess {
             k += 1
             img = a.applyingFilter("CIDissolveTransition", parameters: ["inputTargetImage": img, "inputTime": 1 - 1 / Double(k)])
         }
+        // Unschärfe der Kamera und des Hochrechnens zurücknehmen; je mehr Bilder, desto weniger Rauschen, desto kräftiger
+        if boost > 1, k >= 3 { img = img.applyingFilter("CIUnsharpMask", parameters: [kCIInputRadiusKey: 1.4, kCIInputIntensityKey: min(0.6, 0.3 + Double(k) * 0.04)]) }
         return ctx.createCGImage(img, from: CGRect(origin: .zero, size: CGSize(width: ref.width, height: ref.height)))
     }
-    static func warp(_ frame: CGImage, _ q: ScanQuad, _ paper: ScanLogic.Paper) -> CGImage? {
+    static func warp(_ frame: CGImage, _ q: ScanQuad, _ paper: ScanLogic.Paper, boost: CGFloat = 1) -> CGImage? {
         let img = CIImage(cgImage: frame)
         let w = img.extent.width, h = img.extent.height
         let c = CGPoint(x: q.points.map(\.x).reduce(0, +) / 4, y: q.points.map(\.y).reduce(0, +) / 4)
@@ -122,7 +127,7 @@ enum ScanProcess {
         let f = CIFilter.perspectiveCorrection(); f.inputImage = img
         f.topLeft = v(q.tl); f.topRight = v(q.tr); f.bottomRight = v(q.br); f.bottomLeft = v(q.bl)
         guard var out = f.outputImage else { return nil }
-        let px = ScanLogic.pixels(paper, source: ScanLogic.sides(q, image: CGSize(width: w, height: h))), s = px.height / out.extent.height
+        let px = ScanLogic.pixels(paper, source: ScanLogic.sides(q, image: CGSize(width: w, height: h)), boost: boost), s = px.height / out.extent.height
         out = out.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: s, kCIInputAspectRatioKey: (px.width / out.extent.width) / s])
         out = out.transformed(by: CGAffineTransform(translationX: -out.extent.minX, y: -out.extent.minY))
         return ctx.createCGImage(out, from: CGRect(origin: .zero, size: px))

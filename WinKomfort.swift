@@ -3705,6 +3705,7 @@ struct MenuContent: View {
         if Tool.battery.on { Button(L("Akku …", "Battery…")) { Battery.open() } }
         if Tool.hand.on { Button(L("Handschrift …", "Handwriting…")) { Hand.openWindow() } }
         if Tool.tidy.on { Button(L("Notizen schön machen …", "Tidy up notes…")) { Tidy.open() } }
+        if Tool.onenote.on { Button(L("OneNote aufräumen …", "Tidy OneNote…")) { NoteClean.open() } }
         Button("Explorer …") { openExplorer() }
         Button("Schnellnotiz") { QuickNote.shared.toggle() }
         if !Pins.shared.pinned.isEmpty { Button("Alle angehefteten Fenster lösen") { Pins.shared.unpinAll() } }

@@ -192,3 +192,33 @@ enum TidyLogic {
         return t
     }
 }
+
+// OneNote aufräumen: was ist leer, unbenannt, nichtssagend? (Seiteninhalt kommt als HTML von Microsoft Graph)
+enum NoteLogic {
+    // Text ohne Kopf, Titel und Tags
+    static func text(_ html: String) -> String {
+        var t = html.replacingOccurrences(of: #"(?is)<head.*?</head>|<title.*?</title>|<style.*?</style>|<script.*?</script>"#, with: " ", options: .regularExpression)
+        t = t.replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression)
+        for (a, b) in [("&nbsp;", " "), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&#39;", "'")] { t = t.replacingOccurrences(of: a, with: b) }
+        return t.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+    }
+    // leer = kein Text, kein Bild, keine Datei, keine Tinte
+    static func isEmpty(_ content: String) -> Bool {
+        let l = content.lowercased()
+        guard !l.contains("<img"), !l.contains("<object"), !l.contains("<iframe"), !l.contains("inkml") else { return false }
+        return text(content).filter { $0.isLetter || $0.isNumber }.count < 2
+    }
+    static func isUntitled(_ title: String?) -> Bool {
+        let t = (title ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+        return t.isEmpty || ["unbenannte seite", "untitled page", "ohne titel", "neue seite", "new page"].contains(t)
+    }
+    static func isGeneric(section name: String) -> Bool {
+        name.trimmingCharacters(in: .whitespaces).lowercased().range(of: #"^(neuer abschnitt|new section|unbenannter abschnitt|untitled section|abschnitt|section)( \d+)?$"#, options: .regularExpression) != nil
+    }
+    // KI-Antwort → brauchbarer Name: eine Zeile, ohne Anführungszeichen und Punkt, höchstens 60 Zeichen
+    static func name(_ r: String) -> String? {
+        let l = r.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \"„“”'*#.:-")) }.first { !$0.isEmpty } ?? ""
+        let n = String(l.replacingOccurrences(of: #"^(titel|title|name)\s*:\s*"#, with: "", options: [.regularExpression, .caseInsensitive]).prefix(60)).trimmingCharacters(in: CharacterSet(charactersIn: " \"„“”'*#.:-"))
+        return n.count >= 3 ? n : nil
+    }
+}

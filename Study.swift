@@ -133,13 +133,14 @@ import Vision
     nonisolated static let sheetRules = """
     Du schreibst Lernzettel für Schüler: eine Übersicht, die man vor einer Arbeit durchliest und mit der man wirklich lernt. \
     Nur Inhalte aus dem Material und den Angaben des Schülers. Klar, knapp, nach Themen gegliedert, das Wichtigste zuerst, sinnvolle Reihenfolge zum Lernen.
-    Format, eine Angabe pro Zeile:
-    # Thema des Lernzettels
-    ## Teilthema
-    - Stichpunkt, kurz
-      - Unterpunkt (zwei Leerzeichen davor)
-    > Merke: die wichtigste Regel oder Definition des Teilthemas (höchstens ein Merke pro Teilthema)
-    **Fachbegriff**: Erklärung in einem Satz
+    Format, eine Angabe pro Zeile, so wie in diesem Beispiel (Inhalt natürlich aus dem Material):
+    # Katalyse
+    ## Wirkung eines Katalysators
+    - beschleunigt die Reaktion, wird dabei nicht verbraucht
+      - wirkt nur auf die Geschwindigkeit, nicht auf die Produkte
+    **Aktivierungsenergie**: Energie, die nötig ist, damit eine Reaktion startet
+    > Merke: Ein Katalysator senkt die Aktivierungsenergie.
+    Regeln: '#' einmal ganz oben, '##' für jedes Teilthema, '- ' für Punkte, zwei Leerzeichen vor Unterpunkten, '**Begriff**:' für Fachbegriffe, höchstens ein '> Merke:' pro Teilthema.
     Formeln in eine eigene Zeile, mit ^ für Hochzahlen, _ für Indizes, sqrt() für Wurzeln, * für mal, / für Brüche, mit Einheiten. Kein LaTeX, keine $-Zeichen.
     Höchstens 8 Teilthemen, jedes mit wenigen, wirklich wichtigen Punkten. Nur, was sicher stimmt: Bist du unsicher, lass es weg.
     Zum Schluss genau diese zwei Abschnitte:
@@ -153,7 +154,9 @@ import Vision
     private static func ask(_ rules: String, _ q: String) async -> String? {
         let s = LanguageModelSession(model: SystemLanguageModel(guardrails: .permissiveContentTransformations), instructions: rules)
         guard let r = try? await s.respond(to: q, options: GenerationOptions(temperature: 0.3)).content else { return nil } // wenig Fantasie: Fakten statt Erfindungen
-        let c = TidyLogic.clean(r)
+        // abgeschriebene Platzhalter aus der Vorlage entfernen
+        let c = TidyLogic.clean(r).components(separatedBy: "\n").filter { !$0.contains("Fachbegriff*") }
+            .map { $0.replacingOccurrences(of: "> Die wichtigste Regel:", with: "> Merke:").replacingOccurrences(of: "> Merke: Merke:", with: "> Merke:") }.joined(separator: "\n")
         return c.isEmpty ? nil : c
     }
 

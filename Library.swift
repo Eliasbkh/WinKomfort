@@ -13,7 +13,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .hand: L("Meine Handschrift", "My handwriting")
         case .battery: L("Akku-Optimierer", "Battery optimizer")
         case .notch: L("Interaktive Notch", "Interactive notch")
-        case .onenote: L("OneNote → PDF", "OneNote → PDF")
+        case .onenote: L("OneNote-Werkzeuge", "OneNote tools")
         case .remote: L("Handy-Fernbedienung", "Phone remote")
         case .gameMode: "Game Mode"
         }
@@ -27,7 +27,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .hand: L("Texte und Arbeitsblätter in deiner eigenen Schrift", "Texts and worksheets in your own handwriting")
         case .battery: L("Zeigt, was Akku zieht, und bremst Apps im Hintergrund", "Shows what drains the battery and slows background apps")
         case .notch: L("Musik, Stunde, Timer und KI-Frage an der Kamera", "Music, next class, timer and AI question at the camera")
-        case .onenote: L("Seiten, Abschnitte oder Notizbücher als eine PDF", "Pages, sections or notebooks as one PDF")
+        case .onenote: L("Als PDF sichern und aufräumen: leere Seiten weg, KI benennt Seiten und Abschnitte", "Save as PDF and tidy up: remove empty pages, AI names pages and sections")
         case .remote: L("Mac vom Handy aus steuern", "Control your Mac from your phone")
         case .gameMode: L("Beim Spielen Ablenkungen und Hintergrund-Apps aus", "Turns off distractions and background apps while gaming")
         }
@@ -46,7 +46,7 @@ enum Tool: String, CaseIterable, Identifiable {
     // /Befehle und Tastenkürzel, die zum Werkzeug gehören
     var commands: [String] {
         switch self {
-        case .school: ["schule", "school"]; case .study: ["lernzettel", "studysheet"]; case .tidy: ["schön", "tidy"]; case .hand: ["handschrift", "handwriting"]; case .battery: ["akku", "battery"]
+        case .onenote: ["aufräumen", "cleanup"]; case .school: ["schule", "school"]; case .study: ["lernzettel", "studysheet"]; case .tidy: ["schön", "tidy"]; case .hand: ["handschrift", "handwriting"]; case .battery: ["akku", "battery"]
         default: []
         }
     }
