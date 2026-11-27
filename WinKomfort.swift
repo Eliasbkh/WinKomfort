@@ -2188,9 +2188,10 @@ enum OneNotePDF {
                             OneNotePDF.running = false
                             switch r {
                             case .success(let url):
+                                Notch.shared.finish(true)
                                 Toast.show(L("PDF gespeichert: \(url.lastPathComponent)", "PDF saved: \(url.lastPathComponent)"), symbol: "checkmark.circle")
                                 FolderHandler.revealInFinder([url])
-                            case .failure(let e): Toast.show(e.text, symbol: "exclamationmark.triangle")
+                            case .failure(let e): Notch.shared.finish(false); Toast.show(e.text, symbol: "exclamationmark.triangle")
                             }
                         }
                     } }

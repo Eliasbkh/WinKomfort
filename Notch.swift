@@ -22,6 +22,8 @@ final class NotchPanel: NSPanel {
     @Published var question = ""
     @Published var answer: String?
     @Published var thinking = false
+    @Published var progress: Double?   // OneNote → PDF läuft: 0…1
+    @Published var finished = false    // kurz „fertig“ zeigen
     private var openWork: DispatchWorkItem?
     private var panel: NSPanel?
     private var tick: Timer?
@@ -97,7 +99,20 @@ final class NotchPanel: NSPanel {
     }
 
     // Live-Anzeige links/rechts der Kamera: Timer, Laden, Stunde bald
+    // Fortschritt melden; der Ring erscheint neben der Kamera
+    func report(_ p: Double) {
+        let had = activity != nil
+        finished = false; progress = max(progress ?? 0, min(p, 0.99)) // nie rückwärts
+        if had != (activity != nil) { fit() }
+    }
+    func finish(_ ok: Bool) {
+        progress = nil; finished = ok; fit()
+        guard ok else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { MainActor.assumeIsolated { let n = Notch.shared; if n.finished { n.finished = false; n.fit() } } }
+    }
     var activity: (icon: String, text: String, tint: Color)? {
+        if let p = progress { return ("progress", "\(Int(p * 100)) %", .blue) }
+        if finished { return ("checkmark.circle.fill", "PDF", .green) }
         if let t = SearchTimer.shared.running.map(\.end).min(), t > now {
             let s = Int(t.timeIntervalSince(now)); return ("timer", String(format: "%d:%02d", s / 60, s % 60), .orange)
         }
@@ -248,7 +263,19 @@ struct NotchView: View {
     }
     private func collapsed(_ a: (icon: String, text: String, tint: Color)) -> some View {
         HStack {
-            Image(systemName: a.icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(a.tint).symbolEffect(.variableColor.iterative, isActive: a.icon == "waveform" && !still).frame(width: 60, alignment: .leading)
+            Group {
+                if a.icon == "progress" { // Ring wie bei Apples Downloads
+                    ZStack {
+                        Circle().stroke(a.tint.opacity(0.25), lineWidth: 2.5)
+                        Circle().trim(from: 0, to: n.progress ?? 0).stroke(a.tint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round)).rotationEffect(.degrees(-90))
+                            .animation(still ? nil : .spring(response: 0.5, dampingFraction: 0.9), value: n.progress)
+                    }
+                    .frame(width: 14, height: 14).accessibilityLabel(L("OneNote-PDF wird erstellt", "Creating OneNote PDF"))
+                } else {
+                    Image(systemName: a.icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(a.tint).symbolEffect(.variableColor.iterative, isActive: a.icon == "waveform" && !still)
+                }
+            }
+            .frame(width: 60, alignment: .leading)
             Spacer(minLength: n.notch.width)
             Text(a.text).font(.system(size: 12, weight: .semibold).monospacedDigit()).foregroundStyle(a.tint).lineLimit(1).contentTransition(.numericText()).frame(width: 66, alignment: .trailing)
         }

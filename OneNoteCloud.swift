@@ -85,6 +85,9 @@ enum OneNoteCloud {
     @MainActor static func export(_ scope: OneNotePDF.Scope, _ t: Target, into dest: URL? = nil, pages inspect: (([URL]) async -> Void)? = nil) async -> Result<URL, Failure> {
         let session = SPSession.shared
         let started = Date()
+        let show = dest == nil && inspect == nil // nur die echte PDF zeigt ihren Fortschritt in der Notch
+        func step(_ p: Double) { if show { Notch.shared.report(p) } }
+        step(0.02)
         wkLog("OneNote: Start \(scope) \(t.section)")
         defer { wkLog("OneNote: Ende nach \(Int(Date().timeIntervalSince(started))) s") }
         do {
@@ -104,6 +107,7 @@ enum OneNoteCloud {
                 : try await session.list(sectionFolder, recursive: false).filter { $0.path == t.section }
             guard !remote.isEmpty else { return .failure(Failure(text: L("Keine OneNote-Dateien gefunden", "No OneNote files found"))) }
             wkLog("OneNote: Liste nach \(String(format: "%.1f", Date().timeIntervalSince(started))) s (\(remote.count) Dateien)")
+            step(0.08)
 
             // Laden – nur, was sich geändert hat
             let cache = cacheDir(t.host).appendingPathComponent(root)
@@ -111,6 +115,16 @@ enum OneNoteCloud {
             if !todo.isEmpty {
                 let mb = todo.reduce(0) { $0 + $1.size } / 1_000_000
                 Toast.show(L("OneNote: lade \(todo.count) Datei(en), \(mb) MB …", "OneNote: downloading \(todo.count) file(s), \(mb) MB…"), symbol: "icloud.and.arrow.down")
+                // echter Download-Fortschritt: Größe der .part-Dateien gegen die Größe auf dem Server (Laden = 8–65 %)
+                let total = Double(max(todo.reduce(0) { $0 + $1.size }, 1)), files = todo.map { cache.appendingPathComponent(String($0.path.dropFirst(root.count))) }
+                let meter = show ? Task { @MainActor in
+                    while !Task.isCancelled {
+                        let have = files.reduce(0.0) { s, f in s + Double(((try? FileManager.default.attributesOfItem(atPath: f.path + ".part")[.size]) as? Int) ?? 0) }
+                        Notch.shared.report(0.08 + 0.57 * min(1, have / total))
+                        try? await Task.sleep(for: .milliseconds(500))
+                    }
+                } : nil
+                defer { meter?.cancel() }
                 try await withThrowingTaskGroup(of: Void.self) { group in
                     var running = 0
                     for item in todo {
@@ -124,6 +138,7 @@ enum OneNoteCloud {
             }
             if dest == nil { Toast.show(L("OneNote: PDF wird erstellt …", "OneNote: creating PDF…"), symbol: "doc.richtext") }
             wkLog("OneNote: geladen nach \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
+            step(0.66)
 
             // Umwandeln (im Hintergrund, Abschnitte gleichzeitig). Die Notizbuch-Datei (.onetoc2) liest der Umwandler
             // nicht zuverlässig – deshalb jeder Abschnitt einzeln, Reihenfolge wie in der OneNote-Seitenleiste.
@@ -169,6 +184,7 @@ enum OneNoteCloud {
                 }
             }()
             wkLog("OneNote: Bilder verkleinert nach \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
+            step(0.72)
             let out = dest ?? uniqueDownload(name)
             try await PageRenderer.render(pages, root: work.resolvingSymlinksInPath(), to: out)
             return .success(out)
@@ -504,6 +520,7 @@ enum PDFQuality: String, CaseIterable, Identifiable {
         web.navigationDelegate = self
         let margin: CGFloat = 28, scale: CGFloat = 0.75 // 96 px = 72 pt, wie beim Drucken
         for (i, p) in pages.enumerated() {
+            if offset == 0 { Notch.shared.report(0.72 + 0.27 * min(1, Double(i * (total / max(pages.count, 1))) / Double(max(total, 1)))) } // Seiten zeichnen = 72–99 %
             if offset == 0 && i % 10 == 0 && i > 0 { Toast.show(L("OneNote: Seite \(i * (total / max(pages.count, 1))) von \(total) …", "OneNote: page \(i * (total / max(pages.count, 1))) of \(total)…"), symbol: "doc.richtext") }
             await withCheckedContinuation { c in
                 loaded = c
