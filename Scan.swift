@@ -631,23 +631,30 @@ struct ScanView: View {
         case .hold, .done: return ("viewfinder", s.turning ? L("Zweiter Durchgang … nicht bewegen", "Second pass… don't move") : L("Scanne … nicht bewegen", "Scanning… don't move"))
         }
     }
+    // zwei Zeilen: oben was zu tun ist, unten die Bedienung – in einer Zeile überlappten Schalter und Modus-Auswahl
     private var bar: some View {
-        HStack(spacing: 14) {
-            Image(systemName: hintText.0).font(.title2).foregroundStyle(s.hint == .hold ? Color.accentColor : .white).frame(width: 30).contentTransition(.symbolEffect(.replace))
-            Text(hintText.1).font(.title3.weight(.medium)).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading).contentTransition(.opacity)
-            if let a = s.angle {
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(L("Display \(a)°", "Display \(a)°")).monospacedDigit().font(.callout.weight(.semibold))
-                    if let g = s.goodAngle, abs(g - a) > 4 { Text(L("zuletzt gut: \(g)°", "worked at \(g)°")).font(.caption).foregroundStyle(.secondary) }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 14) {
+                Image(systemName: hintText.0).font(.title2).foregroundStyle(s.hint == .hold ? Color.accentColor : .white).frame(width: 30).contentTransition(.symbolEffect(.replace))
+                Text(hintText.1).font(.title3.weight(.medium)).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading).contentTransition(.opacity)
+                if let a = s.angle {
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text(L("Display \(a)°", "Display \(a)°")).monospacedDigit().font(.callout.weight(.semibold))
+                        if let g = s.goodAngle, abs(g - a) > 4 { Text(L("zuletzt gut: \(g)°", "worked at \(g)°")).font(.caption).foregroundStyle(.secondary) }
+                    }
+                    .fixedSize()
+                    .help(L("Winkel deines Displays. Gemerkt wird der Winkel, bei dem der letzte Scan geklappt hat.", "Your display angle. The angle of the last successful scan is remembered."))
                 }
-                .help(L("Winkel deines Displays. Gemerkt wird der Winkel, bei dem der letzte Scan geklappt hat.", "Your display angle. The angle of the last successful scan is remembered."))
             }
-            PhoneImportButton(title: L("iPhone", "iPhone")) { s.addPhone($0) }.fixedSize()
-                .help(L("Mit der iPhone-Kamera scannen: noch schärfer, z. B. für Tafelbilder oder kleine Schrift", "Scan with the iPhone camera: even sharper, e.g. for whiteboards or small print"))
-            Toggle(L("2 Durchgänge", "2 passes"), isOn: $s.twice).toggleStyle(.switch).controlSize(.small).fixedSize()
-                .help(L("Blatt einmal drehen und zweimal scannen: deutlich schärfer, dauert ein paar Sekunden länger", "Turn the sheet and scan twice: much sharper, takes a few seconds longer"))
-            Picker("", selection: $s.mode) { ForEach(ScanMode.allCases, id: \.self) { Text($0.title).tag($0) } }.pickerStyle(.segmented).labelsHidden().frame(width: 230)
-            if !s.pages.isEmpty { Button(L("\(s.pages.count) Seite(n) ›", "\(s.pages.count) page(s) ›")) { s.stop(); s.phase = .result }.buttonStyle(.bordered) }
+            HStack(spacing: 12) {
+                Picker("", selection: $s.mode) { ForEach(ScanMode.allCases, id: \.self) { Text($0.title).tag($0) } }.pickerStyle(.segmented).labelsHidden().fixedSize()
+                Toggle(L("2 Durchgänge", "2 passes"), isOn: $s.twice).toggleStyle(.switch).controlSize(.small).fixedSize()
+                    .help(L("Blatt einmal drehen und zweimal scannen: deutlich schärfer, dauert ein paar Sekunden länger", "Turn the sheet and scan twice: much sharper, takes a few seconds longer"))
+                Spacer(minLength: 8)
+                PhoneImportButton(title: L("iPhone", "iPhone")) { s.addPhone($0) }.fixedSize()
+                    .help(L("Mit der iPhone-Kamera scannen: noch schärfer, z. B. für Tafelbilder oder kleine Schrift", "Scan with the iPhone camera: even sharper, e.g. for whiteboards or small print"))
+                if !s.pages.isEmpty { Button(L("\(s.pages.count) Seite(n) ›", "\(s.pages.count) page(s) ›")) { s.stop(); s.phase = .result }.buttonStyle(.bordered).fixedSize() }
+            }
         }
         .padding(.horizontal, 18).padding(.bottom, 16).foregroundStyle(.white)
         .animation(still ? nil : .smooth(duration: 0.3), value: s.hint)
@@ -698,17 +705,21 @@ private struct ScanResult: View {
             }
             .font(.callout).controlSize(.small).disabled(s.thinking).padding(.top, 4)
             HStack(spacing: 10) {
-                Picker("", selection: $s.mode) { ForEach(ScanMode.allCases, id: \.self) { Text($0.title).tag($0) } }.pickerStyle(.segmented).labelsHidden().frame(width: 240)
+                Picker("", selection: $s.mode) { ForEach(ScanMode.allCases, id: \.self) { Text($0.title).tag($0) } }.pickerStyle(.segmented).labelsHidden().fixedSize()
                 let words = s.pages.reduce(0) { $0 + $1.text.reduce(0) { $0 + $1.text.split(separator: " ").count } }
                 Text(words > 0 ? L("\(words) Wörter", "\(words) words") : L("kein Text", "no text")).font(.callout).foregroundStyle(.secondary).fixedSize()
                 Spacer()
                 Button(L("Neu scannen", "Retake")) { s.retake() }
                 Button(L("Weitere Seite", "Add page")) { s.again() }.keyboardShortcut("n", modifiers: .command)
+            }
+            .padding(.horizontal, 16).padding(.top, 12)
+            HStack(spacing: 10) { // zweite Zeile: sonst wurden bei normaler Fenstergröße Knöpfe abgeschnitten
+                Spacer()
                 Button(L("Bild kopieren", "Copy image")) { s.copyImage() }.keyboardShortcut("c", modifiers: .command)
-                Button(L("Text kopieren", "Copy text")) { s.copyText() }.disabled(words == 0)
+                Button(L("Text kopieren", "Copy text")) { s.copyText() }.disabled(s.text.isEmpty)
                 Button(L("Als PDF sichern …", "Save as PDF…")) { s.save() }.buttonStyle(.borderedProminent).keyboardShortcut("s", modifiers: .command)
             }
-            .padding(16)
+            .padding(.horizontal, 16).padding(.vertical, 12)
         }
         .animation(still ? nil : .spring(response: 0.4, dampingFraction: 0.86), value: s.current)
     }
