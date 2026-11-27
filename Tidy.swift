@@ -2,6 +2,7 @@
 // → zurück in OneNote einfügen (⌘Z in OneNote macht es rückgängig)
 import AppKit
 import FoundationModels
+import NaturalLanguage
 import PDFKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -15,6 +16,7 @@ import Vision
     @Published var note: String?
     @Published var fromOneNote = false
     var image: CGImage?                 // Foto: das Modell sieht es mit, wenn es Bilder kann
+    nonisolated(unsafe) static var lastError: String?
     private var job: Task<Void, Never>?
 
     static func open() {
@@ -73,7 +75,7 @@ import Vision
 
     // KI ordnet; ohne KI (oder wenn sie Inhalt verschluckt) nur Formeln und Aufzählungen sauber setzen
     func run() {
-        let src = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let src = Self.spellfix(input.trimmingCharacters(in: .whitespacesAndNewlines)) // erst Rechtschreibung (macOS), dann ordnet die KI
         guard !src.isEmpty else { return }
         job?.cancel(); note = nil
         guard Assistant.available, #available(macOS 26.0, *) else {
@@ -87,9 +89,13 @@ import Vision
             let parts = TidyLogic.chunks(src)
             for (i, p) in parts.enumerated() {
                 if parts.count > 1 { busy = L("KI ordnet … Teil \(i + 1) von \(parts.count)", "AI is tidying… part \(i + 1) of \(parts.count)") }
-                let r = await Self.ask(p, image: i == 0 ? img : nil)
+                Self.lastError = nil
+                var r = await Self.ask(p, image: i == 0 ? img : nil)
+                if r == nil, !Task.isCancelled { try? await Task.sleep(for: .milliseconds(800)); r = await Self.ask(p, image: nil) } // zweiter Versuch, ohne Bild
                 guard !Task.isCancelled else { return }
-                if let r, TidyLogic.kept(p, r) { out.append(r) } else { out.append(p); note = L("Ein Teil blieb unverändert, damit nichts verloren geht.", "Part was left as is so nothing gets lost.") }
+                if let r, TidyLogic.kept(p, r) { out.append(r) }
+                else if r == nil { out.append(p); note = L("Die KI hat nicht geantwortet", "The AI didn't answer") + (Self.lastError.map { L(" (\($0.prefix(80)))", " (\($0.prefix(80)))") } ?? "") + L(". Noch einmal versuchen.", ". Try again.") }
+                else { out.append(p); note = L("Ein Teil blieb unverändert, weil die KI zu viel weggelassen hätte.", "Part was left as is because the AI would have dropped too much.") }
             }
             result = out.joined(separator: "\n\n")
         }
@@ -98,7 +104,9 @@ import Vision
     private static func ask(_ text: String, image: CGImage?) async -> String? {
         let s = LanguageModelSession(model: SystemLanguageModel(guardrails: .permissiveContentTransformations), instructions: """
         Du machst Schulnotizen übersichtlich, wie ein ordentlicher Schüler sie in OneNote schreiben würde. Gib denselben Inhalt geordnet zurück: \
-        nichts weglassen, nichts dazuerfinden, Fehler der Texterkennung und Tippfehler verbessern, Sprache beibehalten.
+        nichts weglassen, nichts dazuerfinden, Sprache beibehalten. Erkenne, worum es geht, und gib dem Ganzen eine passende Überschrift. \
+        Übernimm jedes Wort genau so, wie es dasteht (die Rechtschreibung ist schon geprüft). \
+        Ganze Sätze bleiben ganze Sätze in ihrer Sprache – nicht in Stichpunkte zerlegen, nicht übersetzen. Zahlen, Namen, Daten und Fakten nie ändern.
         Format, eine Angabe pro Zeile:
         # Überschrift (nur eine, ganz oben, wenn es ein Thema gibt)
         ## Zwischenüberschrift
@@ -114,8 +122,40 @@ import Vision
             if #available(macOS 27.0, *), let image, let small = await Task.detached(operation: { AIRead.image(image, name: "Bild")?.cg }).value { // verkleinert
                 return TidyLogic.clean(try await s.respond(options: GenerationOptions(), prompt: { Attachment(small); q + "\n\n(Das Foto ist dabei: Formeln und Einrückungen von dort übernehmen.)" }).content)
             }
-            return TidyLogic.clean(try await s.respond(to: q).content)
-        } catch { return nil }
+            return TidyLogic.clean(try await s.respond(to: q, options: GenerationOptions(temperature: 0.2)).content)
+        } catch {
+            wkLog("Schön machen: KI-Fehler \(error)")
+            Tidy.lastError = "\(error)"
+            return nil
+        }
+    }
+
+    // Rechtschreibung mit der Prüfung von macOS, Sprache je Zeile erkannt (auch Spanisch, Englisch …).
+    // Nur eindeutige Tippfehler: falsches Wort, Vorschlag höchstens 2 Buchstaben anders – Namen und Fachwörter bleiben
+    static func spellfix(_ text: String) -> String {
+        let sc = NSSpellChecker.shared
+        let all = NLLanguageRecognizer.dominantLanguage(for: text)?.rawValue
+        return text.components(separatedBy: "\n").map { line in
+            guard line.count > 3 else { return line }
+            let lang = NLLanguageRecognizer.dominantLanguage(for: line).map(\.rawValue).flatMap { l in sc.availableLanguages.first { $0.hasPrefix(l) } } ?? all.flatMap { l in sc.availableLanguages.first { $0.hasPrefix(l) } }
+            guard let lang else { return line }
+            var out = line as NSString, start = 0
+            while start < out.length {
+                let r = sc.checkSpelling(of: out as String, startingAt: start, language: lang, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil)
+                guard r.location != NSNotFound, r.length > 0 else { break }
+                let word = out.substring(with: r), after = r.location + r.length < out.length ? out.substring(with: NSRange(location: r.location + r.length, length: 1)) : ""
+                let name = !lang.hasPrefix("de") && word.first?.isUppercase == true // außer im Deutschen: großgeschrieben = vermutlich Name
+                let guesses = ([sc.correction(forWordRange: r, in: out as String, language: lang, inSpellDocumentWithTag: 0)].compactMap { $0 } + (sc.guesses(forWordRange: r, in: out as String, language: lang, inSpellDocumentWithTag: 0) ?? []))
+                let near = guesses.map { ($0, TidyLogic.distance(word.lowercased(), $0.lowercased())) }.filter { $0.1 <= 2 && !$0.0.contains(" ") }
+                let d = near.map(\.1).min() ?? 9, top = Set(near.filter { $0.1 == d }.map { $0.0.lowercased() })
+                let best = top.count == 1 ? near.first { $0.1 == d }?.0 : nil // nur eindeutig: bei „fabrero“ → febrero/farrero lieber nichts ändern
+                if !name, after != "(", word.count >= 3, let g = best { // „sqrt(“: Funktionsnamen nie anfassen
+                    out = out.replacingCharacters(in: r, with: g) as NSString
+                    start = r.location + (g as NSString).length
+                } else { start = r.location + r.length }
+            }
+            return out as String
+        }.joined(separator: "\n")
     }
 
     // Ausgabe: HTML (OneNote übernimmt Überschriften, Listen, Hochzahlen), RTF und Klartext

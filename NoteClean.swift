@@ -13,7 +13,7 @@ import SwiftUI
     static let scope = "Notes.ReadWrite.All Sites.Read.All offline_access"
     static let login = "https://login.microsoftonline.com/organizations/oauth2/v2.0/"
 
-    enum Phase: Equatable { case signedOut, code(String, URL), ready }
+    enum Phase: Equatable { case signedOut, code(String, URL), ready, local }
     struct Book: Identifiable, Hashable { let id: String; let name: String; let base: String } // base: "me" oder "sites/<id>"
     struct Proposal: Identifiable {
         enum Kind { case delete, renamePage, renameSection }
@@ -208,8 +208,86 @@ import SwiftUI
         return (try? await s.respond(to: task + "\n\n" + String(text.prefix(1500)), options: GenerationOptions(temperature: 0.2)).content).flatMap(NoteLogic.name)
     }
 
+    // MARK: Ohne Microsoft-Freigabe: aktueller Abschnitt, Inhalte aus der Abschnittsdatei, Änderungen über OneNote selbst
+    func startLocal() { phase = .local; proposals = []; undo = []; note = nil; analyzeLocal() }
+    func analyzeLocal() {
+        guard AXIsProcessTrusted() else { afterTrust(prompt: true) {}; return }
+        guard OneNoteUI.app != nil else { note = L("OneNote ist nicht geöffnet.", "OneNote isn't open."); return }
+        proposals = []; undo = []; note = nil
+        busy = L("Lade den aktuellen Abschnitt …", "Loading the current section…")
+        job = Task {
+            defer { busy = nil }
+            guard let t = await Task.detached(operation: { OneNoteCloud.target(.section) }).value else {
+                note = L("Der Abschnitt liegt nicht in OneDrive/SharePoint oder OneNote ist nicht bereit.", "The section isn't in OneDrive/SharePoint or OneNote isn't ready."); return
+            }
+            var pages: [(title: String, html: String)] = []
+            let r = await OneNoteCloud.export(.section, t, pages: { urls in
+                pages = urls.map { u in
+                    let h = (try? String(contentsOf: u, encoding: .utf8)) ?? ""
+                    let title = h.range(of: #"(?s)<title>(.*?)</title>"#, options: .regularExpression).map { NoteLogic.text(String(h[$0])) } ?? ""
+                    return (title, h)
+                }
+            })
+            if case .failure(let e) = r { note = e.text; return }
+            let rows = await Task.detached(operation: { OneNoteUI.pageTitles }).value
+            guard let untitled = NoteLogic.match(rows: rows, pages: pages.map { ($0.title, NoteLogic.text($0.html)) }) else {
+                note = L("OneNote zeigt andere Seiten als die Datei (\(rows.count) gegenüber \(pages.count)). Kurz synchronisieren lassen und noch einmal.", "OneNote shows different pages than the file (\(rows.count) vs \(pages.count)). Let it sync and try again."); return
+            }
+            let section = await Task.detached(operation: { OneNoteUI.sectionName }).value ?? "?"
+            var out: [Proposal] = [], titles: [String] = []
+            for (i, p) in pages.enumerated() {
+                if Task.isCancelled { return }
+                busy = L("Prüfe Seite \(i + 1) von \(pages.count) …", "Checking page \(i + 1) of \(pages.count)…")
+                let shown = rows[i]
+                if NoteLogic.isEmptyPage(p.html, title: p.title) { out.append(Proposal(kind: .delete, target: "\(i)", base: "local", where_: section, old: shown, new: "")); continue }
+                if untitled[i] {
+                    if let n = await Self.name(L("Gib dieser Notizseite einen kurzen, treffenden Titel (2 bis 6 Wörter). Nur den Titel.", "Give this note page a short, fitting title (2 to 6 words). Only the title."), NoteLogic.text(p.html)) {
+                        out.append(Proposal(kind: .renamePage, target: "\(i)", base: "local", where_: section, old: shown, new: n))
+                    }
+                } else { titles.append(p.title) }
+            }
+            if NoteLogic.isGeneric(section: section), !titles.isEmpty, let n = await Self.name(L("Gib diesem Abschnitt eines Schul-Notizbuchs einen kurzen Namen (1 bis 4 Wörter), passend zu seinen Seiten. Nur den Namen.", "Name this notebook section (1 to 4 words) based on its pages. Only the name."), titles.joined(separator: "\n")) {
+                out.append(Proposal(kind: .renameSection, target: "", base: "local", where_: L("aktueller Abschnitt", "current section"), old: section, new: n))
+            }
+            proposals = out
+            note = out.isEmpty ? L("Alles ordentlich: \(pages.count) Seiten in „\(section)“ geprüft.", "All tidy: \(pages.count) pages in “\(section)” checked.") : L("\(pages.count) Seiten in „\(section)“ geprüft. Beim Anwenden bedient WinKomfort OneNote – Maus und Tastatur kurz nicht benutzen.", "\(pages.count) pages in “\(section)” checked. While applying, WinKomfort operates OneNote – don't use mouse and keyboard for a moment.")
+        }
+    }
+    // Erst umbenennen, dann löschen – von hinten, damit die Nummern der übrigen Seiten stimmen
+    private func applyLocal() {
+        let todo = proposals.indices.filter { proposals[$0].on && proposals[$0].state == nil }
+            .sorted { a, b in
+                let pa = proposals[a], pb = proposals[b]
+                if (pa.kind == .delete) != (pb.kind == .delete) { return pb.kind == .delete }
+                return (Int(pa.target) ?? 0) > (Int(pb.target) ?? 0)
+            }
+        let items = todo.map { (i: $0, p: proposals[$0]) }
+        job = Task {
+            defer { busy = nil }
+            var done = 0
+            for it in items {
+                busy = L("Ändere in OneNote: \(it.p.old) …", "Changing in OneNote: \(it.p.old)…")
+                let r: OneNoteUI.Fail? = await Task.detached {
+                    do {
+                        switch it.p.kind {
+                        case .delete: try OneNoteUI.deletePage(Int(it.p.target) ?? -1, title: it.p.old)
+                        case .renamePage: try OneNoteUI.renamePage(Int(it.p.target) ?? -1, to: it.p.new)
+                        case .renameSection: try OneNoteUI.renameSection(to: it.p.new)
+                        }
+                        return nil
+                    } catch { return error as? OneNoteUI.Fail ?? OneNoteUI.Fail(text: error.localizedDescription) }
+                }.value
+                if let r { proposals[it.i].state = r.text; note = r.text; NSApp.activate(); return }
+                proposals[it.i].state = L("erledigt", "done"); done += 1
+            }
+            NSApp.activate()
+            note = L("\(done) Änderung(en) in OneNote gemacht. Gelöschte Seiten liegen unter Notizbücher › Gelöschte Notizen.", "\(done) change(s) made in OneNote. Deleted pages are under Notebooks › Deleted Notes.")
+        }
+    }
+
     // MARK: Anwenden
     func apply() {
+        if phase == .local { applyLocal(); return }
         job = Task {
             defer { busy = nil }
             var done = 0, failed = 0
@@ -259,7 +337,11 @@ struct NoteCleanView: View {
                 Text(L("Leere Seiten löschen, unbenannte Seiten und Abschnitte wie „Neuer Abschnitt 1“ von der KI sinnvoll benennen lassen. Du siehst erst alle Vorschläge und entscheidest selbst.", "Delete empty pages and let AI give untitled pages and sections like “New Section 1” fitting names. You see every suggestion first and decide."))
                     .fixedSize(horizontal: false, vertical: true)
                 Text(L("Dafür meldest du dich einmal mit deinem Schul- oder Microsoft-Konto im Browser an. WinKomfort sieht dein Passwort nie.", "Sign in once with your school or Microsoft account in the browser. WinKomfort never sees your password.")).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Button { c.signIn() } label: { Label(L("Mit Microsoft anmelden", "Sign in with Microsoft"), systemImage: "person.badge.key") }.buttonStyle(.borderedProminent).controlSize(.large).disabled(c.busy != nil)
+                HStack(spacing: 10) {
+                    Button { c.startLocal() } label: { Label(L("Aktuellen Abschnitt über OneNote aufräumen", "Tidy current section via OneNote"), systemImage: "wand.and.stars") }.buttonStyle(.borderedProminent).controlSize(.large).disabled(c.busy != nil)
+                    Button { c.signIn() } label: { Label(L("Mit Microsoft anmelden", "Sign in with Microsoft"), systemImage: "person.badge.key") }.controlSize(.large).disabled(c.busy != nil)
+                }
+                Text(L("„Über OneNote“ braucht keine Freigabe der Schule: WinKomfort bedient deine OneNote-App wie du mit Maus und Menü. Die Microsoft-Anmeldung geht nur, wenn deine Schule sie erlaubt.", "“Via OneNote” needs no school approval: WinKomfort operates your OneNote app like you would. Microsoft sign-in only works if your school allows it.")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             case .code(let code, let url):
                 Text(L("Gib diesen Code auf der Microsoft-Seite ein:", "Enter this code on the Microsoft page:"))
                 Text(code).font(.system(size: 34, weight: .semibold, design: .monospaced)).textSelection(.enabled).padding(.vertical, 6)
@@ -267,6 +349,14 @@ struct NoteCleanView: View {
                     Button { NSWorkspace.shared.open(url) } label: { Label(L("Anmeldeseite öffnen", "Open sign-in page"), systemImage: "safari") }.buttonStyle(.borderedProminent)
                     Text(L("Der Code ist schon kopiert.", "The code is already copied.")).font(.caption).foregroundStyle(.secondary)
                 }
+            case .local:
+                HStack {
+                    Label(L("Aktueller Abschnitt in OneNote", "Current section in OneNote"), systemImage: "doc.richtext").font(.headline)
+                    Spacer()
+                    Button(L("Neu prüfen", "Check again")) { c.analyzeLocal() }.disabled(c.busy != nil)
+                    Button(L("Zurück", "Back")) { c.cancel(); c.phase = NoteClean.refresh == nil ? .signedOut : .ready; c.proposals = [] }
+                }
+                list
             case .ready:
                 HStack {
                     Picker(L("Notizbuch", "Notebook"), selection: $c.book) { ForEach(c.books) { Text($0.name).tag(Optional($0)) } }.frame(maxWidth: 360)
@@ -274,30 +364,33 @@ struct NoteCleanView: View {
                     Spacer()
                     Menu { Button(L("Notizbücher neu laden", "Reload notebooks")) { c.loadBooks() }; Button(L("Abmelden", "Sign out")) { c.signOut() } } label: { Image(systemName: "ellipsis.circle") }.fixedSize()
                 }
-                if c.proposals.isEmpty {
-                    ContentUnavailableView(L("Noch keine Vorschläge", "No suggestions yet"), systemImage: "sparkles.rectangle.stack", description: Text(L("Notizbuch wählen und „Analysieren“: Jede Seite wird geprüft, das kann ein paar Minuten dauern.", "Pick a notebook and “Analyze”: every page is checked, this can take a few minutes.")))
-                        .frame(maxHeight: .infinity)
-                } else {
-                    List {
-                        section(.delete, L("Leere Seiten löschen", "Delete empty pages"), "trash")
-                        section(.renamePage, L("Seiten benennen", "Name pages"), "textformat")
-                        section(.renameSection, L("Abschnitte benennen", "Name sections"), "folder")
-                    }
-                    .listStyle(.inset(alternatesRowBackgrounds: true)).clipShape(RoundedRectangle(cornerRadius: 8))
-                    HStack {
-                        if !c.undo.isEmpty { Button(L("Umbenennungen rückgängig", "Undo renames")) { c.revert() }.disabled(c.busy != nil) }
-                        Spacer()
-                        let n = c.proposals.filter { $0.on && $0.state == nil }.count
-                        Button(L("\(n) Änderung(en) anwenden", "Apply \(n) change(s)")) { c.apply() }.buttonStyle(.borderedProminent).disabled(n == 0 || c.busy != nil)
-                            .help(L("Gelöschte Seiten liegen danach im Papierkorb des Notizbuchs (in OneNote: Verlauf › Papierkorb).", "Deleted pages go to the notebook's recycle bin (OneNote: History › Recycle Bin)."))
-                    }
-                }
+                list
             }
             if let b = c.busy { HStack { ProgressView().controlSize(.small); Text(b).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle); Spacer(); Button(L("Abbrechen", "Cancel")) { c.cancel() }.controlSize(.small) } }
             if let n = c.note { Label(n, systemImage: "info.circle").foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
-            if c.phase != .ready { Spacer(minLength: 0) }
+            if c.phase != .ready && c.phase != .local { Spacer(minLength: 0) }
         }
         .padding(20).frame(minWidth: 620, minHeight: 440)
+    }
+    @ViewBuilder private var list: some View {
+        if c.proposals.isEmpty {
+            ContentUnavailableView(L("Noch keine Vorschläge", "No suggestions yet"), systemImage: "sparkles.rectangle.stack", description: Text(c.phase == .local ? L("Prüft die Seiten des Abschnitts, der in OneNote gerade offen ist.", "Checks the pages of the section currently open in OneNote.") : L("Notizbuch wählen und „Analysieren“: Jede Seite wird geprüft, das kann ein paar Minuten dauern.", "Pick a notebook and “Analyze”: every page is checked, this can take a few minutes.")))
+                .frame(maxHeight: .infinity)
+        } else {
+            List {
+                section(.delete, L("Leere Seiten löschen", "Delete empty pages"), "trash")
+                section(.renamePage, L("Seiten benennen", "Name pages"), "textformat")
+                section(.renameSection, L("Abschnitte benennen", "Name sections"), "folder")
+            }
+            .listStyle(.inset(alternatesRowBackgrounds: true)).clipShape(RoundedRectangle(cornerRadius: 8))
+            HStack {
+                if !c.undo.isEmpty { Button(L("Umbenennungen rückgängig", "Undo renames")) { c.revert() }.disabled(c.busy != nil) }
+                Spacer()
+                let n = c.proposals.filter { $0.on && $0.state == nil }.count
+                Button(L("\(n) Änderung(en) anwenden", "Apply \(n) change(s)")) { c.apply() }.buttonStyle(.borderedProminent).disabled(n == 0 || c.busy != nil)
+                    .help(L("Gelöschte Seiten liegen danach im Papierkorb des Notizbuchs (in OneNote: Verlauf › Papierkorb).", "Deleted pages go to the notebook's recycle bin (OneNote: History › Recycle Bin)."))
+            }
+        }
     }
     @ViewBuilder private func section(_ k: NoteClean.Proposal.Kind, _ title: String, _ symbol: String) -> some View {
         let idx = c.proposals.indices.filter { c.proposals[$0].kind == k }
@@ -323,5 +416,86 @@ struct NoteCleanView: View {
             Spacer()
             if let s = p.state { Text(s).font(.caption).foregroundStyle(s == L("erledigt", "done") ? .green : .orange).lineLimit(2) }
         }
+    }
+}
+
+// MARK: Ohne Microsoft-Freigabe: OneNote selbst bedienen (Menü „Notizbücher › Seiten/Abschnitte“), wie du es mit der Maus tun würdest.
+// Jede Änderung wird danach in der Seitenliste nachgeprüft; passt etwas nicht, hört WinKomfort sofort auf.
+// shortcut: hängt an OneNotes Bedienstruktur („List of Pages“, „Rename Page“ …) – nach OneNote-Updates nachtesten
+enum OneNoteUI {
+    struct Fail: Error { let text: String }
+    static var app: NSRunningApplication? { NSRunningApplication.runningApplications(withBundleIdentifier: OneNotePDF.bundle).first }
+    static var ax: AXUIElement? { app.map { AXUIElementCreateApplication($0.processIdentifier) } }
+    static var window: AXUIElement? { ax.flatMap { UIAuto.attr($0, kAXMainWindowAttribute) }.map { $0 as! AXUIElement } }
+    static func outline(_ name: String) -> AXUIElement? { window.flatMap { w in UIAuto.elements(w, windowsOnly: false).first { UIAuto.role($0) == "AXOutline" && UIAuto.label($0) == name } } }
+    static func rows(_ o: AXUIElement) -> [AXUIElement] { UIAuto.attr(o, kAXRowsAttribute) as? [AXUIElement] ?? [] }
+    static func text(_ row: AXUIElement) -> String { UIAuto.elements(row, windowsOnly: false).lazy.compactMap { UIAuto.role($0) == "AXStaticText" ? UIAuto.attr($0, kAXValueAttribute) as? String : nil }.first ?? "" }
+    static var pageTitles: [String] { outline("List of Pages").map { rows($0).map(text) } ?? [] }
+    static var sectionName: String? { outline("List of Sections").flatMap { o in rows(o).first { UIAuto.attr($0, kAXSelectedAttribute) as? Bool == true } }.map(text) }
+    static var front: Bool { NSWorkspace.shared.frontmostApplication?.bundleIdentifier == OneNotePDF.bundle }
+
+    private static func menu(_ titles: [String]) -> AXUIElement? {
+        guard let ax, let bar = UIAuto.attr(ax, kAXMenuBarAttribute).map({ $0 as! AXUIElement }) else { return nil }
+        return UIAuto.elements(bar, windowsOnly: false).first { titles.contains(UIAuto.attr($0, kAXTitleAttribute) as? String ?? "") }
+    }
+    private static func selectPage(_ i: Int) throws {
+        guard let o = outline("List of Pages"), rows(o).indices.contains(i) else { throw Fail(text: L("Seitenliste in OneNote nicht gefunden – bitte einblenden.", "Page list not found in OneNote – please show it.")) }
+        let r = rows(o)[i]
+        AXUIElementSetAttributeValue(o, kAXSelectedRowsAttribute as CFString, [r] as CFArray)
+        for _ in 0..<30 where UIAuto.attr(r, kAXSelectedAttribute) as? Bool != true { usleep(30_000) }
+        usleep(250_000)
+    }
+    private static func key(_ code: CGKeyCode, _ flags: CGEventFlags = []) {
+        for down in [true, false] { let e = CGEvent(keyboardEventSource: CGEventSource(stateID: .combinedSessionState), virtualKey: code, keyDown: down); e?.flags = flags; e?.post(tap: .cghidEventTap) }
+        usleep(40_000)
+    }
+    private static func type(_ s: String) throws {
+        for ch in s {
+            guard front else { throw Fail(text: L("OneNote ist nicht mehr vorne – angehalten.", "OneNote is no longer in front – stopped.")) }
+            let u = Array(String(ch).utf16)
+            for down in [true, false] {
+                let e = CGEvent(keyboardEventSource: CGEventSource(stateID: .combinedSessionState), virtualKey: 0, keyDown: down)
+                e?.keyboardSetUnicodeString(stringLength: u.count, unicodeString: u); e?.post(tap: .cghidEventTap)
+            }
+            usleep(12_000)
+        }
+    }
+    // Eingabe nur, wenn OneNote wirklich vorne ist
+    static func bringFront() throws {
+        app?.activate()
+        for _ in 0..<40 where !front { usleep(50_000) }
+        guard front else { throw Fail(text: L("OneNote kam nicht nach vorne.", "OneNote didn't come to the front.")) }
+        usleep(250_000)
+    }
+    // Unbenannte Seite benennen: „Rename Page“ setzt den Cursor in den (leeren) Titel
+    static func renamePage(_ i: Int, to name: String) throws {
+        try selectPage(i)
+        guard let m = menu(["Rename Page", "Seite umbenennen"]) else { throw Fail(text: L("Menü „Seite umbenennen“ fehlt.", "Menu “Rename Page” missing.")) }
+        try bringFront(); UIAuto.press(m); usleep(450_000)
+        try type(name); key(36) // Return
+        usleep(700_000)
+        guard pageTitles.indices.contains(i), pageTitles[i] == name else {
+            throw Fail(text: L("Der Titel kam nicht an. Angehalten – prüfe die Seite in OneNote, ⌘Z macht die letzte Eingabe rückgängig.", "The title didn't take. Stopped – check the page in OneNote, ⌘Z undoes the last input."))
+        }
+    }
+    static func deletePage(_ i: Int, title: String) throws {
+        try selectPage(i)
+        let before = pageTitles
+        guard before.indices.contains(i), before[i] == title || (NoteLogic.isUntitled(before[i]) && NoteLogic.isUntitled(title)) else { throw Fail(text: L("Die Seitenliste hat sich verändert – angehalten.", "The page list changed – stopped.")) }
+        guard let m = menu(["Delete Page", "Seite löschen"]) else { throw Fail(text: L("Menü „Seite löschen“ fehlt.", "Menu “Delete Page” missing.")) }
+        UIAuto.press(m)
+        for _ in 0..<40 where pageTitles.count == before.count { usleep(50_000) }
+        guard pageTitles.count == before.count - 1 else { throw Fail(text: L("Seite wurde nicht gelöscht (OneNote hat vielleicht nachgefragt).", "Page wasn't deleted (OneNote may have asked).")) }
+    }
+    static func renameSection(to name: String) throws {
+        guard let m = menu(["Rename Section", "Abschnitt umbenennen"]) else { throw Fail(text: L("Menü „Abschnitt umbenennen“ fehlt.", "Menu “Rename Section” missing.")) }
+        try bringFront(); UIAuto.press(m); usleep(450_000)
+        // Ist das Namensfeld erreichbar, direkt setzen; sonst tippen (der alte Name ist dabei markiert)
+        if let ax, let f = UIAuto.attr(ax, kAXFocusedUIElementAttribute).map({ $0 as! AXUIElement }), UIAuto.role(f) == "AXTextField" {
+            var ok: DarwinBoolean = false; AXUIElementIsAttributeSettable(f, kAXValueAttribute as CFString, &ok)
+            if ok.boolValue { AXUIElementSetAttributeValue(f, kAXValueAttribute as CFString, name as CFString) } else { try type(name) }
+        } else { try type(name) }
+        key(36); usleep(700_000)
+        guard sectionName == name else { throw Fail(text: L("Der Abschnittsname kam nicht an. Angehalten – in OneNote prüfen.", "The section name didn't take. Stopped – check in OneNote.")) }
     }
 }

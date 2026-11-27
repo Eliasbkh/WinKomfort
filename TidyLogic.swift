@@ -139,6 +139,17 @@ enum TidyLogic {
         }.joined(separator: "\n")
     }
 
+    // Abstand zweier Wörter (Levenshtein): wie viele Buchstaben anders sind
+    static func distance(_ a: String, _ b: String) -> Int {
+        let a = Array(a), b = Array(b)
+        guard !a.isEmpty else { return b.count }
+        var row = Array(0...b.count)
+        for i in 1...a.count {
+            var prev = row[0]; row[0] = i
+            for j in stride(from: 1, through: b.count, by: 1) { let t = row[j]; row[j] = min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] == b[j - 1] ? 0 : 1)); prev = t }
+        }
+        return row[b.count]
+    }
     // Lange Texte in Stücke fürs Modell (≈ 2500 Zeichen), an Leerzeilen getrennt
     static func chunks(_ s: String, max: Int = 2500) -> [String] {
         var out: [String] = [], cur = ""
@@ -208,6 +219,27 @@ enum NoteLogic {
         let l = content.lowercased()
         guard !l.contains("<img"), !l.contains("<object"), !l.contains("<iframe"), !l.contains("inkml") else { return false }
         return text(content).filter { $0.isLetter || $0.isNumber }.count < 2
+    }
+    // Seite aus dem OneNote-Umwandler: Titel und Datum stehen mit im Text, Tinte ist <svg>
+    static func isEmptyPage(_ html: String, title: String) -> Bool {
+        if html.contains("<svg") || html.contains("<img") || html.contains("<object") || html.contains("<iframe") { return false }
+        var t = text(html)
+        if !title.isEmpty { t = t.replacingOccurrences(of: title, with: " ") }
+        t = t.replacingOccurrences(of: #"(?i)\b(montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag|monday|tuesday|wednesday|thursday|friday|saturday|sunday),?\s+\d{1,2}\.?\s+\p{L}+\.?\s+\d{4}|\b\d{1,2}:\d{2}\b|\b\p{L}+ \d{1,2},? \d{4}\b"#, with: " ", options: .regularExpression)
+        return t.filter { $0.isLetter || $0.isNumber }.count < 2
+    }
+    // Seitenzeilen in OneNote ↔ Seiten aus der Datei, gleiche Reihenfolge. Ergebnis je Seite: hat sie keinen echten Titel?
+    // OneNote kürzt lange Titel, hängt Leerzeichen an und zeigt bei Seiten ohne Titel die erste Inhaltszeile
+    static func match(rows: [String], pages: [(title: String, text: String)]) -> [Bool]? {
+        guard rows.count == pages.count else { return nil }
+        var out: [Bool] = []
+        for (r0, p) in zip(rows, pages) {
+            let r = r0.trimmingCharacters(in: .whitespaces), t = p.title.trimmingCharacters(in: .whitespaces)
+            if !r.isEmpty, !t.isEmpty, !isUntitled(t), r == t || t.hasPrefix(r) || r.hasPrefix(t) { out.append(false); continue }
+            if isUntitled(r) || isUntitled(t) || (!r.isEmpty && p.text.contains(r)) { out.append(true); continue } // ohne Titel: OneNote zeigt Inhalt
+            return nil
+        }
+        return out
     }
     static func isUntitled(_ title: String?) -> Bool {
         let t = (title ?? "").trimmingCharacters(in: .whitespaces).lowercased()

@@ -81,7 +81,8 @@ enum OneNoteCloud {
     // MARK: 2.–5. Gesamter Ablauf
 
     // into: fester Zielpfad (z. B. für den Lernzettel), sonst eine neue Datei in „Downloads“
-    @MainActor static func export(_ scope: OneNotePDF.Scope, _ t: Target, into dest: URL? = nil) async -> Result<URL, Failure> {
+    // pages: statt PDF nur die Seiten (HTML, in OneNote-Reihenfolge) weiterreichen, z. B. zum Aufräumen
+    @MainActor static func export(_ scope: OneNotePDF.Scope, _ t: Target, into dest: URL? = nil, pages inspect: (([URL]) async -> Void)? = nil) async -> Result<URL, Failure> {
         let session = SPSession.shared
         let started = Date()
         wkLog("OneNote: Start \(scope) \(t.section)")
@@ -155,6 +156,7 @@ enum OneNoteCloud {
             guard !pages.isEmpty else { return .failure(Failure(text: L("Keine Seiten gefunden", "No pages found"))) }
 
             wkLog("OneNote: umgewandelt nach \(String(format: "%.1f", Date().timeIntervalSince(started))) s, \(pages.count) Seiten")
+            if let inspect { await inspect(pages); return .success(work) }
             let quality = PDFQuality.current
             let dirs = Set(pages.map { $0.deletingLastPathComponent() })
             await Task.detached(priority: .userInitiated) { dirs.forEach { compressImages(in: $0, maxPx: quality.maxPx, q: quality.jpeg) } }.value
