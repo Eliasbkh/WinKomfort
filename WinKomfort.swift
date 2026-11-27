@@ -1165,7 +1165,7 @@ struct QuickNoteView: View {
                             }
                         }
                     }
-                    .onChange(of: n.current) { _, i in withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(i) } }
+                    .onChange(of: n.current) { _, i in withAnimation(.smooth(duration: 0.3)) { proxy.scrollTo(i) } }
                 }
                 Button { n.newTab() } label: { Image(systemName: "plus") }
                     .keyboardShortcut("t", modifiers: .command)
@@ -3700,6 +3700,7 @@ struct MenuContent: View {
         Button("Suche …") { SearchPanel.show() }
         Button(L("KI fragen …", "Ask AI…")) { AIPanel.show() }
         if Tool.school.on { Button(L("Schule …", "School…")) { School.open() } }
+        if Tool.study.on { Button(L("Lernzettel …", "Study sheet…")) { Study.open() } }
         if Tool.scan.on { Button(L("Blatt scannen …", "Scan sheet…")) { Scanner.open() } }
         if Tool.battery.on { Button(L("Akku …", "Battery…")) { Battery.open() } }
         if Tool.hand.on { Button(L("Handschrift …", "Handwriting…")) { Hand.openWindow() } }

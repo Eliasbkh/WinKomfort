@@ -80,7 +80,8 @@ enum OneNoteCloud {
 
     // MARK: 2.–5. Gesamter Ablauf
 
-    @MainActor static func export(_ scope: OneNotePDF.Scope, _ t: Target) async -> Result<URL, Failure> {
+    // into: fester Zielpfad (z. B. für den Lernzettel), sonst eine neue Datei in „Downloads“
+    @MainActor static func export(_ scope: OneNotePDF.Scope, _ t: Target, into dest: URL? = nil) async -> Result<URL, Failure> {
         let session = SPSession.shared
         let started = Date()
         wkLog("OneNote: Start \(scope) \(t.section)")
@@ -120,7 +121,7 @@ enum OneNoteCloud {
                     try await group.waitForAll()
                 }
             }
-            Toast.show(L("OneNote: PDF wird erstellt …", "OneNote: creating PDF…"), symbol: "doc.richtext")
+            if dest == nil { Toast.show(L("OneNote: PDF wird erstellt …", "OneNote: creating PDF…"), symbol: "doc.richtext") }
             wkLog("OneNote: geladen nach \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
 
             // Umwandeln (im Hintergrund, Abschnitte gleichzeitig). Die Notizbuch-Datei (.onetoc2) liest der Umwandler
@@ -166,7 +167,7 @@ enum OneNoteCloud {
                 }
             }()
             wkLog("OneNote: Bilder verkleinert nach \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
-            let out = uniqueDownload(name)
+            let out = dest ?? uniqueDownload(name)
             try await PageRenderer.render(pages, root: work.resolvingSymlinksInPath(), to: out)
             return .success(out)
         } catch let e as Failure {

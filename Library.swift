@@ -2,11 +2,12 @@
 import SwiftUI
 
 enum Tool: String, CaseIterable, Identifiable {
-    case school, scan, tidy, hand, battery, notch, onenote, remote, gameMode
+    case school, study, scan, tidy, hand, battery, notch, onenote, remote, gameMode
     var id: String { rawValue }
     var title: String {
         switch self {
         case .school: L("Schule", "School")
+        case .study: L("Lernzettel", "Study sheets")
         case .scan: L("Blatt-Scanner", "Sheet scanner")
         case .tidy: L("Notizen schön machen", "Tidy up notes")
         case .hand: L("Meine Handschrift", "My handwriting")
@@ -20,6 +21,7 @@ enum Tool: String, CaseIterable, Identifiable {
     var detail: String {
         switch self {
         case .school: L("Stundenplan mit WebUntis, Aufgaben, Noten, Lernkarten", "Timetable with WebUntis, tasks, grades, flashcards")
+        case .study: L("KI macht aus OneNote und Blättern einen Lernzettel für die Arbeit", "AI turns OneNote and worksheets into a study sheet for your test")
         case .scan: L("Blätter mit Desk View oder dem iPhone scannen, KI liest mit", "Scan sheets with Desk View or your iPhone, AI reads along")
         case .tidy: L("KI ordnet Notizen und Tafelbilder, setzt Formeln, fügt in OneNote ein", "AI arranges notes and whiteboards, formats formulas, pastes into OneNote")
         case .hand: L("Texte und Arbeitsblätter in deiner eigenen Schrift", "Texts and worksheets in your own handwriting")
@@ -32,19 +34,19 @@ enum Tool: String, CaseIterable, Identifiable {
     }
     var symbol: String {
         switch self {
-        case .school: "graduationcap.fill"; case .scan: "doc.viewfinder"; case .tidy: "sparkles.rectangle.stack"; case .hand: "pencil.and.scribble"
+        case .school: "graduationcap.fill"; case .study: "list.bullet.rectangle.portrait.fill"; case .scan: "doc.viewfinder"; case .tidy: "sparkles.rectangle.stack"; case .hand: "pencil.and.scribble"
         case .battery: "battery.75percent"; case .notch: "capsule.tophalf.filled"; case .onenote: "doc.richtext"; case .remote: "iphone.radiowaves.left.and.right"; case .gameMode: "gamecontroller.fill"
         }
     }
     var tint: Color {
         switch self {
-        case .school: .indigo; case .scan: .blue; case .tidy: .purple; case .hand: .teal; case .battery: .green; case .notch: .gray; case .onenote: .purple; case .remote: .orange; case .gameMode: .red
+        case .school: .indigo; case .study: .orange; case .scan: .blue; case .tidy: .purple; case .hand: .teal; case .battery: .green; case .notch: .gray; case .onenote: .purple; case .remote: .orange; case .gameMode: .red
         }
     }
     // /Befehle und Tastenkürzel, die zum Werkzeug gehören
     var commands: [String] {
         switch self {
-        case .school: ["schule", "school"]; case .tidy: ["schön", "tidy"]; case .hand: ["handschrift", "handwriting"]; case .battery: ["akku", "battery"]
+        case .school: ["schule", "school"]; case .study: ["lernzettel", "studysheet"]; case .tidy: ["schön", "tidy"]; case .hand: ["handschrift", "handwriting"]; case .battery: ["akku", "battery"]
         default: []
         }
     }
@@ -54,7 +56,7 @@ enum Tool: String, CaseIterable, Identifiable {
     // Die Notch hatte schon einen eigenen Schalter: denselben weiterbenutzen
     private var key: String { self == .notch ? "notch" : "tool." + rawValue }
     // Neu installiert: nur das Wichtigste an. Wer WinKomfort schon hatte, behält alles
-    static let basics: Set<Tool> = [.school, .scan, .tidy, .notch]
+    static let basics: Set<Tool> = [.school, .study, .scan, .tidy, .notch]
     var on: Bool {
         if let v = UserDefaults.standard.object(forKey: key) as? Bool { return v }
         return UserDefaults.standard.bool(forKey: "toolsLean") ? Self.basics.contains(self) : true

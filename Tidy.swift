@@ -119,23 +119,25 @@ import Vision
     }
 
     // Ausgabe: HTML (OneNote übernimmt Überschriften, Listen, Hochzahlen), RTF und Klartext
-    func write(to pb: NSPasteboard) {
-        let html = TidyLogic.html(result)
+    static func write(_ markup: String, to pb: NSPasteboard) {
+        let html = TidyLogic.html(markup) // für RTF: ohne MathML, das kennt RTF nicht
         pb.clearContents()
-        pb.setString(html, forType: .html)
+        pb.setString(TidyLogic.html(markup, mathML: true), forType: .html)
         if let a = try? NSAttributedString(data: Data(html.utf8), options: [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue], documentAttributes: nil),
            let rtf = try? a.data(from: NSRange(location: 0, length: a.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]) { pb.setData(rtf, forType: .rtf) }
-        pb.setString(TidyLogic.plain(result), forType: .string)
+        pb.setString(TidyLogic.plain(markup), forType: .string)
     }
-    func copy() { write(to: .general); Toast.show(L("Kopiert – in OneNote mit ⌘V einfügen", "Copied – paste into OneNote with ⌘V"), symbol: "doc.on.doc") }
-    func paste() {
+    func copy() { Self.write(result, to: .general); Toast.show(L("Kopiert – in OneNote mit ⌘V einfügen", "Copied – paste into OneNote with ⌘V"), symbol: "doc.on.doc") }
+    func paste() { Self.paste(result, replacing: fromOneNote) { [weak self] in self?.note = $0 } }
+    // In OneNote an der Einfügemarke einfügen; klappt das nicht, liegt es in der Zwischenablage
+    static func paste(_ markup: String, replacing: Bool, problem: @escaping (String) -> Void) {
         guard AXIsProcessTrusted() else { afterTrust(prompt: true) {}; return }
-        guard let one = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == OneNotePDF.bundle }) else { copy(); note = L("OneNote läuft nicht – ist kopiert.", "OneNote isn't running – copied instead."); return }
-        write(to: .general)
+        write(markup, to: .general)
+        guard let one = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == OneNotePDF.bundle }) else { problem(L("OneNote läuft nicht – ist kopiert.", "OneNote isn't running – copied instead.")); return }
         Task {
-            guard await Self.front(one) else { note = L("OneNote kam nicht nach vorne – ist kopiert.", "OneNote didn't come to the front – copied instead."); return }
-            Self.key(9) // V
-            Toast.show(fromOneNote ? L("Ersetzt – ⌘Z in OneNote macht es rückgängig", "Replaced – ⌘Z in OneNote undoes it") : L("In OneNote eingefügt", "Pasted into OneNote"), symbol: "sparkles")
+            guard await front(one) else { problem(L("OneNote kam nicht nach vorne – ist kopiert.", "OneNote didn't come to the front – copied instead.")); return }
+            key(9) // V
+            Toast.show(replacing ? L("Ersetzt – ⌘Z in OneNote macht es rückgängig", "Replaced – ⌘Z in OneNote undoes it") : L("In OneNote eingefügt", "Pasted into OneNote"), symbol: "sparkles")
         }
     }
     // Tasten nur, wenn OneNote wirklich vorne ist
@@ -213,7 +215,7 @@ struct TidyView: View {
 }
 
 // Vorschau so, wie OneNote es zeigt (gleiches HTML)
-private struct RichPreview: NSViewRepresentable {
+struct RichPreview: NSViewRepresentable {
     let html: String
     func makeNSView(context: Context) -> NSScrollView {
         let s = NSScrollView(), v = NSTextView(usingTextLayoutManager: false) // TextKit 1: TextKit 2 zeigt HTML-Listenpunkte doppelt

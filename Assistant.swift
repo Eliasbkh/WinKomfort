@@ -134,6 +134,7 @@ enum Assistant {
         guard url.scheme == "winkomfort", let host = url.host?.lowercased() else { return }
         let arg = (url.path.removingPercentEncoding ?? url.path).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         if host == "tidy" || host == "schoen" { Tidy.open(); return }
+        if host == "lernzettel" || host == "study" { Study.open(); return }
         if host == "scan" { Scanner.open(); return } // winkomfort://scan öffnet den Scanner (z. B. aus Kurzbefehlen)
         if host == "battery" || host == "akku" { Battery.open(); return }
         let ok: Bool

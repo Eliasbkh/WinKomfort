@@ -552,7 +552,7 @@ struct ScanView: View {
                     guide(r)
                 }
             }
-            .animation(still ? nil : .easeOut(duration: 0.12), value: s.quad)
+            .animation(still ? nil : .interactiveSpring(response: 0.18, dampingFraction: 0.86), value: s.quad) // folgt dem Blatt wie ein Gummiband
         }
     }
     // Animierte Karte: Blatt dreht sich um 180°
@@ -587,7 +587,7 @@ struct ScanView: View {
             ForEach(0..<3) { i in Image(systemName: d.symbol).font(.system(size: 54, weight: .bold)).opacity(0.35 + Double(forward ? i : 2 - i) * 0.3) }
         }
             .foregroundStyle(.white).shadow(color: .black.opacity(0.5), radius: 8)
-            .phaseAnimator(still ? [0.0] : [0.0, 1.0]) { v, t in v.offset(x: d.dx * 26 * t, y: d.dy * 26 * t) } animation: { _ in .easeInOut(duration: 0.7) }
+            .phaseAnimator(still ? [0.0] : [0.0, 1.0]) { v, t in v.offset(x: d.dx * 26 * t, y: d.dy * 26 * t) } animation: { _ in .spring(duration: 0.7, bounce: 0.25) }
             .position(x: r.midX, y: r.midY)
             .allowsHitTesting(false).transition(.opacity)
     }
@@ -645,7 +645,7 @@ struct ScanView: View {
             if !s.pages.isEmpty { Button(L("\(s.pages.count) Seite(n) ›", "\(s.pages.count) page(s) ›")) { s.stop(); s.phase = .result }.buttonStyle(.bordered) }
         }
         .padding(.horizontal, 18).padding(.bottom, 16).foregroundStyle(.white)
-        .animation(still ? nil : .easeOut(duration: 0.2), value: s.hint)
+        .animation(still ? nil : .smooth(duration: 0.3), value: s.hint)
     }
 }
 extension Scanner { static var sharedSession: AVCaptureSession { shared.engine.session } }

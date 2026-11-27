@@ -85,6 +85,12 @@ import SwiftUI
             guard let n = MathExpr.parse(a) else { return [] }
             var r = formula(n)
             if let v = MathExpr.eval(n), v.isFinite { r.insert(copy(num(v), L("Ergebnis", "Result")), at: 1) }
+            // Gleichung mit einer Unbekannten: Lösung gleich mit anzeigen (wie /solve)
+            if MathExpr.sides(n) != nil, let s = solutions(a) {
+                let found = s.roots.isEmpty ? [copy(L("Keine reelle Lösung zwischen −100 und 100", "No real solution between −100 and 100"))]
+                    : s.roots.enumerated().map { i, v in copy((s.roots.count > 1 ? "\(s.x)\(SchoolLogic.pretty("a\(i + 1)").dropFirst())" : s.x) + " = " + num(v), L("Lösung, numerisch", "Solution, numeric"), num(v)) }
+                r.insert(contentsOf: found, at: 0)
+            }
             return r
         },
         Command(name: "solve", hint: "x^2-4=0", text: L("Gleichung lösen", "Solve an equation"), symbol: "equal.circle", needsArg: true) { a in

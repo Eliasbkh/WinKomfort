@@ -977,7 +977,7 @@ struct ExplorerView: View {
                 HStack(spacing: 6) {
                     ForEach([FileFilter.all] + shown, id: \.self) { f in
                         let on = model.filter == f
-                        Button { withAnimation(.easeOut(duration: 0.15)) { model.filter = on && f != .all ? .all : f } } label: {
+                        Button { withAnimation(.snappy(duration: 0.25)) { model.filter = on && f != .all ? .all : f } } label: {
                             HStack(spacing: 5) {
                                 Image(systemName: f.symbol).imageScale(.small)
                                 Text(f.title)

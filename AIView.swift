@@ -230,7 +230,7 @@ struct AIView: View {
                 .padding(20).frame(maxWidth: 760).frame(maxWidth: .infinity)
             }
             .defaultScrollAnchor(.bottom)
-            .onChange(of: c.messages.count) { _, _ in if still { proxy.scrollTo("ende", anchor: .bottom) } else { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("ende", anchor: .bottom) } } }
+            .onChange(of: c.messages.count) { _, _ in if still { proxy.scrollTo("ende", anchor: .bottom) } else { withAnimation(.smooth(duration: 0.3)) { proxy.scrollTo("ende", anchor: .bottom) } } }
             .onChange(of: c.messages.last?.text) { _, _ in if c.busy { proxy.scrollTo("ende", anchor: .bottom) } }
         }
     }

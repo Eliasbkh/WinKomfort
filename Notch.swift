@@ -44,7 +44,12 @@ final class NotchPanel: NSPanel {
             p.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3) // über der Menüleiste
             p.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
             p.isReleasedWhenClosed = false; p.acceptsMouseMovedEvents = true
-            p.contentView = NSHostingView(rootView: NotchView(n: self))
+            // Feste Leinwand, oben angeheftet: das Fenster schneidet nur aus. Wuchs vorher die SwiftUI-Fläche mit dem Fenster,
+            // rechnete SwiftUI die alte Lage um und die Form flog beim Aufklappen von unten heran
+            let host = NSHostingView(rootView: NotchView(n: self)); host.sizingOptions = []
+            host.frame = CGRect(origin: .zero, size: Notch.canvas)
+            let box = NSView(); box.addSubview(host)
+            p.contentView = box; canvasView = host
             panel = p
         }
         fit(now: true)
@@ -68,14 +73,15 @@ final class NotchPanel: NSPanel {
               !Plan.lessons(b, on: d).isEmpty || b.tasks.contains(where: { !$0.done }) else { return }
         UserDefaults.standard.set(day, forKey: "notchMorning")
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { MainActor.assumeIsolated {
-            Notch.shared.expand()
+            let n = Notch.shared; n.refreshPower(); n.readTrack(); n.expand()
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) { MainActor.assumeIsolated { let n = Notch.shared; if !(n.panel?.isKeyWindow ?? false), n.question.isEmpty { n.collapse() } } }
         } }
     }
     private func hide() { panel?.orderOut(nil); tick?.invalidate(); tick = nil; minute?.invalidate(); minute = nil }
 
     // Das Fenster ist nur so groß wie die sichtbare Form: daneben gehen Klicks normal an die Menüleiste und an Fenster darunter
-    private var center: CGFloat = 0, top: CGFloat = 0, shrink: DispatchWorkItem?
+    private var center: CGFloat = 0, top: CGFloat = 0, shrink: DispatchWorkItem?, canvasView: NSView?
+    static let canvas = CGSize(width: 640, height: 320) // größer als die offene Notch
     var size: CGSize { open ? CGSize(width: 600, height: answer != nil || thinking ? 236 : 286) : CGSize(width: notch.width + (activity == nil ? 0 : 156) + 12, height: notch.height) }
     func fit(now: Bool = false) {
         guard let p = panel else { return }
@@ -83,7 +89,8 @@ final class NotchPanel: NSPanel {
         let want = size
         let apply = { [weak self] in
             guard let self, let p = self.panel else { return }
-            p.setFrame(CGRect(x: self.center - want.width / 2, y: self.top - want.height, width: want.width, height: want.height), display: true)
+            p.setFrame(CGRect(x: self.center - want.width / 2, y: self.top - want.height, width: want.width, height: want.height), display: false) // kein Sofort-Neuzeichnen mitten im Start der Animation
+            self.canvasView?.setFrameOrigin(CGPoint(x: (want.width - Notch.canvas.width) / 2, y: want.height - Notch.canvas.height)) // Leinwand bleibt oben mittig
         }
         if now || want.width >= p.frame.width || want.height >= p.frame.height { apply() } // größer: sofort, damit die Animation Platz hat
         else { let w = DispatchWorkItem { MainActor.assumeIsolated { apply() } }; shrink = w; DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: w) } // kleiner: nach der Animation
@@ -115,6 +122,7 @@ final class NotchPanel: NSPanel {
         closeWork?.cancel(); openWork?.cancel()
         if on {
             guard !open else { return }
+            refreshPower(); readTrack() // schon beim Drüberfahren laden: beim Aufklappen springt dann nichts mehr
             let w = DispatchWorkItem { MainActor.assumeIsolated { Notch.shared.expand() } }
             openWork = w
             DispatchQueue.main.asyncAfter(deadline: .now() + (dropping ? 0 : 0.12), execute: w)
@@ -126,7 +134,7 @@ final class NotchPanel: NSPanel {
     }
     func expand() {
         guard !open else { return }
-        open = true; refreshPower(); readTrack(); live()
+        open = true; live()
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now) // wie bei Apple: kleiner Tick im Trackpad
     }
     func collapse() { open = false; answer = nil; question = ""; live(); fit() }
@@ -168,6 +176,13 @@ final class NotchPanel: NSPanel {
             await MainActor.run { Notch.shared.track = r.flatMap { $0.count >= 3 ? ($0[0], $0[1], target, $0[2].contains("playing")) : nil } }
         }
     }
+    // App-Symbol einmal laden: im body kostete es bei jedem Öffnen Zeit mitten in der Animation
+    private static var icons: [String: NSImage] = [:]
+    static func icon(_ id: String) -> NSImage? {
+        if let i = icons[id] { return i }
+        guard let u = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) else { return nil }
+        let i = NSWorkspace.shared.icon(forFile: u.path); icons[id] = i; return i
+    }
     func media(_ key: Int) { SystemAction.media(key); DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { MainActor.assumeIsolated { Notch.shared.readTrack() } } }
 }
 
@@ -204,23 +219,27 @@ struct NotchView: View {
                 if n.open {
                     expanded.padding(.top, n.notch.height - 2).padding(.horizontal, 24).padding(.bottom, 16)
                         .frame(width: n.size.width - 20, height: n.size.height - 12, alignment: .top) // feste Größe: der Inhalt wächst nicht mit, die Form deckt ihn auf
+                        // ohne Unschärfe: die kostet auf der ganzen Fläche jedes Bild und ließ es ruckeln
                         .transition(still ? .opacity : .asymmetric(
-                            insertion: .modifier(active: Soft(on: true), identity: Soft(on: false)).animation(.spring(response: 0.42, dampingFraction: 0.9).delay(0.07)),
-                            removal: .modifier(active: Soft(on: true), identity: Soft(on: false)).animation(.easeOut(duration: 0.12))))
+                            insertion: .opacity.combined(with: .scale(scale: 0.94, anchor: .top)).animation(.spring(response: 0.38, dampingFraction: 0.92).delay(0.06)),
+                            removal: .opacity.combined(with: .scale(scale: 0.97, anchor: .top)).animation(.spring(response: 0.18, dampingFraction: 1))))
                 } else if let a { collapsed(a).frame(height: n.notch.height).transition(.modifier(active: Soft(on: true), identity: Soft(on: false))) }
             }
-            .frame(width: w, height: h, alignment: .top)
+            // Breite und Höhe mit eigenen Federn: die Breite schwingt schneller und federt nach, die Höhe folgt weicher –
+            // so dehnt sich die Form wie Gummi (wie Apples Dynamic Island) statt als starres Rechteck zu wachsen
+            .frame(width: w, alignment: .top)
+            .animation(still ? .easeOut(duration: 0.15) : n.open ? .spring(response: 0.42, dampingFraction: 0.68) : .spring(response: 0.34, dampingFraction: 0.9), value: w)
+            .frame(height: h, alignment: .top)
+            .animation(still ? .easeOut(duration: 0.15) : n.open ? .spring(response: 0.52, dampingFraction: 0.8) : .spring(response: 0.38, dampingFraction: 0.95), value: h)
             .clipShape(NotchShape(radius: n.open ? 30 : 10)) // wie bei Apple: nichts ragt über die schwarze Form hinaus
-            .background(NotchShape(radius: n.open ? 30 : 10).fill(.black).shadow(color: .black.opacity(n.open ? 0.4 : 0), radius: 16, y: 6)) // Schatten wächst mit der Form
             .contentShape(NotchShape(radius: 10))
             .onHover { n.hover($0) }
             .onDrop(of: [.fileURL], isTargeted: Binding(get: { n.dropping }, set: { v in n.dropping = v; n.hover(v) })) { providers in
                 _ = Shelf.shared.add(providers); n.dropping = false; n.hover(false); return true
             }
-            // eine Feder für alles: auf mit leichtem Nachfedern, zu ohne (wie die Dynamic Island)
-            .animation(still ? .easeOut(duration: 0.15) : n.open ? .spring(response: 0.5, dampingFraction: 0.74) : .spring(response: 0.38, dampingFraction: 0.92), value: n.open)
-            .animation(still ? nil : .spring(response: 0.4, dampingFraction: 0.86), value: n.size)
-            .animation(.easeOut(duration: 0.2), value: a?.icon)
+            // genau eine Feder (zwei kämpften vorher um dieselbe Größe): auf mit leichtem Nachfedern, zu ohne – wie die Dynamic Island
+            .animation(still ? .easeOut(duration: 0.15) : .spring(response: 0.45, dampingFraction: 0.8), value: n.open) // Ecken
+            .animation(.spring(response: 0.3, dampingFraction: 0.9), value: a?.icon)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -293,7 +312,7 @@ struct NotchView: View {
     }
     @ViewBuilder private var appIcon: some View {
         let id = n.track?.app == "Spotify" ? "com.spotify.client" : "com.apple.Music"
-        if let u = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) { Image(nsImage: NSWorkspace.shared.icon(forFile: u.path)).resizable() }
+        if let i = Notch.icon(id) { Image(nsImage: i).resizable() }
         else { Image(systemName: "music.note").font(.title2).frame(maxWidth: .infinity, maxHeight: .infinity).background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 9)) }
     }
     // Tagesüberblick: Stunden heute, was als Nächstes kommt, nächste Abgabe

@@ -48,7 +48,7 @@ enum TidyLogic {
         return t
     }
 
-    struct Line: Equatable { enum Kind: Equatable { case h1, h2, h3, bullet, number, text, blank }; let kind: Kind; let level: Int; let text: String }
+    struct Line: Equatable { enum Kind: Equatable { case h1, h2, h3, bullet, number, text, quote, blank }; let kind: Kind; let level: Int; let text: String }
     static func parse(_ markup: String) -> [Line] {
         let raw = rawParse(markup)
         var out: [Line] = [], last = -1 // Ebene des letzten Listenpunkts; -1 = keine Liste offen
@@ -72,18 +72,20 @@ enum TidyLogic {
             let level = min(5, indent / 2)
             if t.isEmpty { return Line(kind: .blank, level: 0, text: "") }
             for (p, k) in [("### ", Line.Kind.h3), ("## ", .h2), ("# ", .h1)] where t.hasPrefix(p) { return Line(kind: k, level: 0, text: String(t.dropFirst(p.count)).trimmingCharacters(in: .whitespaces)) }
+            if t.hasPrefix(">") { return Line(kind: .quote, level: 0, text: String(t.dropFirst()).trimmingCharacters(in: .whitespaces)) } // Merke-Kasten
             for p in ["- ", "• ", "* ", "– ", "· "] where t.hasPrefix(p) { return Line(kind: .bullet, level: level, text: String(t.dropFirst(p.count)).trimmingCharacters(in: .whitespaces)) }
             if let r = t.range(of: #"^\d{1,2}[.)]\s+"#, options: .regularExpression) { return Line(kind: .number, level: level, text: String(t[r.upperBound...])) }
             return Line(kind: .text, level: level, text: t)
         }
     }
 
-    static func html(_ markup: String) -> String {
+    // mathML: reine Formeln als echte Formel (OneNote/Word setzen sie wie mit „Gleichung einfügen“)
+    static func html(_ markup: String, mathML: Bool = false) -> String {
         var out = "", open: [String] = [] // offene Listen, innen zuletzt
         func close(to n: Int) { while open.count > n { out += "</\(open.removeLast())>" } }
         for l in parse(markup) {
             let f = isFormula(l.text), body = inline(l.text, formula: f)
-            let content = f ? "<span style=\"\(mathFont)\">\(body)</span>" : body
+            let content = f ? (mathML ? Self.mathML(l.text) : nil) ?? "<span style=\"\(mathFont)\">\(body)</span>" : body
             switch l.kind {
             case .bullet, .number:
                 let tag = l.kind == .bullet ? "ul" : "ol"
@@ -98,6 +100,7 @@ enum TidyLogic {
                 case .h1: out += "<h1 style=\"font-size:20pt\">\(body)</h1>"
                 case .h2: out += "<h2 style=\"font-size:16pt\">\(body)</h2>"
                 case .h3: out += "<h3 style=\"font-size:13pt\">\(body)</h3>"
+                case .quote: out += "<p style=\"background:#FFF4CC;border-left:4px solid #E0A800;padding:6px 10px;margin:8px 0;color:#3A2E00\">\(content)</p>"
                 default: out += "<p style=\"margin:4px 0 4px \(l.level * 28 + (f ? 28 : 0))px\">\(content)</p>"
                 }
             }
@@ -131,6 +134,7 @@ enum TidyLogic {
             case .number: return pad + "\(n). " + t
             case .blank: return ""
             case .text: return pad + t
+            case .quote: return "▶ " + t
             }
         }.joined(separator: "\n")
     }
@@ -154,8 +158,37 @@ enum TidyLogic {
     }
     // Antwort aufräumen: Codeblöcke und Vorreden wie „Hier ist …:“ weg
     static func clean(_ r: String) -> String {
-        var lines = r.replacingOccurrences(of: "```", with: "").components(separatedBy: .newlines)
+        var lines = delatex(r.replacingOccurrences(of: "```", with: "")).components(separatedBy: .newlines)
         if let f = lines.first?.lowercased(), f.hasSuffix(":"), f.hasPrefix("hier") || f.hasPrefix("here") || f.contains("übersichtlich") { lines.removeFirst() }
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // Nur Formeln ohne Wörter (sonst würden „Fläche“ oder „mit“ zu Variablen), die MathExpr versteht
+    static func mathML(_ line: String) -> String? {
+        let words = line.split { !$0.isLetter }.filter { $0.count >= 3 && !greek.keys.contains(String($0)) && !["sqrt", "wurzel", "sin", "cos", "tan", "log", "lim", "exp"].contains($0.lowercased()) }
+        guard words.isEmpty, let n = MathExpr.parse(line) else { return nil }
+        return "<math xmlns=\"http://www.w3.org/1998/Math/MathML\"><mrow>" + MathExpr.mathML(n) + "</mrow></math>"
+    }
+    // Lernzettel als eigene Seite (für die PDF): gleiche Auszeichnung, Druck-Gestaltung
+    static func sheet(_ markup: String) -> String {
+        let css = "<style>@page{size:A4;margin:16mm 15mm}body{font-family:-apple-system,'Helvetica Neue',sans-serif!important;font-size:10.5pt;line-height:1.4;color:#1d1d1f;max-width:720px;margin:0 auto;padding:28px}h1{font-size:21pt!important;margin:0 0 10px;padding-bottom:6px;border-bottom:3px solid #0A84FF}h2{font-size:13.5pt!important;margin:16px 0 4px;color:#0A4FA8;break-after:avoid}h3{margin:10px 0 2px}ul,ol{margin:2px 0 2px 22px}li{margin:1px 0}p{break-inside:avoid}</style>"
+        return html(markup).replacingOccurrences(of: "</head>", with: css + "</head>")
+    }
+
+    // Modelle schreiben gern LaTeX ($\frac{a}{b}$, \Delta) und Markdown-Kursiv: in unsere einfache Schreibweise
+    static func delatex(_ s: String) -> String {
+        var t = s.replacingOccurrences(of: "$", with: "").replacingOccurrences(of: "{,}", with: ",").replacingOccurrences(of: "\\,", with: " ").replacingOccurrences(of: "\\%", with: "%")
+        for _ in 0..<3 { t = re(t, #"\\text\{([^{}]*)\}|\\mathrm\{([^{}]*)\}"#, "$1$2") }
+        for _ in 0..<3 { // innen zuerst; einfache Teile ohne Klammern
+            t = re(t, #"\\[dt]?frac\{([A-Za-z0-9.,ΔΩα-ω]+)\}\{([A-Za-z0-9.,ΔΩα-ω]+)\}"#, "$1/$2")
+            t = re(t, #"\\[dt]?frac\{([^{}]*)\}\{([^{}]*)\}"#, "($1)/($2)")
+            t = re(t, #"\\sqrt\{([^{}]*)\}"#, "sqrt($1)")
+        }
+        for (a, b) in [("\\cdot", "*"), ("\\times", "*"), ("\\approx", "≈"), ("\\leq", "≤"), ("\\geq", "≥"), ("\\neq", "≠"), ("\\rightarrow", "→"), ("\\Rightarrow", "⇒"), ("\\to", "→"), ("\\pm", "±"), ("\\infty", "∞"), ("\\circ", "°"), ("\\ln", "ln"), ("\\log", "log"), ("\\sin", "sin"), ("\\cos", "cos"), ("\\tan", "tan"), ("\\left", ""), ("\\right", "")] { t = t.replacingOccurrences(of: a, with: b) }
+        for (w, g) in greek { t = t.replacingOccurrences(of: "\\" + w, with: g) }
+        t = re(t, #"/\(([A-Za-z0-9.,ΔΩα-ω]+)\)"#, "/$1") // (ln(2))/(k) → (ln(2))/k
+        t = re(t, #"(?<![\w*])\*(\S[^*\n]*?\S|\S)\*(?![\w*])"#, "$1") // *kursiv* (nicht a * b)
+        t = re(t, #"(?<![\w])_(\S[^_\n]*?\S|\S)_(?![\w])"#, "$1") // _kursiv_
+        return t
     }
 }

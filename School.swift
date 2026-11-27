@@ -518,7 +518,7 @@ private struct CardsTab: View {
                     if show.value == true { Divider().frame(width: 120); Text(c.back).font(.title3).multilineTextAlignment(.center).textSelection(.enabled) }
                 }
                 .padding(28).frame(maxWidth: 480, minHeight: 180).background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
-                .animation(still ? nil : .easeOut(duration: 0.18), value: show.value)
+                .animation(still ? nil : .snappy(duration: 0.25), value: show.value)
                 if show.value == true {
                     HStack { Button(L("Nochmal  (1)", "Again  (1)")) { next(c, false) }.keyboardShortcut("1", modifiers: []).controlSize(.large); Button(L("Gewusst  (2)", "Knew it  (2)")) { next(c, true) }.keyboardShortcut("2", modifiers: []).controlSize(.large).buttonStyle(.borderedProminent) }
                 } else { Button(L("Antwort zeigen", "Show answer")) { show.value = true }.keyboardShortcut(.space, modifiers: []).controlSize(.large).buttonStyle(.borderedProminent) }
