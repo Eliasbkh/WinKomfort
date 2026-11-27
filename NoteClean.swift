@@ -56,7 +56,7 @@ import SwiftUI
                     if let a = t["access_token"] as? String { take(t, a); phase = .ready; loadBooks(); return }
                     let e = t["error"] as? String ?? ""
                     if e == "authorization_pending" || e == "slow_down" { continue }
-                    throw Fail(e == "access_denied" ? L("Anmeldung abgelehnt.", "Sign-in declined.") : Self.explain(t))
+                    throw Fail(e == "access_denied" || e == "authorization_declined" ? Self.blocked : Self.explain(t))
                 }
                 phase = .signedOut; note = L("Der Code ist abgelaufen. Bitte noch einmal.", "The code expired. Please try again.")
             } catch { phase = .signedOut; note = (error as? Fail)?.text ?? error.localizedDescription }
@@ -76,9 +76,11 @@ import SwiftUI
     }
     private static func explain(_ t: [String: Any]) -> String {
         let d = t["error_description"] as? String ?? ""
-        if d.contains("AADSTS65001") || d.contains("consent") || d.contains("AADSTS90094") { return L("Deine Schule erlaubt diesen Zugriff nicht ohne Freigabe durch den Admin.", "Your school doesn't allow this access without admin approval.") }
+        if d.contains("AADSTS65001") || d.contains("consent") || d.contains("AADSTS90094") { return blocked }
         return d.components(separatedBy: "\n").first ?? L("Anmeldung fehlgeschlagen.", "Sign-in failed.")
     }
+    // Schulkonto mit Sperre: nicht umgehen – die Regel gehört der Schule
+    static let blocked = L("Deine Schule gibt diesen Zugriff nur mit Freigabe durch die IT frei. Frag die IT-Betreuer nach einer Freigabe für „Microsoft Graph Command Line Tools“ (Notizbücher lesen und ändern), oder nutze ein privates Microsoft-Konto.", "Your school only allows this with IT approval. Ask IT to approve “Microsoft Graph Command Line Tools” (read and change notebooks), or use a personal Microsoft account.")
     struct Fail: Error { let text: String; init(_ t: String) { text = t } }
 
     // Refresh-Token im Schlüsselbund

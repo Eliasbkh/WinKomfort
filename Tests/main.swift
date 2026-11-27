@@ -447,6 +447,7 @@ sc("LaTeX", TidyLogic.delatex("- _Geschwindigkeit_ = $\\frac{\\Delta c}{\\Delta 
 sc("MathML", "\(TidyLogic.html("- 29^(2) = 841", mathML: true).contains("<msup>")) \(TidyLogic.mathML("Fläche = a * b") == nil) \(TidyLogic.html("- 29^(2) = 841").contains("<math"))", "true true false")
 sc("OneNote leer", "\(NoteLogic.isEmpty("<html><head><title>Mathe</title></head><body><div><p>&nbsp;</p></div></body></html>")) \(NoteLogic.isEmpty("<body><p>Potenzen</p></body>")) \(NoteLogic.isEmpty("<body><img src='x'/></body>")) \(NoteLogic.isEmpty("--b\nContent-Type: application/inkml+xml\n<inkml:ink>"))", "true false false false")
 sc("OneNote Namen", "\(NoteLogic.isUntitled("Unbenannte Seite")) \(NoteLogic.isUntitled("Potenzen")) \(NoteLogic.isGeneric(section: "Neuer Abschnitt 2")) \(NoteLogic.isGeneric(section: "Mathe")) \(NoteLogic.name("Titel: „Potenzgesetze“.") ?? "-")", "true false true false Potenzgesetze")
+sc("Doppelpunkt", TidyLogic.clean("- - a\n  - - b\n- c"), "- a\n  - b\n- c")
 sc("Tafel-Zeilen", TidyLogic.lines([("Unterpunkt", 0.15, 0.7, 0.05), ("Titel", 0.1, 0.9, 0.05), ("rechts", 0.5, 0.905, 0.05)]), "Titel  rechts\n  Unterpunkt")
 sc("Riesige Eingabe", "\(Calc.evaluate(String(repeating: "-", count: 300_000) + "1") == nil) \(Calc.evaluate("--2+3") ?? 0)", "true 5.0")
 print(failed == 0 ? "\nAlle Tests bestanden" : "\n\(failed) Test(s) fehlgeschlagen")

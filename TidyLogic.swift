@@ -160,6 +160,7 @@ enum TidyLogic {
     static func clean(_ r: String) -> String {
         var lines = delatex(r.replacingOccurrences(of: "```", with: "")).components(separatedBy: .newlines)
         if let f = lines.first?.lowercased(), f.hasSuffix(":"), f.hasPrefix("hier") || f.hasPrefix("here") || f.contains("übersichtlich") { lines.removeFirst() }
+        lines = lines.map { re($0, #"^(\s*)[-•*]\s+[-•]\s+"#, "$1- ") } // „- - Punkt“ → „- Punkt“
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
